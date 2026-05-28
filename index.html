@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
+<!-- versão v6: estudar inteligente, sem botão Hoje, revisão máxima 30 dias -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -302,7 +303,7 @@
   <div class="screen" id="diagnostic-screen" style="display:none;">
     <div class="diag-head">
       <div class="diag-title">Diagnóstico de estudo</div>
-      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. O botão Estudar monta um baralho inteligente: erradas, difíceis e vencidas primeiro; cards dominados ficam para depois.</div>
+      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. O botão Estudar monta um baralho inteligente: erradas, difíceis e vencidas primeiro; cards dominados ficam para depois. Intervalo máximo de revisão: 30 dias.</div>
     </div>
     <div class="summary-grid" id="summary-grid"></div>
     <div class="diag-controls">
@@ -1658,7 +1659,7 @@ async function saveEvent(card, result){
   };
   if(isOnlineMode && currentUser){
     ONLINE_HISTORY.push(event);
-    updateReviewState(card, result);
+    await updateReviewState(card, result);
     const { error } = await supabaseClient
       .from("respostas")
       .insert({ card_id: card.id, resultado: result });
@@ -1670,7 +1671,7 @@ async function saveEvent(card, result){
     }
     return;
   }
-  updateReviewState(card, result);
+  await updateReviewState(card, result);
   const hist = getHistory();
   hist.push(event);
   if(hist.length > 20000) hist.splice(0, hist.length - 20000);
@@ -1736,7 +1737,7 @@ function spacedIntervalFor(result, previous){
 
   if(result === "right"){
     streak = oldStreak + 1;
-    const intervals = [0, 3, 7, 15, 30, 60, 120, 180];
+    const intervals = [0, 3, 5, 7, 10, 15, 20, 30];
     intervalDays = intervals[Math.min(streak, intervals.length - 1)];
     next = addDays(now, intervalDays);
   } else if(result === "hard"){
@@ -1945,7 +1946,7 @@ function buildDashboard(filter="all"){
           <span class="meta-pill">${g.newCards} novos</span>
         </div>
         <div class="diag-actions">
-          <button class="action-btn duebtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "due")'>Revisar hoje</button>
+          <button class="action-btn duebtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "due")'>Revisar vencidos</button>
           <button class="action-btn primary" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "all")'>Estudar assunto</button>
           <button class="action-btn warn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "wrong")'>Só erradas</button>
           <button class="action-btn hardbtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "hard")'>Só difíceis</button>
@@ -2142,10 +2143,10 @@ function flipCard(){
   document.getElementById('btn-row').style.display = isFlipped ? 'flex' : 'none';
 }
 
-function answer(type){
+async function answer(type){
   const c = deck[idx];
   if(!c) return;
-  saveEvent(c, type);
+  await saveEvent(c, type);
   if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
   if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
   if(type==='hard') scoreHard++;
@@ -2154,9 +2155,9 @@ function answer(type){
   showCard();
 }
 
-function skipCard(){
+async function skipCard(){
   const c = deck[idx];
-  if(c) saveEvent(c, "skip");
+  if(c) await saveEvent(c, "skip");
   idx++; isFlipped=false; showCard();
 }
 function prevCard(){ if(idx>0){idx--;isFlipped=false;showCard();} }
