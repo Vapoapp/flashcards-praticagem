@@ -27,8 +27,14 @@
   .score-pill.r { border-color: rgba(224,92,92,0.4); color: var(--red); }
 
   /* CATEGORY PILLS */
-  .cats { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 2px; scrollbar-width: none; }
-  .cats::-webkit-scrollbar { display: none; }
+  .cat-nav-wrap { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; align-items: center; gap: 6px; }
+  .cats { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 0 0 7px; scrollbar-width: thin; scrollbar-color: var(--accent2) var(--surface2); scroll-behavior: smooth; -webkit-overflow-scrolling: touch; cursor: grab; touch-action: pan-x; }
+  .cats.dragging { cursor: grabbing; user-select: none; scroll-behavior: auto; }
+  .cats::-webkit-scrollbar { height: 6px; }
+  .cats::-webkit-scrollbar-track { background: var(--surface2); border-radius: 8px; }
+  .cats::-webkit-scrollbar-thumb { background: var(--accent2); border-radius: 8px; }
+  .cat-scroll-btn { height: 28px; border-radius: 12px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text); font-size: 18px; font-weight: 800; cursor: pointer; display:flex; align-items:center; justify-content:center; }
+  .cat-scroll-btn:active { transform: scale(.96); background: var(--accent); }
   .cat-pill { flex-shrink: 0; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.18s; white-space: nowrap; }
   .cat-pill.active { background: var(--accent); border-color: var(--accent2); color: #fff; }
 
@@ -188,6 +194,60 @@
   .sync-pill { background: rgba(61,184,176,0.12); border-color: rgba(61,184,176,0.35); color: var(--teal); }
   .logout-btn { background: rgba(224,92,92,0.12); border-color: rgba(224,92,92,0.35); color: var(--red); }
 
+
+  /* AJUSTE DE TELA - versão sem rolagem da página */
+  html, body { width: 100%; height: 100%; overflow: hidden; }
+  body { min-height: 100dvh; }
+  #app { height: 100dvh; max-height: 100dvh; overflow: hidden; flex-direction: column; }
+  .header { position: relative; flex: 0 0 auto; padding: 8px 12px 6px; }
+  .header-top { margin-bottom: 6px; }
+  .cat-nav-wrap { grid-template-columns: 30px minmax(0, 1fr) 30px; gap: 5px; }
+  .cat-scroll-btn { height: 26px; font-size: 16px; }
+  .cats { padding-bottom: 6px; }
+  .cat-pill { padding: 4px 10px; font-size: 10px; }
+  .score-pill { padding: 2px 8px; font-size: 10px; }
+  .tabbar { flex: 0 0 auto; padding: 6px 12px 0; gap: 6px; }
+  .tab-btn { padding: 8px 8px; border-radius: 12px; }
+  .prog-wrap { flex: 0 0 auto; padding: 8px 12px 4px; }
+  .study-title { flex: 0 0 auto; max-width: 520px; margin: 6px auto 0; padding: 8px 10px; }
+  .card-area { flex: 1 1 auto; min-height: 0; padding: 8px 12px 10px; overflow: hidden; justify-content: stretch; }
+  .card-wrapper { width: 100%; max-width: 520px; flex: 1 1 auto; min-height: 0; display: flex; perspective: 1200px; }
+  .card { flex: 1 1 auto; height: auto; min-height: 0 !important; }
+  .card-face { height: 100%; min-height: 0 !important; }
+  .card-header { flex: 0 0 auto; padding: 10px 14px; }
+  .card-body { min-height: 0; overflow-y: auto; padding: 16px 18px; }
+  .card-back .card-body { justify-content: flex-start; max-height: none !important; }
+  .card-footer { flex: 0 0 auto; padding: 8px 14px; }
+  .btn-row { flex: 0 0 auto; max-width: 520px; margin-top: 8px; }
+  .btn { padding: 10px 8px; border-radius: 12px; font-size: 12px; }
+  .btn-icon { font-size: 16px; }
+  .nav-row { flex: 0 0 auto; max-width: 520px; margin-top: 6px; }
+  .btn-nav { padding: 8px; border-radius: 10px; }
+  #diagnostic-screen, #database-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 20px; }
+  .complete { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+  @media (max-height: 780px) {
+    .header { padding: 6px 10px 5px; }
+    .app-title { font-size: 14px; }
+    .cat-nav-wrap { grid-template-columns: 28px minmax(0, 1fr) 28px; }
+    .cat-scroll-btn { height: 24px; border-radius: 10px; }
+    .cat-pill { padding: 3px 9px; }
+    .tab-btn { padding: 7px 8px; }
+    .prog-wrap { padding: 6px 10px 3px; }
+    .study-title { margin-top: 4px; padding: 7px 10px; }
+    .card-area { padding: 6px 10px 8px; }
+    .question-icon { font-size: 28px; margin-bottom: 10px; }
+    .question-text { font-size: 15px; line-height: 1.45; }
+    .answer-text { font-size: 14px; line-height: 1.5; }
+    .btn { padding: 8px 6px; }
+    .btn-row { margin-top: 6px; }
+    .nav-row { margin-top: 5px; }
+  }
+  @media (max-width: 520px) {
+    .tabbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .tab-btn { font-size: 11px; padding: 8px 4px; }
+    .card-wrapper, .btn-row, .nav-row, .study-title { max-width: 100%; }
+  }
+
 </style>
 </head>
 <body>
@@ -223,7 +283,11 @@
         <div class="score-pill r">✗ <span id="score-wrong">0</span></div>
       </div>
     </div>
-    <div class="cats" id="cat-pills"></div>
+    <div class="cat-nav-wrap">
+      <button class="cat-scroll-btn" type="button" onclick="scrollCats(-1)" aria-label="Ver publicações anteriores">‹</button>
+      <div class="cats" id="cat-pills"></div>
+      <button class="cat-scroll-btn" type="button" onclick="scrollCats(1)" aria-label="Ver próximas publicações">›</button>
+    </div>
   </div>
 
 
@@ -1892,12 +1956,67 @@ function showTab(tab){
   if(tab === "db") renderSummary("db-summary");
 }
 
+
+function scrollCats(direction){
+  const el = document.getElementById('cat-pills');
+  if(!el) return;
+  const amount = Math.max(260, Math.floor(el.clientWidth * 0.75));
+  el.scrollBy({ left: direction * amount, behavior: 'smooth' });
+}
+
+function initCatDrag(){
+  const el = document.getElementById('cat-pills');
+  if(!el || el.dataset.dragReady === '1') return;
+  el.dataset.dragReady = '1';
+  let isDown = false;
+  let startX = 0;
+  let startLeft = 0;
+  let moved = false;
+
+  el.addEventListener('pointerdown', (e) => {
+    if(e.pointerType === 'mouse' && e.button !== 0) return;
+    isDown = true;
+    moved = false;
+    startX = e.clientX;
+    startLeft = el.scrollLeft;
+    el.classList.add('dragging');
+    el.setPointerCapture?.(e.pointerId);
+  });
+
+  el.addEventListener('pointermove', (e) => {
+    if(!isDown) return;
+    const dx = e.clientX - startX;
+    if(Math.abs(dx) > 4) moved = true;
+    el.scrollLeft = startLeft - dx;
+  });
+
+  function finishDrag(e){
+    if(!isDown) return;
+    isDown = false;
+    el.classList.remove('dragging');
+    try { el.releasePointerCapture?.(e.pointerId); } catch(_) {}
+    if(moved){
+      el.dataset.justDragged = '1';
+      setTimeout(() => { el.dataset.justDragged = '0'; }, 150);
+    }
+  }
+
+  el.addEventListener('pointerup', finishDrag);
+  el.addEventListener('pointercancel', finishDrag);
+  el.addEventListener('mouseleave', finishDrag);
+
+  el.addEventListener('click', (e) => {
+    if(el.dataset.justDragged === '1') e.stopPropagation();
+  }, true);
+}
+
 function buildCatPills(){
   const el = document.getElementById('cat-pills');
   el.innerHTML = CATS.map(c =>
     `<div class="cat-pill ${c===activeCat?'active':''}" onclick="selectCat('${c.replace(/'/g,"\\'")}')">` +
     (c==="Todas" ? "Todas ("+CARDS.length+")" : c + " (" + CARDS.filter(x=>x.publicacao===c).length + ")") + `</div>`
   ).join('');
+  initCatDrag();
 }
 
 function resetSessionScore(){
@@ -2217,12 +2336,13 @@ async function loadResponsesFromSupabase(){
 
 async function startAuthenticatedApp(){
   document.getElementById("auth-screen").style.display = "none";
-  document.getElementById("app").style.display = "block";
+  document.getElementById("app").style.display = "flex";
   try{
     await loadCardsFromSupabase();
     await loadReviewStateFromSupabase();
     await loadResponsesFromSupabase();
     buildCatPills();
+    initCatDrag();
     selectCat("Todas");
     showTab("study");
     setSyncStatus(`conectado como ${currentUser.email}. ${CARDS.length} cards carregados.`);
