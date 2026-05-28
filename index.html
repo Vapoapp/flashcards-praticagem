@@ -36,8 +36,10 @@
   .cats::-webkit-scrollbar-thumb { background: var(--accent2); border-radius: 8px; }
   .cat-scroll-btn { height: 28px; border-radius: 12px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text); font-size: 18px; font-weight: 800; cursor: pointer; display:flex; align-items:center; justify-content:center; }
   .cat-scroll-btn:active { transform: scale(.96); background: var(--accent); }
-  .cat-pill { flex-shrink: 0; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.18s; white-space: nowrap; }
-  .cat-pill.active { background: var(--accent); border-color: var(--accent2); color: #fff; }
+  .cat-pill { flex-shrink: 0; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.18s; white-space: nowrap; appearance: none; -webkit-appearance: none; font-family: inherit; line-height: 1.2; user-select: none; touch-action: manipulation; position: relative; z-index: 2; }
+  .cat-pill:hover { border-color: var(--accent2); color: var(--text); }
+  .cat-pill:active { transform: scale(.97); }
+  .cat-pill.active { background: var(--accent); border-color: var(--accent2); color: #fff; box-shadow: 0 0 0 1px rgba(124,140,248,.2) inset; }
 
   /* PROGRESS */
   .prog-wrap { padding: 10px 16px 6px; }
@@ -2004,8 +2006,10 @@ function initCatDrag(){
   el.addEventListener('pointermove', (e) => {
     if(!isDown) return;
     const dx = e.clientX - startX;
-    if(Math.abs(dx) > 4) moved = true;
-    el.scrollLeft = startLeft - dx;
+    if(Math.abs(dx) > 7) moved = true;
+    if(moved){
+      el.scrollLeft = startLeft - dx;
+    }
   });
 
   function finishDrag(e){
@@ -2015,7 +2019,7 @@ function initCatDrag(){
     try { el.releasePointerCapture?.(e.pointerId); } catch(_) {}
     if(moved){
       el.dataset.justDragged = '1';
-      setTimeout(() => { el.dataset.justDragged = '0'; }, 150);
+      setTimeout(() => { el.dataset.justDragged = '0'; }, 120);
     }
   }
 
@@ -2023,18 +2027,31 @@ function initCatDrag(){
   el.addEventListener('pointercancel', finishDrag);
   el.addEventListener('mouseleave', finishDrag);
 
+  // Clique real nas publicações. Usar delegação evita falha quando a barra é reconstruída.
   el.addEventListener('click', (e) => {
-    if(el.dataset.justDragged === '1') e.stopPropagation();
-  }, true);
+    const btn = e.target.closest('.cat-pill');
+    if(!btn) return;
+    if(el.dataset.justDragged === '1'){
+      e.preventDefault();
+      return;
+    }
+    e.preventDefault();
+    selectCat(btn.dataset.cat);
+  });
 }
 
 function buildCatPills(){
   const el = document.getElementById('cat-pills');
-  el.innerHTML = CATS.map(c =>
-    `<div class="cat-pill ${c===activeCat?'active':''}" onclick="selectCat('${c.replace(/'/g,"\\'")}')">` +
-    (c==="Todas" ? "Todas ("+CARDS.length+")" : c + " (" + CARDS.filter(x=>x.publicacao===c).length + ")") + `</div>`
-  ).join('');
+  el.innerHTML = CATS.map(c => {
+    const count = c === "Todas" ? CARDS.length : CARDS.filter(x => x.publicacao === c).length;
+    const label = c === "Todas" ? `Todas (${count})` : `${c} (${count})`;
+    return `<button class="cat-pill ${c===activeCat?'active':''}" type="button" data-cat="${escapeHtml(c)}" title="Estudar ${escapeHtml(c)}">${escapeHtml(label)}</button>`;
+  }).join('');
   initCatDrag();
+  requestAnimationFrame(() => {
+    const active = el.querySelector('.cat-pill.active');
+    active?.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' });
+  });
 }
 
 function resetSessionScore(){
