@@ -1,0 +1,2068 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Flashcards — Praticagem</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  :root {
+    --bg: #0f1117; --surface: #1a1d27; --surface2: #22263a;
+    --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.15);
+    --text: #e8eaf0; --muted: #8b8fa8; --accent: #5b6af0;
+    --accent2: #7c8cf8; --green: #4caf7d; --amber: #f0a04b;
+    --red: #e05c5c; --teal: #3db8b0; --pink: #c96abd;
+    --card-h: calc(100vh - 220px);
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; min-height: 100vh; overflow-x: hidden; }
+  
+  /* HEADER */
+  .header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px 10px; position: sticky; top: 0; z-index: 100; }
+  .header-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .app-title { font-size: 15px; font-weight: 700; letter-spacing: 0.3px; }
+  .app-title span { color: var(--accent2); }
+  .score-box { display: flex; gap: 8px; align-items: center; }
+  .score-pill { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+  .score-pill.g { border-color: rgba(76,175,125,0.4); color: var(--green); }
+  .score-pill.r { border-color: rgba(224,92,92,0.4); color: var(--red); }
+
+  /* CATEGORY PILLS */
+  .cats { display: flex; gap: 6px; overflow-x: auto; padding: 0 0 2px; scrollbar-width: none; }
+  .cats::-webkit-scrollbar { display: none; }
+  .cat-pill { flex-shrink: 0; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.18s; white-space: nowrap; }
+  .cat-pill.active { background: var(--accent); border-color: var(--accent2); color: #fff; }
+
+  /* PROGRESS */
+  .prog-wrap { padding: 10px 16px 6px; }
+  .prog-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 5px; }
+  .prog-label { font-size: 11px; color: var(--muted); }
+  .prog-count { font-size: 11px; font-weight: 700; color: var(--accent2); }
+  .prog-bar { height: 3px; background: var(--surface2); border-radius: 2px; }
+  .prog-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--teal)); border-radius: 2px; transition: width 0.3s ease; }
+
+  /* CARD AREA */
+  .card-area { padding: 12px 16px; display: flex; flex-direction: column; align-items: center; }
+  .card-wrapper { width: 100%; max-width: 420px; perspective: 1200px; }
+  .card { width: 100%; min-height: var(--card-h); position: relative; transform-style: preserve-3d; transition: transform 0.5s cubic-bezier(0.4,0.2,0.2,1); cursor: pointer; }
+  .card.flipped { transform: rotateY(180deg); }
+  .card-face { position: absolute; top: 0; left: 0; width: 100%; min-height: var(--card-h); backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 18px; border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+  .card-front { background: var(--surface); }
+  .card-back { background: var(--surface2); transform: rotateY(180deg); }
+
+  .card-header { padding: 14px 16px 10px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); }
+  .cat-badge { font-size: 10px; font-weight: 700; letter-spacing: 0.5px; padding: 3px 10px; border-radius: 12px; }
+  .diff-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 10px; }
+  .diff-f { background: rgba(76,175,125,0.2); color: var(--green); border: 1px solid rgba(76,175,125,0.3); }
+  .diff-m { background: rgba(240,160,75,0.2); color: var(--amber); border: 1px solid rgba(240,160,75,0.3); }
+  .diff-d { background: rgba(224,92,92,0.2); color: var(--red); border: 1px solid rgba(224,92,92,0.3); }
+
+  .card-body { flex: 1; padding: 20px 18px; display: flex; flex-direction: column; justify-content: center; }
+  .card-front .card-body { align-items: center; text-align: center; }
+  .question-icon { font-size: 36px; margin-bottom: 14px; }
+  .question-text { font-size: 17px; font-weight: 600; line-height: 1.5; color: var(--text); }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 12px; }
+
+  .answer-label { font-size: 11px; font-weight: 700; color: var(--teal); letter-spacing: 0.5px; text-transform: uppercase; margin-bottom: 10px; }
+  .answer-text { font-size: 15px; line-height: 1.6; color: var(--text); }
+  .answer-text strong { color: var(--accent2); font-weight: 700; }
+  .answer-text .tag { display: inline-block; background: rgba(91,106,240,0.2); color: var(--accent2); border-radius: 6px; padding: 1px 6px; font-size: 12px; font-weight: 600; margin: 1px 2px; }
+  .table-wrap { overflow-x: auto; margin-top: 10px; border-radius: 8px; border: 1px solid var(--border); }
+  .answer-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  .answer-table th { background: rgba(91,106,240,0.2); color: var(--accent2); font-size: 11px; padding: 6px 8px; text-align: left; }
+  .answer-table td { padding: 6px 8px; border-top: 1px solid var(--border); color: var(--text); }
+  .answer-table tr:nth-child(even) td { background: rgba(255,255,255,0.02); }
+
+  .card-footer { padding: 10px 16px 14px; border-top: 1px solid var(--border); text-align: center; }
+  .tap-hint { font-size: 11px; color: var(--muted); }
+
+  /* BUTTONS */
+  .btn-row { display: flex; gap: 10px; width: 100%; max-width: 420px; margin-top: 14px; }
+  .btn { flex: 1; padding: 14px 8px; border-radius: 14px; border: 1px solid var(--border); font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+  .btn-icon { font-size: 20px; }
+  .btn-wrong { background: rgba(224,92,92,0.15); border-color: rgba(224,92,92,0.4); color: var(--red); }
+  .btn-wrong:active { background: rgba(224,92,92,0.3); transform: scale(0.96); }
+  .btn-hard { background: rgba(240,160,75,0.15); border-color: rgba(240,160,75,0.4); color: var(--amber); }
+  .btn-hard:active { background: rgba(240,160,75,0.3); transform: scale(0.96); }
+  .btn-right { background: rgba(76,175,125,0.15); border-color: rgba(76,175,125,0.4); color: var(--green); }
+  .btn-right:active { background: rgba(76,175,125,0.3); transform: scale(0.96); }
+
+  .nav-row { display: flex; gap: 8px; width: 100%; max-width: 420px; margin-top: 8px; }
+  .btn-nav { flex: 1; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+  .btn-nav:active { background: var(--surface2); transform: scale(0.97); }
+  .btn-shuffle { background: rgba(201,106,189,0.15); border-color: rgba(201,106,189,0.4); color: var(--pink); }
+
+  /* COMPLETE SCREEN */
+  .complete { display: none; flex-direction: column; align-items: center; justify-content: center; min-height: 70vh; padding: 24px; text-align: center; }
+  .complete.show { display: flex; }
+  .complete-emoji { font-size: 64px; margin-bottom: 16px; }
+  .complete h2 { font-size: 22px; font-weight: 800; margin-bottom: 8px; }
+  .complete p { font-size: 14px; color: var(--muted); line-height: 1.6; margin-bottom: 24px; }
+  .stats-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; max-width: 300px; margin-bottom: 24px; }
+  .stat-box { background: var(--surface); border: 1px solid var(--border); border-radius: 14px; padding: 14px; }
+  .stat-n { font-size: 28px; font-weight: 800; }
+  .stat-l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .btn-restart { background: var(--accent); border: none; color: #fff; padding: 16px 32px; border-radius: 14px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; max-width: 300px; }
+  .btn-restart:active { opacity: 0.85; transform: scale(0.97); }
+
+  /* BACK not shown initially */
+  .card-back { display: flex; }
+  
+  /* Source badge */
+  .src-badge { display: inline-flex; align-items: center; gap: 5px; background: rgba(255,255,255,0.06); border: 1px solid var(--border2); border-radius: 10px; padding: 4px 10px; font-size: 11px; color: var(--muted); margin-top: 14px; }
+  .src-badge::before { content: "📖"; font-size: 12px; }
+
+  /* Swipe animation */
+  @keyframes slideOut { to { opacity: 0; transform: translateX(-60px); } }
+  @keyframes slideIn { from { opacity: 0; transform: translateX(60px); } to { opacity: 1; transform: translateX(0); } }
+  .slide-in { animation: slideIn 0.25s ease forwards; }
+
+
+  /* ADAPTIVE STUDY SYSTEM */
+  .tabbar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
+  .tab-btn { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 14px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent2); }
+  .screen { padding: 14px 16px 90px; }
+  .study-title { max-width: 420px; margin: 8px auto 0; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .study-title strong { color: var(--text); }
+  .diag-head { max-width: 760px; margin: 0 auto 14px; }
+  .diag-title { font-size: 20px; font-weight: 900; margin-bottom: 6px; }
+  .diag-sub { font-size: 13px; color: var(--muted); line-height: 1.5; }
+  .summary-grid { max-width: 760px; margin: 14px auto; display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+  .summary-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; }
+  .summary-n { font-size: 24px; font-weight: 900; }
+  .summary-l { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .diag-controls { max-width: 760px; margin: 12px auto; display: flex; gap: 8px; flex-wrap: wrap; }
+  .mini-btn { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 12px; padding: 9px 12px; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .mini-btn:active { transform: scale(0.98); }
+  .diag-list { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+  .diag-card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 14px; }
+  .diag-card.critical { border-color: rgba(224,92,92,0.45); }
+  .diag-card.hard { border-color: rgba(240,160,75,0.45); }
+  .diag-card.good { border-color: rgba(76,175,125,0.35); }
+  .diag-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+  .diag-name { font-size: 14px; font-weight: 900; line-height: 1.35; }
+  .diag-pub { color: var(--accent2); }
+  .diag-topic { color: var(--text); }
+  .pct-badge { min-width: 62px; text-align: center; border-radius: 14px; padding: 7px 8px; font-size: 18px; font-weight: 900; background: var(--surface2); }
+  .pct-critical { color: var(--red); }
+  .pct-hard { color: var(--amber); }
+  .pct-regular { color: var(--accent2); }
+  .pct-good { color: var(--green); }
+  .diag-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .meta-pill { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; }
+  .status-pill { font-weight: 900; }
+  .diag-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .action-btn { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 12px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .action-btn.primary { background: rgba(91,106,240,0.22); color: var(--accent2); border-color: rgba(91,106,240,0.45); }
+  .action-btn.warn { background: rgba(224,92,92,0.14); color: var(--red); border-color: rgba(224,92,92,0.35); }
+  .action-btn.hardbtn { background: rgba(240,160,75,0.14); color: var(--amber); border-color: rgba(240,160,75,0.35); }
+  .empty-state { max-width: 760px; margin: 20px auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; color: var(--muted); font-size: 14px; line-height: 1.6; }
+  .db-panel { max-width: 760px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 16px; }
+  .db-panel h3 { font-size: 18px; margin-bottom: 8px; }
+  .db-panel p { color: var(--muted); font-size: 13px; line-height: 1.6; margin-bottom: 12px; }
+  .db-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .danger-btn { background: rgba(224,92,92,0.15); color: var(--red); border-color: rgba(224,92,92,0.4); }
+  .study-mode-badge { display: inline-flex; align-items:center; gap: 5px; background: rgba(91,106,240,0.16); color: var(--accent2); border: 1px solid rgba(91,106,240,0.35); border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 800; margin-top: 6px; }
+  @media (max-width: 520px) {
+    .summary-grid { grid-template-columns: repeat(2, 1fr); }
+    .diag-actions { grid-template-columns: 1fr; }
+    .diag-top { align-items: center; }
+  }
+
+  /* SUPABASE AUTH */
+  .auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
+  .auth-card { width: 100%; max-width: 420px; background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 22px; box-shadow: 0 18px 60px rgba(0,0,0,0.22); }
+  .auth-title { font-size: 22px; font-weight: 900; margin-bottom: 6px; }
+  .auth-sub { font-size: 13px; color: var(--muted); line-height: 1.55; margin-bottom: 16px; }
+  .auth-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .auth-field label { font-size: 12px; color: var(--muted); font-weight: 800; }
+  .auth-field input { width: 100%; border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 13px; padding: 12px 13px; font-size: 15px; outline: none; }
+  .auth-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px; }
+  .auth-primary { background: var(--accent); border: 1px solid var(--accent2); color: #fff; }
+  .auth-secondary { background: var(--surface2); border: 1px solid var(--border); color: var(--text); }
+  .auth-btn { border-radius: 13px; padding: 12px 10px; font-weight: 900; cursor: pointer; }
+  .auth-msg { margin-top: 12px; font-size: 12px; color: var(--muted); line-height: 1.5; min-height: 18px; }
+  .sync-pill { background: rgba(61,184,176,0.12); border-color: rgba(61,184,176,0.35); color: var(--teal); }
+  .logout-btn { background: rgba(224,92,92,0.12); border-color: rgba(224,92,92,0.35); color: var(--red); }
+
+</style>
+</head>
+<body>
+
+
+<div id="auth-screen" class="auth-screen" style="display:none;">
+  <div class="auth-card">
+    <div class="auth-title">⚓ FlashPrático</div>
+    <div class="auth-sub">Entre para sincronizar seu desempenho no Supabase e liberar o diagnóstico por publicação + assunto em qualquer aparelho.</div>
+    <div class="auth-field">
+      <label for="auth-email">E-mail</label>
+      <input id="auth-email" type="email" autocomplete="email" placeholder="seu@email.com">
+    </div>
+    <div class="auth-field">
+      <label for="auth-password">Senha</label>
+      <input id="auth-password" type="password" autocomplete="current-password" placeholder="mínimo de 6 caracteres">
+    </div>
+    <div class="auth-actions">
+      <button class="auth-btn auth-primary" onclick="loginSupabase()">Entrar</button>
+      <button class="auth-btn auth-secondary" onclick="signupSupabase()">Criar conta</button>
+    </div>
+    <div class="auth-msg" id="auth-msg"></div>
+  </div>
+</div>
+
+<div id="app" style="display:none;">
+  <!-- HEADER -->
+  <div class="header">
+    <div class="header-top">
+      <div class="app-title">⚓ Flash<span>Prático</span></div>
+      <div class="score-box">
+        <div class="score-pill g">✓ <span id="score-right">0</span></div>
+        <div class="score-pill r">✗ <span id="score-wrong">0</span></div>
+      </div>
+    </div>
+    <div class="cats" id="cat-pills"></div>
+  </div>
+
+
+  <!-- NAVIGATION -->
+  <div class="tabbar">
+    <button class="tab-btn active" id="tab-study" onclick="showTab('study')">Estudar</button>
+    <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
+    <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
+  </div>
+
+  <!-- DIAGNOSTIC SCREEN -->
+  <div class="screen" id="diagnostic-screen" style="display:none;">
+    <div class="diag-head">
+      <div class="diag-title">Diagnóstico de estudo</div>
+      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. Clique em “Estudar assunto” para abrir todos os flashcards daquele bloco.</div>
+    </div>
+    <div class="summary-grid" id="summary-grid"></div>
+    <div class="diag-controls">
+      <button class="mini-btn" onclick="buildDashboard('all')">Todos</button>
+      <button class="mini-btn" onclick="buildDashboard('weak')">Só fracos</button>
+      <button class="mini-btn" onclick="buildDashboard('sample')">Pouca amostra</button>
+    </div>
+    <div class="diag-list" id="diag-list"></div>
+  </div>
+
+  <!-- DATABASE SCREEN -->
+  <div class="screen" id="database-screen" style="display:none;">
+    <div class="db-panel">
+      <h3>Banco de desempenho</h3>
+      <p>Histórico conectado ao Supabase. Seus acertos, erros, difíceis e pulos ficam salvos na nuvem e podem ser acessados em outros aparelhos com o mesmo login.</p><p id="sync-status">Status: conectando...</p>
+      <div class="summary-grid" id="db-summary"></div>
+      <div class="db-actions">
+        <button class="mini-btn" onclick="exportHistory()">Exportar histórico</button>
+        <button class="mini-btn logout-btn" onclick="logoutSupabase()">Sair da conta</button>
+        <button class="mini-btn" onclick="document.getElementById('import-file').click()">Importar histórico</button>
+        <button class="mini-btn danger-btn" onclick="resetHistory()">Zerar desempenho</button>
+        <input type="file" id="import-file" accept="application/json" style="display:none" onchange="importHistory(event)">
+      </div>
+    </div>
+  </div>
+
+  <!-- PROGRESS -->
+  <div class="prog-wrap">
+    <div class="prog-row">
+      <span class="prog-label">Progresso</span>
+      <span class="prog-count" id="prog-text">0 / 0</span>
+    </div>
+    <div class="prog-bar"><div class="prog-fill" id="prog-fill" style="width:0%"></div></div>
+  </div>
+  <div class="study-title" id="study-title"><strong>Modo:</strong> Todas as publicações</div>
+
+  <!-- CARD AREA -->
+  <div class="card-area" id="card-area">
+    <div class="card-wrapper">
+      <div class="card" id="card" onclick="flipCard()">
+        <div class="card-face card-front">
+          <div class="card-header">
+            <span class="cat-badge" id="front-cat">—</span>
+            <span class="diff-badge" id="front-diff">—</span>
+          </div>
+          <div class="card-body">
+            <div class="question-icon" id="q-icon">❓</div>
+            <div class="question-text" id="q-text">Carregando...</div>
+            <div class="hint" id="q-hint"></div>
+            <div class="src-badge" id="q-src"></div>
+          </div>
+          <div class="card-footer"><span class="tap-hint">Toque para ver a resposta</span></div>
+        </div>
+        <div class="card-face card-back">
+          <div class="card-header">
+            <span class="answer-label">Resposta</span>
+            <span class="diff-badge" id="back-diff">—</span>
+          </div>
+          <div class="card-body" style="overflow-y:auto; max-height: calc(var(--card-h) - 100px);">
+            <div id="a-text" class="answer-text">—</div>
+          </div>
+          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="btn-row" id="btn-row" style="display:none;">
+      <button class="btn btn-wrong" onclick="answer('wrong')"><span class="btn-icon">✗</span>Errei</button>
+      <button class="btn btn-hard" onclick="answer('hard')"><span class="btn-icon">~</span>Difícil</button>
+      <button class="btn btn-right" onclick="answer('right')"><span class="btn-icon">✓</span>Acertei</button>
+    </div>
+    <div class="nav-row">
+      <button class="btn-nav" onclick="prevCard()">← Anterior</button>
+      <button class="btn-nav btn-shuffle" onclick="shuffleCards()">🔀 Embaralhar</button>
+      <button class="btn-nav" onclick="skipCard()">Pular →</button>
+    </div>
+  </div>
+
+  <!-- COMPLETE -->
+  <div class="complete" id="complete">
+    <div class="complete-emoji">🎉</div>
+    <h2>Baralho concluído!</h2>
+    <p>Você completou todos os flashcards da categoria selecionada.</p>
+    <div class="stats-grid">
+      <div class="stat-box"><div class="stat-n" style="color:var(--green)" id="fin-right">0</div><div class="stat-l">Acertos</div></div>
+      <div class="stat-box"><div class="stat-n" style="color:var(--red)" id="fin-wrong">0</div><div class="stat-l">Erros</div></div>
+      <div class="stat-box"><div class="stat-n" style="color:var(--amber)" id="fin-hard">0</div><div class="stat-l">Difíceis</div></div>
+      <div class="stat-box"><div class="stat-n" style="color:var(--accent2)" id="fin-pct">0%</div><div class="stat-l">Aproveit.</div></div>
+    </div>
+    <button class="btn-restart" onclick="restart()">Reiniciar baralho</button>
+  </div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const CARDS = [
+
+// ════════════════════════════════════════════════════════════
+// SHIPHANDLING FOR THE MARINER — 53 cards
+// ════════════════════════════════════════════════════════════
+
+{ cat:"Águas Rasas", icon:"🌊", diff:"m", src:"Shiphandling for the Mariner",
+  q:"A partir de qual relação profundidade/calado o efeito de águas rasas torna-se significativo e depois pleno?",
+  a:"<strong>Prof = 1,5 × calado:</strong> efeito começa a ser significativo.<br><strong>Prof = 1,2 × calado:</strong> efeito pleno percebido.",
+},
+{ cat:"Águas Rasas", icon:"🌊", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Quais as 3 principais diferenças de comportamento em águas rasas vs. profundas?",
+  a:"1. Estabilidade direcional <strong>melhora</strong><br>2. Turning diameter <strong>quase dobra</strong><br>3. Loss of headway com máquina parada é <strong>menor</strong> (o navio mantém caminho por mais tempo)",
+},
+{ cat:"Águas Rasas", icon:"🌊", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Quais sinais físicos indicam aproximação a águas rasas?",
+  a:"• <strong>Vibração</strong> em todo o casco<br>• Governo melhora<br>• Raio de giro aumenta<br>• Trim se altera (calado maior na proa ou popa)<br>• Navio 'twists more' com máquina a ré",
+},
+{ cat:"Águas Rasas", icon:"🌊", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Como a queda da proa ao dar máquina a ré muda em águas rasas?",
+  a:"A proa continua caindo para <strong>boreste</strong>, mas a <strong>taxa é maior</strong> à medida que a profundidade diminui.",
+},
+{ cat:"Águas Rasas", icon:"🌊", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Qual velocidade segura para UKC ≤ 5 pés em canal?",
+  a:"Regra prática: <strong>6 nós</strong> é o limite para navios em canais com UKC de 5 pés ou menos.",
+},
+{ cat:"Águas Rasas", icon:"🌊", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Quando a folga abaixo da quilha é inferior a 0,5 × calado, o que muda na manobra?",
+  a:"O navio torna-se <strong>mais estável direcionalmente</strong> e, portanto, <strong>mais difícil de girar</strong>.",
+},
+
+{ cat:"Squat & UKC", icon:"⬇️", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Qual a fórmula de squat para VLCC em águas abertas? E em águas rasas confinadas?",
+  a:"<strong>S (m) = Cb × V² / 100</strong><br><strong>S (pés) = Cb × V² / 30</strong><br>Em águas rasas confinadas: <strong>2 × S</strong>",
+},
+{ cat:"Squat & UKC", icon:"⬇️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"O squat varia em proporção a qual potência da velocidade?",
+  a:"Proporcional ao <strong>quadrado da velocidade (V²)</strong>. Dobrando a velocidade, o squat quadruplica.",
+},
+{ cat:"Squat & UKC", icon:"⬇️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Qual a diferença entre sinkage e squat?",
+  a:"<strong>Sinkage:</strong> aumento do calado médio.<br><strong>Squat:</strong> sinkage + variação de trim. É o efeito combinado total.",
+},
+{ cat:"Squat & UKC", icon:"⬇️", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Quanto o squat aumenta em cruzamento e em ultrapassagem em canal?",
+  a:"<strong>Cruzamento:</strong> ~50%, podendo chegar a 60–100%.<br><strong>Ultrapassagem:</strong> assume-se igual ou maior, e por período mais longo.",
+},
+{ cat:"Squat & UKC", icon:"⬇️", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Navios com Cb > 0,75 tendem a fazer squat de proa ou de popa?",
+  a:"Tendem a sofrer squat de <strong>proa</strong> (ficam abicados), pois a maior área de seção transversal fica à vante.",
+},
+{ cat:"Squat & UKC", icon:"⬇️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"O que é blockage factor e quais variáveis o afetam?",
+  a:"Relação entre área de seção do navio e área de seção do canal. Afetado por: velocidade, relação calado/profundidade, Cb, deslocamento e taxa de aceleração.",
+},
+
+{ cat:"Bank Effects", icon:"🏦", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Quais são os 3 efeitos de margem e em qual parte do navio cada age?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Parte</th><th>Movimento</th><th>Efeito</th></tr><tr><td><strong>Proa</strong></td><td>Afasta do banco</td><td>Bank Cushion</td></tr><tr><td><strong>Meia-nau</strong></td><td>Atrai ao banco</td><td>Venturi / sucção</td></tr><tr><td><strong>Popa</strong></td><td>Atrai ao banco</td><td>Sucção + propulsor</td></tr></table></div>`,
+},
+{ cat:"Bank Effects", icon:"🏦", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Bank suction é mais forte ou mais fraca que bank cushion? Qual o efeito resultante?",
+  a:"<strong>Bank suction domina</strong>. A popa é puxada com mais força do que a proa é empurrada → proa guinha para longe do banco.",
+},
+{ cat:"Bank Effects", icon:"🏦", diff:"d", src:"Shiphandling for the Mariner",
+  q:"O navio está guinando em direção ao banco no canal. Qual a resposta correta?",
+  a:"<strong>NÃO</strong> reduza a máquina. Em vez disso:<br>1. Deixe a proa cair alguns graus<br>2. <strong>Aumente</strong> a máquina (mais fluxo no leme)<br>3. Use leme em direção ao banco para deter a guinada<br>Só reduza após afastar do banco.",
+},
+{ cat:"Bank Effects", icon:"🏦", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Como uma corrente favorável (de popa) ajuda numa curva em canal? E a corrente de proa?",
+  a:"<strong>Corrente de popa:</strong> atinge a alheta → popa gira mais rápido → curva facilitada.<br><strong>Corrente de proa:</strong> fluxo entre navio e banco aumenta → retarda a popa → força navio para o banco.",
+},
+
+{ cat:"Est. Direcional", icon:"🧭", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Quais são os 3 tipos de estabilidade direcional e o que acontece com leme a meio em cada?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Tipo</th><th>Com leme a meio</th></tr><tr><td><strong>Positiva</strong></td><td>Para de guinar, estabiliza</td></tr><tr><td><strong>Negativa</strong></td><td>Aumenta taxa de guinada</td></tr><tr><td><strong>Neutra</strong></td><td>Mantém taxa constante</td></tr></table></div>`,
+},
+{ cat:"Est. Direcional", icon:"🧭", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Quais fatores aumentam a estabilidade direcional?",
+  a:"• Menor folga sob a quilha<br>• Maior comprimento<br>• Maior trim pela popa (drag)<br>• Menor Cb<br>• Maior relação comprimento/boca",
+},
+{ cat:"Est. Direcional", icon:"🧭", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Por que um navio abicado é sempre direcionalmente instável?",
+  a:"Centro de Pressão (P) fica <strong>à vante</strong> de G → força de pressão acelera o giro. Com trim pela popa, P fica à ré de G → freia o giro → estabilidade.",
+},
+
+{ cat:"Parando o Navio", icon:"⏹️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Quais os 3 métodos para reduzir seguimento? Qual o mais prático para VLCCs?",
+  a:"1. Máquina a ré<br>2. Guinadas sucessivas (slewing)<br>3. Giro completo 360°<br><br>Para VLCCs: <strong>slewing</strong>, pois a turbina pode ter apenas 25% da potência a ré.",
+},
+{ cat:"Parando o Navio", icon:"⏹️", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Quanto seguimento um VLCC perde por 90° de alteração? E em um giro de 360° partindo de 12 nós?",
+  a:"Perde <strong>25–30%</strong> do seguimento a cada 90°. No giro completo a 12 nós → seguimento reduzido a <strong>2–3 nós</strong>, mesmo com máquina avante.",
+},
+{ cat:"Parando o Navio", icon:"⏹️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Quais as 4 situações em que o giro completo 360° é útil?",
+  a:"• Evitar colisão em cruzamento<br>• Desacelerar antes da estação do prático<br>• Fazer sombra para o prático<br>• Parar após perda de máquina",
+},
+{ cat:"Parando o Navio", icon:"⏹️", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Um VLCC a menos de 2 nós ainda precisa de quanto espaço para parar?",
+  a:"Ainda precisa de <strong>mais de um comprimento de navio</strong> para parar completamente.",
+},
+
+{ cat:"Propulsores & Leme", icon:"⚙️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Vantagens e desvantagens dos bow/stern thrusters.",
+  a:"<strong>Vantagens:</strong> disponível a qualquer momento, bom controle lateral sem afetar seguimento.<br><strong>Desvantagens:</strong> ineficaz acima de 2 nós, menos potente que rebocador, não reduz velocidade, inútil com calado muito leve.",
+},
+{ cat:"Propulsores & Leme", icon:"⚙️", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Qual a desvantagem do VPP (hélice de passo variável) ao reduzir velocidade?",
+  a:"Redução abrupta do passo perturba o <strong>fluxo no leme</strong>, prejudicando o governo. Passo zero interromperia completamente o fluxo necessário para o leme.",
+},
+{ cat:"Propulsores & Leme", icon:"⚙️", diff:"d", src:"Shiphandling for the Mariner",
+  q:"O que é o 'ice tray effect' e quando ocorre?",
+  a:"Em navios de passageiros com varandas fechadas, o vento não escoa suavemente pelo costado → empuxo lateral maior. O vento precisa ser ~<strong>3× a velocidade do navio</strong> para efeito significativo (vs. 5× em petroleiro carregado).",
+},
+{ cat:"Propulsores & Leme", icon:"⚙️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Qual o risco do leme tipo 'spade balanceado' em grandes ângulos?",
+  a:"Acima de <strong>5–10°</strong> pode ocorrer fluxo turbulento → perda de sustentação → <strong>stall do leme</strong>. O efeito de guinada é perdido.",
+},
+{ cat:"Propulsores & Leme", icon:"⚙️", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Como a velocidade de manobra impacta a eficácia do leme?",
+  a:"RPM maior → maior fluxo sobre o leme → leme mais eficaz. Usar a máquina por tempo necessário para obter o efeito, depois reduzir. Especialmente eficaz em navio diesel (resposta imediata); turbina a vapor aumenta RPM mais lentamente.",
+},
+
+{ cat:"Azipod", icon:"🔄", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Diferença entre At Sea Mode e Harbor Mode em sistemas Azipod.",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Modo</th><th>Rotação pod</th><th>Potência</th><th>Controle</th></tr><tr><td><strong>At Sea</strong></td><td>±35°</td><td>100%</td><td>Sincronizado</td></tr><tr><td><strong>Harbor</strong></td><td>360°</td><td>~50%</td><td>Independente</td></tr></table></div>`,
+},
+{ cat:"Azipod", icon:"🔄", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Qual é a 'One Ship Length Rule' para Azipod?",
+  a:"Controles devem ser passados para <strong>manual</strong> a distância mínima de <strong>um comprimento do navio</strong> nas manobras de atracação/desatracação.",
+},
+{ cat:"Azipod", icon:"🔄", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Quais 3 sinais de alerta indicam que um navio Azipod está em risco durante manobra?",
+  a:"• Uso de meia/plena força por <strong>períodos longos</strong><br>• Mudanças rápidas e repetidas de máquina e propulsor em <strong>altas rotações</strong><br>• Operação por <strong>uma única pessoa</strong> sem monitoramento da equipe",
+},
+{ cat:"Azipod", icon:"🔄", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Em Harbor Mode com os pods a 45°, como um pod com mais potência mantém a popa contra o vento?",
+  a:"As componentes laterais dos dois pods se cancelam. Aumentar apenas o pod do lado do vento gera força lateral que contrabalança o vento → popa estabiliza sem alterar ângulo dos pods.",
+},
+
+{ cat:"Atracação", icon:"🚢", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Atracação por BORESTE com hélice de giro direito: o que acontece com a popa ao dar máquina a ré?",
+  a:"Popa move-se para <strong>bombordo</strong> → tende a se <strong>afastar</strong> do cais → geralmente precisa de rebocador de popa para segurar.",
+},
+{ cat:"Atracação", icon:"🚢", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Atracação por BOMBORDO com hélice de giro direito: qual ângulo de aproximação e por quê é diferente?",
+  a:"Ângulo de <strong>10–15°</strong> em relação ao cais. Com máquina a ré, a popa vira para BB → reduz o ângulo e o navio chega paralelo. Usando leme BB + impulso avante, pode-se dispensar rebocador de popa.",
+},
+{ cat:"Atracação", icon:"🚢", diff:"d", src:"Shiphandling for the Mariner",
+  q:"O que é Quickwater e como ela é usada na atracação?",
+  a:"Descarga do propulsor subindo pelo costado com máquina a ré.<br>• Descarga ficando para trás → acima de 2 nós<br>• Começa a subir pelo lado BE → ~<strong>2 nós</strong><br>• Atinge meia-altura do casco → <strong>parado na água</strong><br>Se cais por BB: quickwater empurra popa para BE.",
+},
+{ cat:"Atracação", icon:"🚢", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Por que é essencial que o navio esteja paralelo ao cais ao encostar?",
+  a:"• Distribui impacto pelo corpo médio<br>• Prende mais água entre casco e cais (amortecimento máximo)<br>• Quickwater e eddy current atuam uniformemente<br>• Maior efeito de amortecimento",
+},
+{ cat:"Atracação", icon:"🚢", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Como usar corrente de popa e vento a favor na atracação?",
+  a:"Parar o navio de través ao berço com rebocadores, máquina a ré e popa levemente fechada. A corrente empurra o navio lateralmente para o cais. Rebocadores controlam enquanto a corrente faz o trabalho principal.",
+},
+{ cat:"Atracação", icon:"🚢", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Como desatracar com corrente de popa forte quando não há rebocador disponível?",
+  a:"Trabalhar a proa em direção ao cais com espias e máquina, depois dar atrás para entrar na corrente. Manter velocidade através da água equivalente à deriva da corrente para que o navio se mova lateralmente em relação ao fundo sem ganhar seguimento.",
+},
+
+{ cat:"Rebocadores", icon:"🚤", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Como a velocidade do navio afeta a eficácia do rebocador?",
+  a:"Com velocidade mais alta, mais potência é usada só para <strong>acompanhar</strong> o navio → menos potência disponível para manobrar. Velocidade mínima = máxima eficácia.",
+},
+{ cat:"Rebocadores", icon:"🚤", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Quais as 2 desvantagens específicas do rebocador de POPA?",
+  a:"1. Age como <strong>drag</strong> → reduz eficácia do leme em baixas velocidades<br>2. Tende a <strong>afastar a popa</strong> do bordo ao qual está conectado → melhor mantê-lo afastado até ser realmente necessário.",
+},
+{ cat:"Rebocadores", icon:"🚤", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Quanto mais próximo de 90° o rebocador trabalha, qual o efeito?",
+  a:"<strong>Maior</strong> parcela de potência usada efetivamente. Rebocadores Voith-Schneider e ASD conseguem trabalhar em ângulo reto mesmo com seguimento avante.",
+},
+{ cat:"Rebocadores", icon:"🚤", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Qual é a Backing Line e a Come Ahead Line? Que tipo de rebocador só precisa de uma?",
+  a:"<strong>Backing Line:</strong> levada para vante, permite dar atrás.<br><strong>Come Ahead Line:</strong> permite empurrar avante contra o costado.<br>Rebocadores de <strong>dois hélices</strong> e os de propulsão especial geralmente enviam apenas a backing line.",
+},
+{ cat:"Rebocadores", icon:"🚤", diff:"d", src:"Shiphandling for the Mariner",
+  q:"O que é o risco de 'girting/girding/tripping' (GGT) para rebocadores convencionais?",
+  a:"Quando o cabo de reboque fica perpendicular ao costado, o rebocador pode ser virado/embarado. É a principal causa de emborcamento de rebocadores convencionais de um hélice. A largada rápida do cabo é essencial para evitar o desastre.",
+},
+
+{ cat:"Fundeio", icon:"⚓", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Por que é melhor largar o ferro na 'proa final'?",
+  a:"• Amarra corre livre do casco<br>• Desgaste mínimo<br>• Amarra assenta limpa e rápida<br>• Navio posicionado igual aos demais<br>• Melhor controle em fundeadouro congestionado",
+},
+{ cat:"Fundeio", icon:"⚓", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Onde colocar a PROA do navio ao largar o ferro?",
+  a:"Colocar a <strong>proa</strong> (não o passadiço) onde quer que o ferro fique. Ferro mais próximo dos navios à <strong>vante</strong> do que dos navios à <strong>ré</strong>. Não desperdiçar espaço no fundeadouro.",
+},
+{ cat:"Fundeio", icon:"⚓", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Como usar boias como indicador de taxa de giro num canal?",
+  a:"Alinhar a boia com ponto fixo do navio:<br>• Boia move para <strong>vante</strong> → navio girando rápido demais, vai se aproximar<br>• Boia <strong>estacionária</strong> → distância constante<br>• Boia move para <strong>ré</strong> → girando lento demais",
+},
+{ cat:"Fundeio", icon:"⚓", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Qual a regra prática dos 100 pés no fundeio?",
+  a:"Um navio a <strong>3 nós</strong> avança ~<strong>300 pés por minuto</strong>. Usar para calcular o timing de largar o ferro.",
+},
+
+{ cat:"Âncoras como Ferramenta", icon:"🔧", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Como usar o ferro para GOVERNO em canal estreito?",
+  a:"• Largue o ferro <strong>antes do ponto crítico</strong><br>• Use <strong>pouca amarra</strong> — ferro deve garrear, não unhar firme<br>• Ponto pivô vai para <strong>vante</strong> → diâmetro de giro reduz<br>• Permite mais RPM (mais fluxo no leme) sem ganhar velocidade sobre o fundo",
+},
+{ cat:"Âncoras como Ferramenta", icon:"🔧", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Como o ferro funciona para segurar o navio em posição em canal?",
+  a:"Larga-se 1 quartel de amarra com o freio apertado. A máquina trabalha <strong>devagar avante</strong> apenas para manter a proa. O ferro garreando reduz o seguimento. Quando parado, máquina devagar/meia avante contra o ferro para manter posição. Fila-se mais amarra conforme necessário.",
+},
+{ cat:"Âncoras como Ferramenta", icon:"🔧", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Qual é a diferença entre Running Moor e Standing Moor?",
+  a:"<strong>Running Moor (Flying Moor):</strong> com seguimento AVANTE — larga 1º ferro, continua avante, larga 2º, ajusta entre os dois.<br><strong>Standing/Ordinary Moor:</strong> com seguimento À RÉ — chega à proa final, dá atrás, larga ferros.",
+},
+{ cat:"Âncoras como Ferramenta", icon:"🔧", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Usar ferro de fora (barlavento) durante atracação — quais são as vantagens?",
+  a:"• O ferro não deve unhar firme — serve de freio controlado<br>• Amarra fica <strong>afastada do casco</strong> (não danifica)<br>• Ferro pode ser içado sem danos<br>• Pode ser deixado na água pronto para puxar o navio de volta para fora do berço",
+},
+
+{ cat:"Emergências", icon:"🆘", diff:"d", src:"Shiphandling for the Mariner",
+  q:"Passos da Guinada de Williamson (man overboard).",
+  a:"1. Leme todo ao bordo que a pessoa caiu<br>2. Manter até 35–50° afastado da proa inicial<br>3. Trocar leme todo para o bordo <strong>oposto</strong><br>4. Manter até 10–15° antes do rumo recíproco<br>5. Leme todo novamente para estabilizar no recíproco<br>RPMs <strong>não são alteradas</strong>.",
+},
+{ cat:"Emergências", icon:"🆘", diff:"m", src:"Shiphandling for the Mariner",
+  q:"Ao perder o leme, por que máquina toda a ré pode ser a PIOR resposta?",
+  a:"O navio pode <strong>torcer de forma imprevisível</strong> e ficar menos controlável. Melhor: usar o leme enquanto ainda há governo, deixar derivar gradualmente e largar o ferro para controlar.",
+},
+
+// ════════════════════════════════════════════════════════════
+// THEORY AND PRACTICES OF MARINE PILOTAGE — 44 cards
+// ════════════════════════════════════════════════════════════
+
+{ cat:"Escada de Prático", icon:"🪜", diff:"f", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual a taxa de fatalidade traumática de práticos marítimos comparada à média geral?",
+  a:"<strong>54 mortes / 100.000</strong> por ano para práticos vs. <strong>5,5 / 100.000</strong> para trabalhadores em geral. Principal causa: quedas da escada.",
+},
+{ cat:"Escada de Prático", icon:"🪜", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais os 3 mecanismos mais comuns de lesão na transferência de prático?",
+  a:"1. <strong>Sobrecarga corporal</strong> — trancos e movimentos súbitos da escada<br>2. <strong>Ser atingido pela lancha</strong> — lesões por esmagamento<br>3. <strong>Escorregões e quedas</strong> — lesões ortopédicas",
+},
+{ cat:"Escada de Prático", icon:"🪜", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais são os principais riscos na escada de prático listados pelo livro?",
+  a:"• Escada se rompe<br>• Cabos e corrimãos escorregadios<br>• Torção da escada longa<br>• Degraus inclinados<br>• Fixação inadequada no convés<br>• Iluminação insuficiente<br>• Perna atingida pela lancha<br>• Motor principal não parado antes do embarque",
+},
+{ cat:"Escada de Prático", icon:"🪜", diff:"f", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual a distância máxima que um prático deve escalar? Quando usar escada combinada?",
+  a:"Máximo: <strong>9 metros (30 pés)</strong>. Acima disso: usar <strong>escada de acomodação combinada</strong> com a escada de prático.",
+},
+{ cat:"Escada de Prático", icon:"🪜", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais as 3 partes básicas de um sistema mecânico de proteção contra queda?",
+  a:"1. <strong>Lanyard ou free-fall device</strong><br>2. <strong>Anchorage point</strong><br>3. <strong>Safety harness</strong>",
+},
+{ cat:"Escada de Prático", icon:"🪜", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual é o 'Pilot Embarkation Platform System' e por que é proibido pela SOLAS?",
+  a:"Sistema de plataforma com mecanismo de alçapão. Proibido porque a escada do prático fica peada na accommodation ladder e <strong>não no convés</strong> conforme exige a SOLAS.",
+},
+
+{ cat:"MPiX", icon:"🤝", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"O que o MPiX deve deixar claro sobre o navio?",
+  a:"Intenção do prático, características da máquina, capacidade de parar/dar atrás, tipo de hélice, tempo de resposta, características do leme, condição dos ferros, capacidade de giro, diâmetro tático, equipamentos de nav/com, calados/trim/estabilidade, squat/UKC/blockage factor e <strong>calado aéreo</strong>.",
+},
+{ cat:"MPiX", icon:"🤝", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Como calcular o calado aéreo?",
+  a:"<strong>Calado aéreo = altura do ponto mais alto da quilha (H) − calado máximo do navio</strong>",
+},
+{ cat:"MPiX", icon:"🤝", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais são as 9 categorias de informação que o prático deve fornecer ao comandante no MPiX?",
+  a:"1. Canal e fundo<br>2. Corrente/maré/tempo<br>3. Rebocadores<br>4. Efeitos de águas rasas<br>5. Auxílios locais à nav.<br>6. Comunicações/VTMS<br>7. Limitações do porto<br>8. Contingência<br>9. Papéis no passadiço",
+},
+{ cat:"MPiX", icon:"🤝", diff:"f", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual é a frase-chave sobre responsabilidade entre comandante e prático?",
+  a:"O <strong>comandante mantém a responsabilidade final</strong> pela segurança do navio, mas o prático deve ser integrado ao gerenciamento do passadiço, com comunicação clara, troca de informações e monitoramento mútuo.",
+},
+{ cat:"MPiX", icon:"🤝", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais são os 9 planos do Plano de Passagem do Prático?",
+  a:"Route Plan, Channel Entry Plan, Critical Points, Speed Control Plan, Plans of Manoeuvres, Tugs Usage Plan, Berthing Plan, Mooring Arrangement Plan, Contingency Plans.",
+},
+{ cat:"MPiX", icon:"🤝", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"O que o plano de rota do prático deve conter além dos rumos e velocidades?",
+  a:"Pilot boarding point, channel entry point, WOP para alterações, profundidade mínima esperada, largura disponível, margens branca e azul, recursos adicionais de manobra, distância ao berço, fundeadouros de emergência, bacias de evolução e identificação do berço.",
+},
+
+{ cat:"Conduta da Praticagem", icon:"⚓", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais os deveres primordiais do prático durante toda a praticagem?",
+  a:"• Segurança da navegação<br>• Segurança da vida humana<br>• Segurança da infraestrutura portuária<br>• Prevenção da poluição<br>• Reportar incidentes e irregularidades à autoridade competente<br>• Pode <strong>recusar</strong> praticagem insegura",
+},
+{ cat:"Conduta da Praticagem", icon:"⚓", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"É preferível que o comandante ou o prático opere os equipamentos do passadiço? Por quê?",
+  a:"É preferível que o <strong>comandante</strong> opere os equipamentos, pois somente ele conhece suas limitações e a melhor forma de utilizá-los.",
+},
+{ cat:"Conduta da Praticagem", icon:"⚓", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais os 4 grandes limites do espaço de manobra dentro do porto?",
+  a:"1. <strong>Longitudinal</strong>: pouco espaço para avançar ou parar<br>2. <strong>Transversal</strong>: pouca margem lateral<br>3. <strong>UKC</strong>: pouca água abaixo da quilha<br>4. <strong>Folga vertical</strong>: pontes, pórticos, carregadores",
+},
+{ cat:"Conduta da Praticagem", icon:"⚓", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual a diferença entre o risco no canal e o risco dentro do porto?",
+  a:"No <strong>canal</strong>: foco principal é manter rumo e evitar <strong>encalhe</strong>.<br>Dentro do <strong>porto</strong>: além do encalhe, entra forte o risco de <strong>colisão</strong> com cais, navios atracados, dragas e estruturas.",
+},
+{ cat:"Conduta da Praticagem", icon:"⚓", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual o equilíbrio crítico de velocidade dentro do porto?",
+  a:"Velocidade baixa reduz squat, interação e danos — mas abaixo de 1–2 nós há <strong>mais deriva lateral e menor controle direcional</strong>. O equilíbrio é: velocidade suficiente para governar, mas baixa o bastante para não causar interação.",
+},
+{ cat:"Conduta da Praticagem", icon:"⚓", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual o segundo trabalho mais importante do prático dentro do porto durante a manobra?",
+  a:"Estabelecer e manter uma <strong>boa rotina de comunicação</strong>. O primeiro é conduzir a manobra com segurança.",
+},
+
+{ cat:"Tipos de Navios", icon:"🚢", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais as características de manobra dos GRANELEIROS que dificultam a atracação?",
+  a:"• Lentidão de resposta ao leme<br>• Potência não aumenta proporcionalmente com o porte<br>• Distâncias de parada maiores<br>• Diâmetro tático maior<br>• Forte impulso transversal a ré vs. velocidade a ré baixa<br>• Em lastro: muito sensível ao vento",
+},
+{ cat:"Tipos de Navios", icon:"🚢", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais as características dos PORTA-CONTÊINERES que os diferenciam na manobra?",
+  a:"• Boa potência e resposta de leme<br>• Menor diâmetro tático<br>• Geralmente com thrusters<br>• Distâncias de parada menores<br>• <strong>Muito sensíveis ao vento</strong> — com 20 nós ficam difíceis de controlar<br>• Velocidade 'dead slow' de 6–9 nós (vs. 4–6 em graneleiros)",
+},
+{ cat:"Tipos de Navios", icon:"🚢", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Como manobrar um objeto SEM PROPULSÃO (dead ship)?",
+  a:"Preferencialmente <strong>3 rebocadores</strong>: um na proa/popa para controlar velocidade, dois auxiliando em guinadas e movimento lateral. A atracação da dead ship é mais útil pela popa, pois o rebocador de popa consegue puxar e empurrar diretamente.",
+},
+{ cat:"Tipos de Navios", icon:"🚢", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual o espaço de giro necessário para um porta-contêineres de 255 m com 2 rebocadores sob vento de 20 nós, sem máquina?",
+  a:"Cerca de <strong>2 × o comprimento do navio</strong>, pois o navio deriva cerca de 1 comprimento adicional sob influência do vento.",
+},
+
+{ cat:"Perturbações Externas", icon:"⚠️", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"O que fazer se houver redução repentina de visibilidade durante manobra no porto?",
+  a:"Se em velocidade maior: ir para bacia de evolução e largar ferro. Se perto do berço: máquina a ré e/ou rebocadores puxando para trás até quase parar, então largar ferro a pique. Manter posição.",
+},
+{ cat:"Perturbações Externas", icon:"⚠️", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Se o cabo do rebocador romper no meio da manobra, quais as opções do prático?",
+  a:"• Passar espia do navio para reamarrar o rebocador<br>• Rebocador passa novo cabo<br>• Chamar outro rebocador<br>• Mudar rebocador de puxando para <strong>empurrando</strong> pelo bordo oposto",
+},
+{ cat:"Perturbações Externas", icon:"⚠️", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Por que ordem errada de máquina ou leme ocorre mais à noite? Como o prático percebe?",
+  a:"Fadiga, madrugada, ruído e baixa consciência situacional. O prático percebe quando o <strong>efeito esperado não aparece</strong> ou aparece efeito <strong>contrário</strong>. Correção deve ser rápida e firme.",
+},
+
+{ cat:"Contingência", icon:"🆘", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Como o prático deve desenvolver planos de contingência?",
+  a:"Por <strong>sessões de brainstorming</strong>: identificar o que pode dar errado em cada ponto crítico e definir ação imediata. Perguntas-chave: E se falhar a máquina? E se o rebocador perder o cabo? E se entrar vento forte? E se a visibilidade fechar?",
+},
+{ cat:"Contingência", icon:"🆘", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"O que a investigação de acidentes mostra como foco incorreto da indústria?",
+  a:"A <strong>velocidade e os giros operacionais rápidos</strong> tornaram-se o foco às custas da operação segura. Muitos acidentes graves começaram sem emergência, mas se tornaram emergência porque o potencial de dano foi considerado remoto demais.",
+},
+
+{ cat:"Manobra em Baixa Velocidade", icon:"🐢", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Por que a máquina a ré não deve ser a única forma de reduzir velocidade no porto?",
+  a:"Com máquina a ré: leme praticamente não governa, surgem impulso transversal, vibração e efeito de cunha. Potência a ré pode ser apenas <strong>25%</strong> da potência avante. Em turbina a vapor, potência cresce lentamente.",
+},
+{ cat:"Manobra em Baixa Velocidade", icon:"🐢", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"O que é o 'Hybrid Turning' e como funciona?",
+  a:"Combina guinada com redução de velocidade: 1. Todo leme para o bordo desejado com máquina avante → gera guinada. 2. Para a máquina quando a velocidade ainda não aumentou demais. 3. Máquina a ré → cria impulso transversal e continua a guinada enquanto reduz velocidade.",
+},
+{ cat:"Manobra em Baixa Velocidade", icon:"🐢", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"O que é 'wheel hard over with engines stopped' e para que serve?",
+  a:"Com máquina parada e seguimento avante, o navio guinha mas perde velocidade. Útil para: combater vento na superestrutura, obter velocidade lateral da popa na aproximação, anular impulso transversal residual após parar a ré.",
+},
+{ cat:"Manobra em Baixa Velocidade", icon:"🐢", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual a regra prática mais importante da manobra em baixa velocidade?",
+  a:"Manter velocidade <strong>mais baixa</strong> e preservar <strong>reserva de potência</strong>. Com mais RPM, o leme fica mais eficaz e aumentam as chances de afastar o navio do perigo. Quando os rebocadores se tornam ineficazes, a única arma são máquina e leme.",
+},
+
+{ cat:"Velocidade de Encosto", icon:"📏", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual a FOF speed (falling on fenders) para navios em geral e para navios grandes?",
+  a:"<strong>Navios em geral:</strong> máximo <strong>10 cm/s (0,2 nó)</strong><br><strong>Grandes porta-contêineres, Capesize, VLCC:</strong> máximo <strong>5 cm/s (0,1 nó)</strong><br>A energia de impacto varia com o <strong>quadrado</strong> da velocidade.",
+},
+{ cat:"Velocidade de Encosto", icon:"📏", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Aproximação angulada vs. aproximação paralela: qual é mais segura para navios grandes?",
+  a:"<strong>Paralela</strong> é mais segura para navios grandes: posiciona o navio a 1–1,5 boca do cais e empurra lateralmente. Demora 10–20 min a mais, mas reduz risco de impacto estrutural. A angulada ainda é usada em navios menores (até ~30.000 GT).",
+},
+{ cat:"Velocidade de Encosto", icon:"📏", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"O que é o LOA máximo de uma embarcação em um píer, pela fórmula?",
+  a:"<strong>LOA máx = comprimento do píer − k × Boca (B)</strong><br>Onde k = 1,0 a 1,7 (depende do ângulo das espias).<br>Para ângulo de 45°: k = 1,0. Para ângulo de 30°: k = 1,7.",
+},
+
+{ cat:"Verificações na Atracação", icon:"🔍", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais as verificações essenciais na bacia de evolução antes da aproximação final ao berço?",
+  a:"Berço livre, bordo de atracação confirmado, espaço à vante e ré, folga vertical (pórticos), profundidade no berço, espaço para rebocadores, corrente e vento, potência dos rebocadores, posição dos pórticos e iluminação noturna.",
+},
+{ cat:"Verificações na Atracação", icon:"🔍", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual a velocidade recomendada ao se aproximar a 'um espaço de berço' do início do berço?",
+  a:"Reduzir para cerca de <strong>1 nó</strong>. Fazer 'reteste da máquina a ré' antes da aproximação final.",
+},
+{ cat:"Verificações na Atracação", icon:"🔍", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual espia deve ser passada primeiro e por quê?",
+  a:"Em muitos casos: o <strong>spring de vante</strong>, pois controla o seguimento avante do navio. Se houver corrente que abra o navio do cais, os <strong>lançantes de proa</strong> podem ser a primeira espia.",
+},
+
+{ cat:"Capacidade de Parada", icon:"🛑", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Qual o critério de track reach em crash astern? Qual a exceção?",
+  a:"O track reach não deve superar <strong>15 comprimentos de navio</strong>. Exceção: navios muito grandes como VLCCs, a critério da administração.",
+},
+{ cat:"Capacidade de Parada", icon:"🛑", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Por que aplicar 'toda força a ré' imediatamente de 'toda força avante' pode piorar a parada?",
+  a:"O hélice pode <strong>cavilar</strong> — o fluxo sobre as pás quebra em turbulência, as pás perdem aderência na água → menos eficiência. Melhor: parar → devagar a ré → meia a ré → toda a ré em sequência.",
+},
+{ cat:"Capacidade de Parada", icon:"🛑", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"Quando pode ser melhor guinar (full ahead + hard over) do que dar crash astern?",
+  a:"Quando houver <strong>4–5 cabos</strong> de espaço lateral disponível. A guinada tira o navio da linha de colisão mais rápido do que parar. Dentro do porto raramente há esse espaço.",
+},
+{ cat:"Capacidade de Parada", icon:"🛑", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"O que é 'rudder cycling' para reduzir velocidade sem máquina?",
+  a:"<strong>High Frequency Cycling:</strong> todo leme alternado → ~10 comprimentos para parar. Melhor para navios de linhas finas.<br><strong>Low Frequency Cycling:</strong> 40° fora do rumo → toda ré → ~6 comprimentos para parar. Águas rasas reduzem a eficácia.",
+},
+
+{ cat:"Operações Especiais", icon:"🛢️", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Quais são os 3 erros mais comuns na aproximação STS e como evitá-los?",
+  a:"1. Aproximar em <strong>ângulo</strong> → sempre paralelo<br>2. <strong>Velocidade excessiva</strong> no contato → velocidade longitudinal zero ao tocar as defensas<br>3. Má avaliação de <strong>vento/corrente/mar</strong> → SS deve equalizar velocidade com o SBL em rumo paralelo",
+},
+{ cat:"Operações Especiais", icon:"🛢️", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"O que é o setor cego e como muda com a condição de carregamento?",
+  a:"Área invisível à frente da proa a partir do passadiço.<br><strong>Carregado:</strong> menor (~140 m no exemplo).<br><strong>Em lastro:</strong> maior (~295 m) pois o navio fica mais alto fora d'água.",
+},
+{ cat:"Operações Especiais", icon:"🛢️", diff:"d", src:"Theory and Practices of Marine Pilotage",
+  q:"Na atracação 'slotting', por que a aproximação em S/zigue-zague é recomendada?",
+  a:"Em berço apertado com navios à vante e ré, a abordagem em <strong>S/zigue-zague suave</strong> evita uso excessivo de máquina perto do berço, distribuindo melhor a correção de rumo ao longo da aproximação.",
+},
+{ cat:"Operações Especiais", icon:"🛢️", diff:"m", src:"Theory and Practices of Marine Pilotage",
+  q:"O que é 'Baltic Moor' e quando é usado?",
+  a:"Usada quando há <strong>vento onshore forte</strong> sem rebocador disponível. Uma espia de popa é manilhada ao ferro de barlavento ('a-cockbill'). O ferro é largado e a amarra solecada lentamente enquanto a espia de popa é aliviada proporcionalmente, controlando a velocidade lateral de encosto.",
+},
+
+// ════════════════════════════════════════════════════════════
+// MOORING AND ANCHORING SHIPS VOL. 1 — 22 cards
+// ════════════════════════════════════════════════════════════
+
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual a condição para que uma âncora desenvolva máxima capacidade de retenção?",
+  a:"A tração na âncora deve ser <strong>horizontal</strong>. Para isso, é necessário peso suficiente da catenária no fundo. Se a amarra tensionar a ponto de levantar junto à âncora, ela pode começar a garrar.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual o scope de amarra recomendado e o que o reduz em águas mais fundas?",
+  a:"Scope geral: <strong>5 a 6× a profundidade</strong>. Em águas mais fundas pode ser reduzido pois o peso da catenária já é suficiente para manter a tração horizontal na âncora.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual é o ângulo ideal das flukes de uma âncora stockless e por que é um compromisso?",
+  a:"O ângulo ideal varia: ~30° para areia, ~50° para lama. Os fabricantes fazem um compromisso em <strong>35–37°</strong>. Ângulo muito restrito → não penetra; ângulo excessivo → arrasta sobre fundo rígido.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"O que é 'anchor instability' e por que afeta mais âncoras stockless?",
+  a:"Quando um fluke penetra mais fundo que o outro, a âncora gira em torno do veio → apenas 1 fluke penetra → retenção inadequada. Âncoras com cepo (stock anchors) são menos afetadas pois o cepo impede a âncora de rolar.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual a diferença de eficiência entre OSS, HHP e SHHP?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Tipo</th><th>Capacidade/peso</th><th>Aprovação IACS</th></tr><tr><td>OSS</td><td>Referência</td><td>Irrestrita</td></tr><tr><td>HHP</td><td><strong>2×</strong> OSS mesmo peso</td><td>Irrestrita</td></tr><tr><td>SHHP</td><td><strong>4×</strong> OSS mesmo peso</td><td>Restrita (navios especiais)</td></tr></table></div>`,
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Por que a prova de carga (Proof Load) deve ser proporcional a (massa da âncora)^(2/3)?",
+  a:"Porque a capacidade de retenção aumenta com a <strong>área das flukes</strong>, que cresce com (massa)^(2/3). A PL deve ser maior que a capacidade máxima de retenção para testar adequadamente.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Por que a amarra deve ser mais resistente que a âncora?",
+  a:"A tensão no escovém = tração horizontal + <strong>peso de toda a corrente suspensa</strong> → sempre maior que a força no veio da âncora. Se o sistema for sobrecarregado, é preferível a âncora garrar do que a amarra romper.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Quais os 3 graus de aço da amarra e seus limites de EN?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Grau</th><th>Nome</th><th>EN máximo</th><th>Resistência</th></tr><tr><td><strong>1</strong></td><td>Mild steel</td><td>6.100</td><td>Referência</td></tr><tr><td><strong>2</strong></td><td>Special quality</td><td>10.000</td><td>1,4×</td></tr><tr><td><strong>3</strong></td><td>Extra special</td><td>Sem limite</td><td>2,0×</td></tr></table></div>`,
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual a capacidade do freio (brake), guilhotina (mordente) e escovém em relação à MBL?",
+  a:"• <strong>Freio:</strong> 45% da MBL<br>• <strong>Guilhotina:</strong> 80% da MBL<br>• <strong>Escovém:</strong> 20% da MBL<br>Sem guilhotina: freio deve reter 80% da MBL.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual a vantagem de manter a âncora no freio em vez de na guilhotina?",
+  a:"O <strong>freio escorregando</strong> alerta que a amarra está sobrecarregada, preparando a tripulação para abandonar o fundeadouro. A guilhotina é mais segura para segurar, mas não alerta sobrecarga.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"A que distância máxima prática se deve fundear? Por quê?",
+  a:"~<strong>65 metros</strong> de profundidade. Acima disso o molinete (projetado para içar âncora + 3 quartéis a 0,15 m/s) pode não conseguir recuperar a âncora.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual é o comprimento de amarra pela fórmula do Almirantado Britânico?",
+  a:"<strong>N° de quartéis = 1,5 × √(profundidade em metros)</strong><br>A fórmula aplica-se a corrente de aço forjado. O scope pode ser menor em águas mais fundas pois o peso da catenária já mantém a tração horizontal.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"O que é 'X' no fundeio e como é calculado?",
+  a:"<strong>X</strong> = distância que o navio percorre a ré após a amarra esticar ao máximo até parar. <strong>X ≈ 0,9 × profundidade da água</strong> (a altura do escovém só importa em navios em lastro em águas rasas). V e M dobram F: F = M×V² / (2×X).",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"O que é 'brake fade' no molinete e como evitar?",
+  a:"Quando a velocidade de saída da amarra aumenta mais rápido do que o freio consegue desacelerar → revestimento se desgasta mais rápido que a desaceleração → freio perde eficácia progressivamente. Solução: <strong>frear continuamente a taxa constante</strong> em vez de intermitentemente.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Quais as 4 consequências de sobrecarregar o molinete durante o fundeio?",
+  a:"1. Engrenagens danificadas por calor<br>2. Hidráulico: válvulas danificadas / cárter rachado<br>3. Elétrico: bobinas superaquecidas<br>4. Fratura da embreagem → <strong>amarra corre livre fora de controle</strong>",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Qual o método alternativo para fundear um navio de 100.000 t 'em curva'? Qual a vantagem?",
+  a:"Navio vem a 4–10 nós a favor do vento, inicia curva com leme todo, para máquina, arria âncora até a linha d'água, dá devagar a ré e arria amarra <strong>pelo través</strong>. Vantagem: tração na amarra gira a proa em vez de chocar contra o navio → tensões muito menores, sem risco de brake fade.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Como detectar movimento de ré sobre o fundo ao fundear? O que NÃO é confiável?",
+  a:"Confiáveis: GPS, odômetro Doppler (travado no fundo), marcação visual/radar pelo través, distância de radar à proa.<br><strong>NÃO confiável:</strong> observar o fluxo de água ao longo do casco.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Em uma perda simultânea de máquina E governo em águas restritas, qual a estratégia?",
+  a:"<strong>Aguardar</strong> o navio começar a girar naturalmente antes de largar a âncora. Largar cedo demais com o navio em curso reto → carga de impacto máxima sem benefício do giro. A âncora tem mais chance de segurar se o navio já estiver guinando.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Por que não se deve dar 'toda força a ré' em alta velocidade ao perder o governo?",
+  a:"O fluxo sobre as pás do hélice quebra em turbulência → pás perdem aderência → pouco empuxo a ré. Melhor: colocar <strong>devagar avante</strong> enquanto em alta velocidade — o movimento do navio aciona o hélice gerando empuxo a ré naturalmente.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"m", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Para que serve o 'foul hawse' e como resolver?",
+  a:"<strong>Foul hawse:</strong> amarras cruzadas quando o navio girou várias vezes no mesmo sentido. Resolução: usar rebocador preso à popa para girar o navio na <strong>direção oposta</strong> às torções.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Running Moor vs. Standing Moor — qual é mais rápido e qual se adapta melhor a correntes fortes?",
+  a:"<strong>Running Moor:</strong> ligeiramente mais rápido — navio nunca para completamente.<br><strong>Standing Moor:</strong> preferido quando se quer largar ferros <strong>em direções opostas à corrente</strong>, pois o navio tem mais controle.",
+},
+{ cat:"Âncoras — Teoria", icon:"⚓", diff:"d", src:"Mooring and Anchoring Ships Vol. 1",
+  q:"Como fundeio com 2 âncoras abertas a 45° cada lado reduz o 'fishtail'?",
+  a:"Com abertura ampla entre as âncoras, reduz-se a tendência do navio fazer guinadas e balanços laterais (fishtail) em vento forte. Se a corrente for muito forte, reduzir para 35° por lado e arriar mais amarra.",
+},
+
+// ════════════════════════════════════════════════════════════
+// ESTABILIDADE DOS REBOCADORES — 4 cards
+// ════════════════════════════════════════════════════════════
+
+{ cat:"Est. Rebocadores", icon:"📐", diff:"d", src:"Estabilidade dos Rebocadores",
+  q:"O que é o braço GZ e como se calcula?",
+  a:"GZ = braço de endireitamento. <strong>GZ = GM × sen(α)</strong> para pequenos ângulos. A curva cresce quase linearmente até a borda do convés imergir. A ~50° ocorre o ângulo de alagamento — ponto crítico onde a estabilidade começa a cair.",
+},
+{ cat:"Est. Rebocadores", icon:"📐", diff:"m", src:"Estabilidade dos Rebocadores",
+  q:"GM alto vs. GM baixo: impacto prático para rebocadores em porto e no mar.",
+  a:"<strong>GM alto:</strong> navio duro, retorna rápido, boa estabilidade → melhor para <strong>porto</strong> (alta potência azimutal).<br><strong>GM baixo:</strong> navio mole, retorna devagar, menor aceleração de balanço → mais <strong>confortável no alto mar</strong>.",
+},
+{ cat:"Est. Rebocadores", icon:"📐", diff:"d", src:"Estabilidade dos Rebocadores",
+  q:"Por que rebocadores modernos de boca larga são direcionalmente instáveis?",
+  a:"Relação boca/comprimento de até <strong>1/3</strong>. Isso torna o rebocador instável: mudanças de curso com ROT alta com pequenos ângulos, mas <strong>pouca habilidade de quebrar a guinada</strong>. Risco: altas forças no cabo de reboque → grandes ângulos de inclinação.",
+},
+{ cat:"Est. Rebocadores", icon:"📐", diff:"d", src:"Estabilidade dos Rebocadores",
+  q:"Por que é necessário prestar atenção especial à guinada de rebocadores com hélices azimutais em alta velocidade?",
+  a:"Se o propulsor for girado rapidamente em alta velocidade, a <strong>sucção do propulsor é prejudicada</strong>, o empuxo é reduzido ou perdido → cavitação → comportamento imprevisível e/ou perda de velocidade.",
+},
+
+// ════════════════════════════════════════════════════════════
+// NAVEGAÇÃO INTEGRADA 2026 — 17 cards
+// ════════════════════════════════════════════════════════════
+
+{ cat:"GNSS", icon:"📡", diff:"m", src:"Navegação Integrada 2026",
+  q:"Quantos satélites para posição 3D e 2D? Qual o datum usado?",
+  a:"<strong>4 satélites:</strong> posição 3D (lat, lon, altitude e hora).<br><strong>3 satélites:</strong> posição 2D (lat, lon e hora).<br>Datum: <strong>WGS-84</strong>.",
+},
+{ cat:"GNSS", icon:"📡", diff:"d", src:"Navegação Integrada 2026",
+  q:"Precisão civil dos 4 principais sistemas GNSS.",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Sistema</th><th>Precisão civil</th><th>SPS/padrão</th></tr><tr><td>GPS</td><td>2,2 m</td><td>9 m (95%)</td></tr><tr><td>GLONASS</td><td>2,8 m</td><td>12,4 m</td></tr><tr><td>GALILEO</td><td>1,0 m</td><td>—</td></tr><tr><td>BEIDOU</td><td>1,2 m</td><td>—</td></tr></table></div>`,
+},
+{ cat:"GNSS", icon:"📡", diff:"m", src:"Navegação Integrada 2026",
+  q:"Quais são as principais vulnerabilidades dos sinais GNSS?",
+  a:"• Sinal fraco (<100 W) → sujeito a <strong>jamming</strong> (bloqueio)<br>• <strong>Spoofing</strong> — falsificação do sinal altera a posição sem o navegante perceber<br>• Interferência da ionosfera (50–550 km)<br>• Multicaminho (reflexão por obstáculos)<br>• Atividade solar severa",
+},
+{ cat:"GNSS", icon:"📡", diff:"d", src:"Navegação Integrada 2026",
+  q:"O que é DGNSS e quais suas principais vantagens?",
+  a:"Sistema de correção diferencial com estação de referência em terra + link de comunicação + receptor híbrido a bordo.<br>Vantagens: maior precisão, notificação quase imediata de problemas, detecta erros de propagação, elimina erros comuns.",
+},
+{ cat:"GNSS", icon:"📡", diff:"m", src:"Navegação Integrada 2026",
+  q:"O que é eLoran e qual sua principal vantagem sobre os GNSS?",
+  a:"Sistema terrestre de baixa frequência, alta potência e longo alcance (~1.000 km por estação). <strong>Não sofre atrasos atmosféricos</strong> nem troposféricos, imune a jamming e spoofing. É a única ferramenta complementar disponível para prover serviços de hora.",
+},
+{ cat:"GNSS", icon:"📡", diff:"m", src:"Navegação Integrada 2026",
+  q:"O que é uma agulha satelital e como funciona sem movimento?",
+  a:"Usa <strong>duas antenas GNSS</strong> alinhadas com a linha proa-popa. Calcula o rumo pela diferença de fase do sinal entre as antenas. Resolve o problema de que uma única antena parada não gera efeito Doppler para determinar rumo.",
+},
+{ cat:"Cartas Náuticas", icon:"🗺️", diff:"m", src:"Navegação Integrada 2026",
+  q:"Quais os tipos de cartas náuticas digitais e qual a diferença fundamental?",
+  a:"<strong>RNC (Raster):</strong> imagem bitmap, perde resolução ao ampliar, sem interação.<br><strong>ENC (Vetorial):</strong> baseada em vetores, não perde resolução, permite alarmes, interação com objetos e camadas adicionais.",
+},
+{ cat:"Cartas Náuticas", icon:"🗺️", diff:"d", src:"Navegação Integrada 2026",
+  q:"Quais as 5 categorias CATZOC e o que diferencia A1 de D?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Cat.</th><th>Precisão pos.</th><th>Profundidade</th></tr><tr><td><strong>A1</strong></td><td>±5 m</td><td>0,5+1%</td></tr><tr><td><strong>A2</strong></td><td>±20 m</td><td>1+2%</td></tr><tr><td><strong>B</strong></td><td>±50 m</td><td>1+2%</td></tr><tr><td><strong>C</strong></td><td>±500 m</td><td>2+5%</td></tr><tr><td><strong>D</strong></td><td colspan="2">Dados de baixa qualidade</td></tr></table></div>`,
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"m", src:"Navegação Integrada 2026",
+  q:"Diferença entre Banda S e Banda X — quando usar cada uma?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Banda</th><th>Frequência</th><th>Melhor para</th></tr><tr><td><strong>S</strong></td><td>2–4 GHz</td><td>Chuva forte, oceânico, maior alcance</td></tr><tr><td><strong>X</strong></td><td>8–12 GHz</td><td>Alvos pequenos, melhor resolução, águas restritas</td></tr></table></div>`,
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"m", src:"Navegação Integrada 2026",
+  q:"O que é super-refração e sub-refração? Onde cada uma ocorre?",
+  a:"<strong>Super-refração:</strong> ar quente/seco sobre ar frio/úmido (típico nos trópicos) → <strong>estende</strong> o alcance do radar.<br><strong>Sub-refração:</strong> ar frio/úmido sobre ar quente/seco (típico em regiões polares) → <strong>reduz</strong> o alcance.",
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"d", src:"Navegação Integrada 2026",
+  q:"O que é Navegação Paralela Indexada (PI) e como funciona?",
+  a:"Monitoramento da derrota pelo radar: alvo fixo aparece movendo-se paralelo e oposto à derrota. Afastamento lateral evidenciado pelo alvo se afastando da linha. Melhor em North Up, modo movimento relativo, navio centralizado.",
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"m", src:"Navegação Integrada 2026",
+  q:"Por que NÃO usar marcações radar em águas restritas?",
+  a:"Marcações eletrônicas são imprecisas e as <strong>tangentes dos contornos no radar</strong> podem não representar fielmente os contornos da carta náutica. Usar apenas <strong>distâncias radar</strong> em águas restritas.",
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"m", src:"Navegação Integrada 2026",
+  q:"Qual o DOP e como afeta a precisão do GNSS?",
+  a:"DOP = Dilution of Precision — mede a geometria dos satélites. Tipos: PDOP (3D), HDOP (horizontal), VDOP (vertical), TDOP (tempo), GDOP (combinação com TDOP). Quanto menor o DOP, melhor a geometria → maior precisão.",
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"d", src:"Navegação Integrada 2026",
+  q:"Quais as principais vantagens da carta vetorial (ENC) vs. raster (RNC)?",
+  a:"ENC: não perde resolução ao ampliar, interação com objetos, alarmes visuais/sonoros, camadas adicionais, atualização mais fácil, banco de dados.<br>RNC: mais simples, radar e AIS podem ser sobrepostos.",
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"m", src:"Navegação Integrada 2026",
+  q:"Como funciona o controle Anti-clutter SEA e qual seu alcance efetivo?",
+  a:"Reduz reverberações do mar próximo ao navio. Efetivo até <strong>4–5 MN</strong>. Efeito diminui com a distância e é praticamente ineficaz além de <strong>8 MN</strong>.",
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"m", src:"Navegação Integrada 2026",
+  q:"Qual o comprimento do pulso e a largura do feixe — o que cada um controla?",
+  a:"<strong>Comprimento do pulso:</strong> discriminação em <strong>distância</strong> (distingue alvos próximos em distância).<br><strong>Largura do feixe:</strong> discriminação em <strong>marcação</strong> (distingue alvos em marcações próximas).",
+},
+{ cat:"Radar & ARPA", icon:"📻", diff:"m", src:"Navegação Integrada 2026",
+  q:"O horizonte radar é maior ou menor que o horizonte geográfico? Por quê?",
+  a:"<strong>Maior em ~10%</strong>. A refração em condições atmosféricas normais faz a trajetória das ondas de radar se encurvar para baixo, acompanhando a curvatura da Terra.",
+},
+
+// ════════════════════════════════════════════════════════════
+// BRIDGE TEAM MANAGEMENT — 11 cards
+// ════════════════════════════════════════════════════════════
+
+{ cat:"BRM", icon:"👥", diff:"m", src:"Bridge Team Management",
+  q:"Quais os 2 principais fatores causadores de colisões e encalhes?",
+  a:"1. <strong>Fraquezas na organização do passadiço</strong><br>2. <strong>Falha em manter boa vigilância</strong><br><br>A segurança do navio nunca deve depender da decisão de apenas uma pessoa.",
+},
+{ cat:"BRM", icon:"👥", diff:"d", src:"Bridge Team Management",
+  q:"Quais as margens de segurança de profundidade para diferentes calados?",
+  a:"• Calado < 3 m → fora da isóbata de <strong>5 m</strong><br>• Calado 3–6 m → fora da isóbata de <strong>10 m</strong><br>• Calado 6–10 m → fora da isóbata de <strong>20 m</strong><br>• Calado > 10 m → cuidado dentro da linha de <strong>200 m</strong><br>Margem de segurança geral: calado + <strong>20%</strong>.",
+},
+{ cat:"BRM", icon:"👥", diff:"m", src:"Bridge Team Management",
+  q:"O que é o 'Point of No Return' e quais os motivos para abortar?",
+  a:"Posição além da qual não é possível abortar a passagem. Motivos para abortar: desvio de rota, falha de máquina/instrumentos, indisponibilidade de rebocadores/berço, baixa visibilidade repentina, vento perigoso, qualquer situação insegura.",
+},
+{ cat:"BRM", icon:"👥", diff:"d", src:"Bridge Team Management",
+  q:"Por que dois receptores GPS separados NÃO garantem verificação mútua?",
+  a:"Ambos podem sofrer erros do <strong>mesmo satélite</strong>. Verificação correta: método independente (radar, visual, DR/EP). Em águas costeiras: usar PI simultaneamente ao GPS.",
+},
+{ cat:"BRM", icon:"👥", diff:"m", src:"Bridge Team Management",
+  q:"Quais os 3 tipos de alcance de luzes de navegação?",
+  a:"<strong>Geográfico:</strong> curvatura da Terra (altura da luz + olho do observador)<br><strong>Luminoso:</strong> intensidade + visibilidade atmosférica (não considera altura)<br><strong>Nominal:</strong> alcance luminoso com visibilidade de <strong>10 MN</strong> (mostrado nas cartas)",
+},
+{ cat:"BRM", icon:"👥", diff:"m", src:"Bridge Team Management",
+  q:"Qual a fórmula para distância fora da derrota usando marcação?",
+  a:"<strong>Distância fora (cabos) = (Marcação requerida − Marcação observada) × Distância do objeto (MN) ÷ 6</strong>",
+},
+{ cat:"BRM", icon:"👥", diff:"d", src:"Bridge Team Management",
+  q:"Quais os itens incluídos na 'vigilância' do OOW?",
+  a:"• Vigilância visual contínua em todo o entorno<br>• Monitoramento de mudanças de visibilidade e vento<br>• Marcações visuais de navios em aproximação<br>• Identificação de luzes pelo período<br>• Monitoramento de sistemas de controle e alarme<br>• Uso vantajoso do VHF",
+},
+{ cat:"BRM", icon:"👥", diff:"m", src:"Bridge Team Management",
+  q:"Qual a hierarquia de fontes de informação para o planejamento da viagem?",
+  a:"Catálogo de cartas, cartas náuticas, Ocean Passages, cartas piloto, livros piloto, listas de luzes, tábuas de maré, atlas de correntes, avisos aos navegantes, informações de roteamento, informações climáticas, carta de borda livre, almanaque náutico, experiência pessoal.",
+},
+{ cat:"BRM", icon:"👥", diff:"d", src:"Bridge Team Management",
+  q:"Como o plano de passagem deve tratar áreas com maré significativa e áreas proibidas?",
+  a:"Áreas proibidas: todas as profundidades < calado + margem de segurança. Margem mínima: <strong>calado + 10%</strong> (aumentar se mar agitado, squat, levantamento antigo ou água doce). Em regiões de maré: as áreas proibidas mudam com o <strong>horário de passagem</strong>.",
+},
+{ cat:"BRM", icon:"👥", diff:"m", src:"Bridge Team Management",
+  q:"O que é 'distração' como indicador de deterioração da consciência situacional?",
+  a:"Atenção plena em um evento com exclusão de outros. Pode ser causada por excesso de trabalho, stress, fadiga ou evento inesperado (ex: chamada VHF). Também pode ser uma saída injustificada do plano de viagem — ambos são indicadores de que a consciência situacional está se deteriorando.",
+},
+{ cat:"BRM", icon:"👥", diff:"m", src:"Bridge Team Management",
+  q:"Qual o papel específico do OOW quando o comandante (ou prático) está com o comando?",
+  a:"Navega o navio, determina a posição e informa o comandante, monitora execução de ordens de leme e máquina, coordena comunicações internas e externas, registra entradas nos diários e executa tarefas conforme exigido. <strong>Nunca deixa de ser responsável pela vigilância.</strong>",
+},
+
+// ════════════════════════════════════════════════════════════
+// RIPEAM / COLREG 1972 — 33 cards
+// ════════════════════════════════════════════════════════════
+
+{ cat:"RIPEAM — Definições", icon:"📖", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Quais são as definições de 'embarcação sem governo' e 'embarcação com capacidade de manobra restrita'?",
+  a:"<strong>Sem governo (R.3f):</strong> incapaz de manobrar por circunstância excepcional — não pode se manter fora do caminho de outra.<br><strong>CMR (R.3g):</strong> restrita pela natureza de seus serviços — inclui: lançamento/manutenção de sinais/cabos, dragagem, levantamentos, reabastecimento em viagem, lançamento/recolhimento de aeronaves, remoção de minas, reboque que não permite desvio.",
+},
+{ cat:"RIPEAM — Definições", icon:"📖", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"O que é 'embarcação restrita devido ao calado'? Como difere da 'embarcação com CMR'?",
+  a:"<strong>Restrita ao calado (R.3h):</strong> embarcação de propulsão mecânica com severas restrições de desvio pela relação calado/profundidade disponível.<br>Difere da CMR: a restrição é <strong>física/hidráulica</strong> (calado vs. profundidade), não pela natureza do serviço.",
+},
+{ cat:"RIPEAM — Definições", icon:"📖", diff:"f", src:"RIPEAM / COLREG 1972",
+  q:"Quando uma embarcação é considerada 'em movimento'? O que é 'visibilidade restrita'?",
+  a:"<strong>Em movimento (R.3i):</strong> toda embarcação que NÃO está fundeada, amarrada à terra ou encalhada.<br><strong>Visibilidade restrita (R.3l):</strong> nevoeiro, névoa, nevada, chuvas pesadas, tempestades de areia ou qualquer causa semelhante.",
+},
+{ cat:"RIPEAM — Governo e Nav.", icon:"🧭", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 5 — O que é vigilância e quais meios devem ser usados?",
+  a:"Toda embarcação deve manter vigilância <strong>permanente, visual e auditiva</strong>, bem como por <strong>todos os meios apropriados</strong> às circunstâncias, para obter inteira apreciação da situação e do risco de colisão.",
+},
+{ cat:"RIPEAM — Governo e Nav.", icon:"🧭", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 6 — Fatores para velocidade de segurança: todas as embarcações vs. com radar.",
+  a:"<strong>Todas:</strong> visibilidade, densidade do tráfego, capacidade de manobra/distância de parada, luzes à noite, vento/mar/correntes/perigos, calado vs. profundidade.<br><strong>Com radar adicionalmente:</strong> características/limitações do radar, escala em uso, interferências, possibilidade de não detectar objetos pequenos/gelo, número/posição/movimento de alvos, determinação mais exata da visibilidade.",
+},
+{ cat:"RIPEAM — Governo e Nav.", icon:"🧭", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 7 — Quando se presume que existe risco de abalroamento?",
+  a:"• Marcação de embarcação que se aproxima <strong>não se altera apreciavelmente</strong><br>• Pode existir mesmo com variação de marcação se for embarcação <strong>muito grande, reboque</strong> ou <strong>distância muito próxima</strong><br>• Em caso de <strong>dúvida: presumir que existe</strong>",
+},
+{ cat:"RIPEAM — Governo e Nav.", icon:"🧭", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 8 — Requisitos para manobras de evitar abalroamento.",
+  a:"• <strong>Positiva</strong>, com ampla antecedência, segundo bons princípios de marinharia<br>• Alterações devem ser <strong>amplas o suficiente para serem claras</strong> ao visual/radar<br>• Evitar pequenas alterações <strong>sucessivas</strong><br>• Resultado: passagem a <strong>distância segura</strong><br>• Verificar eficácia até a outra embarcação estar safa<br>• Se necessário: <strong>reduzir velocidade ou parar</strong>",
+},
+{ cat:"RIPEAM — Governo e Nav.", icon:"🧭", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 9 — Obrigações em canais estreitos.",
+  a:"• Manter-se no <strong>limite de boreste</strong><br>• < 20 m ou vela: <strong>não interferir</strong> com quem só navega no canal<br>• Pesca: <strong>não interferir</strong><br>• Não cruzar se interferir com quem só navega no canal<br>• Ultrapassagem: sinal de intenção + concordância da alcançada<br>• Curva/obstrução: <strong>apito longo</strong> + cuidado redobrado<br>• Evitar fundear",
+},
+{ cat:"RIPEAM — Governo e Nav.", icon:"🧭", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 10 — Regras dos Esquemas de Separação de Tráfego.",
+  a:"• Seguir na via na <strong>direção do fluxo</strong><br>• Manter-se <strong>longe da linha de separação</strong><br>• Entrar/sair pelos terminais; ao longo: <strong>ângulo mínimo</strong><br>• Cruzar: rumo <strong>perpendicular</strong><br>• Zona costeira: só se não puder usar a via (exceto < 20 m, vela, pesca)<br>• Não entrar na zona de separação (exceto emergência/pesca)<br>• Evitar fundear no esquema",
+},
+{ cat:"RIPEAM — No Visual", icon:"👁️", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 12 — Prioridade entre embarcações a vela.",
+  a:"(I) Ventos em bordos diferentes: <strong>quem recebe o vento por bombordo cede</strong><br>(II) Mesmo bordo: <strong>barlavento cede</strong> para sotavento<br>(III) Embarcação com vento a BB não identifica bordo da outra: <strong>cede</strong>",
+},
+{ cat:"RIPEAM — No Visual", icon:"👁️", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 13 — O que define embarcação 'alcançando'? A obrigação muda com a marcação?",
+  a:"Vinda de <strong>mais de 22,5° para ré do través</strong> da alcançada. Em dúvida: considerar como alcançando.<br>Alteração posterior de marcação <strong>não muda a obrigação</strong> de ceder até ter ultrapassado inteiramente.",
+},
+{ cat:"RIPEAM — No Visual", icon:"👁️", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 14 — Situação roda a roda: como identificar e como agir?",
+  a:"<strong>Identificação:</strong> avistam-se pela proa; à noite: luzes dos mastros enfiadas + luzes de ambos os bordos.<br><strong>Ação:</strong> cada uma guinha para <strong>boreste</strong> → passagem por bombordo.<br>Em dúvida: considerar existente e manobrar.",
+},
+{ cat:"RIPEAM — No Visual", icon:"👁️", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 15 — Rumos cruzados: quem cede e para onde?",
+  a:"A embarcação que avista a outra <strong>por boreste cede o caminho</strong> e, se possível, <strong>evita cruzar a proa</strong> da outra.",
+},
+{ cat:"RIPEAM — No Visual", icon:"👁️", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 17 — Obrigações da embarcação que tem preferência.",
+  a:"(a)(I) Mantém <strong>rumo e velocidade</strong><br>(a)(II) Pode manobrar se a obrigada <strong>não manobra apropriadamente</strong><br>(b) Quando muito próxima e abalroamento não pode ser evitado: <strong>manobra da melhor forma</strong><br>(c) Em rumos cruzados: não guinha para <strong>bombordo</strong> para embarcação a seu bombordo",
+},
+{ cat:"RIPEAM — No Visual", icon:"👁️", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 18 — Hierarquia de preferência entre embarcações (exceto R.9, 10 e 13).",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Embarcação</th><th>Cede para</th></tr><tr><td>Propulsão mecânica</td><td>Sem governo, CMR, Pesca, Vela</td></tr><tr><td>Vela</td><td>Sem governo, CMR, Pesca</td></tr><tr><td>Pesca</td><td>Sem governo, CMR</td></tr><tr><td>Todas (exceto SG/CMR)</td><td>Não interferir com Restrita ao Calado</td></tr></table></div>`,
+},
+{ cat:"RIPEAM — Vis. Restrita", icon:"🌫️", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 19 — Conduta em visibilidade restrita: o que evitar e o que fazer ao ouvir sinal de cerração pela proa?",
+  a:"<strong>Evitar ao alterar rumo:</strong><br>• Guinar para BB para embarcação por ante-a-vante do través (exceto ultrapassagem)<br>• Guinar em direção a embarcação no través ou por ante-a-ré<br><br><strong>Ao ouvir sinal de cerração por ante-a-vante:</strong> reduzir ao mínimo que mantenha o rumo. Se necessário: parar todo seguimento e navegar com extrema cautela.",
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 21 — Setores de visibilidade de cada tipo de luz.",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Luz</th><th>Cor</th><th>Setor</th></tr><tr><td>Mastro</td><td>Branca</td><td>225°</td></tr><tr><td>Bordo VE</td><td>Verde</td><td>112,5°</td></tr><tr><td>Bordo BB</td><td>Encarnada</td><td>112,5°</td></tr><tr><td>Alcançado</td><td>Branca</td><td>135°</td></tr><tr><td>Reboque</td><td>Amarela</td><td>135°</td></tr><tr><td>Circular</td><td>Qualquer</td><td>360°</td></tr></table></div>`,
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 22 — Alcances mínimos das luzes por porte.",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Porte</th><th>Mastro</th><th>Bordos</th><th>Alcançado</th></tr><tr><td>≥ 50 m</td><td>6 MN</td><td>3 MN</td><td>3 MN</td></tr><tr><td>12–50 m</td><td>5 MN (< 20 m: 3)</td><td>2 MN</td><td>2 MN</td></tr><tr><td>< 12 m</td><td>2 MN</td><td>1 MN</td><td>2 MN</td></tr></table></div>Objeto submerso rebocado: circular branca 3 MN.`,
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 23 — Luzes de propulsão mecânica em movimento: obrigatórias e opcionais.",
+  a:"<strong>Obrigatório:</strong> luz de mastro a vante + bordos + alcançado.<br>2ª luz de mastro (ré, mais alta): obrigatória ≥ 50 m; opcional < 50 m.<br>< 12 m: pode usar circular branca + bordos.<br>< 7 m com Vmax ≤ 7 nós: circular branca (bordos se possível).",
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 24 — Luzes de rebocador: número de luzes de mastro e quando exibir losango.",
+  a:"<strong>Rebocando:</strong> 2 luzes de mastro verticais (reboque ≤ 200 m) ou <strong>3</strong> (reboque > 200 m) + bordos + alcançado + luz de reboque amarela acima do alcançado.<br><strong>Losango:</strong> rebocador e rebocado, quando reboque > 200 m.<br>Empurrando/rebocando a contrabordo (não unidade integrada): 2 luzes de mastro + bordos + alcançado.",
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 25 — Embarcação a vela em movimento: luzes e marca especial.",
+  a:"<strong>Luzes:</strong> bordos + alcançado. < 20 m: pode combinar em lanterna no tope.<br>Opcional: 2 circulares no tope (encarnada superior, verde inferior).<br>< 7 m sem luzes: lanterna branca pronta.<br><strong>Vela + máquina:</strong> cone vértice para baixo, à vante.",
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 26 — Luzes de pesca: arrasto vs. não arrasto.",
+  a:"<strong>Arrasto:</strong> 2 circulares verticais — <strong>verde superior, branca inferior</strong> + luz de mastro (< 50 m: opcional) + bordos + alcançado se em movimento.<br><strong>Não arrasto:</strong> 2 circulares — <strong>encarnada superior, branca inferior</strong> + se aparelho > 150 m: circular branca/cone na direção + bordos + alcançado se em movimento.",
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 27 — Luzes de embarcação sem governo vs. com CMR vs. remoção de minas.",
+  a:"<strong>Sem governo:</strong> 2 circulares <strong>enc.</strong> verticais + 2 esferas (dia) + bordos + alcançado se em mov.<br><strong>CMR:</strong> 3 circulares <strong>enc/branca/enc</strong> + esfera/losango/esfera + luzes de mov. se em mov.<br><strong>Remoção de minas:</strong> 3 circulares <strong>verdes</strong> (tope + 2 lais da verga) — perigo a < 1.000 m.<br>CMR com dragagem/obstrução: 2 enc. (bordo obstruído) + 2 verdes (bordo livre).",
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regras 28 e 29 — Luzes de embarcação restrita ao calado e de praticagem.",
+  a:"<strong>Restrita ao calado (R.28):</strong> pode exibir 3 circulares <strong>encarnadas</strong> verticais OU cilindro (além das luzes R.23).<br><strong>Praticagem (R.29):</strong> 2 circulares no tope — <strong>branca superior, encarnada inferior</strong> + bordos + alcançado se em mov; fundeada: + luzes de fundeio.",
+},
+{ cat:"RIPEAM — Luzes", icon:"💡", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 30 — Luzes de embarcações fundeadas e encalhadas.",
+  a:"<strong>Fundeada:</strong> circular branca a vante + circular branca à ré (mais baixa). < 50 m: pode usar 1 circular branca. ≥ 100 m: deve iluminar conveses. < 7 m fora de canal: dispensada.<br><strong>Encalhada:</strong> luzes de fundeio + 2 circulares <strong>encarnadas</strong> verticais + 3 esferas verticais. < 12 m: dispensada das enc. e esferas.",
+},
+{ cat:"RIPEAM — Sinais Sonoros", icon:"📢", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regras 32 e 33 — Definições e equipamentos sonoros por porte.",
+  a:"Apito curto: ~1 s. Apito longo: 4–6 s.<br><strong>Equipamentos:</strong><br>• ≥ 12 m: apito<br>• ≥ 20 m: apito + sino<br>• ≥ 100 m: apito + sino + gongo (tom diferente)<br>• < 12 m: não obrigada, mas deve ter dispositivo eficaz",
+},
+{ cat:"RIPEAM — Sinais Sonoros", icon:"📢", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 34 — Sinais de manobra no visual: significados dos apitos e lampejos.",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Sinal</th><th>Significado</th></tr><tr><td>1 curto / 1 lampejo</td><td>Guinando para <strong>boreste</strong></td></tr><tr><td>2 curtos / 2 lampejos</td><td>Guinando para <strong>bombordo</strong></td></tr><tr><td>3 curtos / 3 lampejos</td><td><strong>Dando a ré</strong></td></tr><tr><td>≥ 5 curtos rápidos</td><td><strong>Dúvida / advertência</strong></td></tr></table></div>Lampejo: ~1 s; intervalo entre sinais: ≥ 10 s; luz circular branca visível ≥ 5 MN.`,
+},
+{ cat:"RIPEAM — Sinais Sonoros", icon:"📢", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 34 — Sinais de ultrapassagem em canal estreito.",
+  a:"<strong>Ultrapassar por BE:</strong> 2 longos + 1 curto<br><strong>Ultrapassar por BB:</strong> 2 longos + 2 curtos<br><strong>Concordância da alcançada:</strong> longo + curto + longo + curto<br><strong>Curva/obstrução:</strong> 1 longo → resposta: 1 longo de quem ouviu",
+},
+{ cat:"RIPEAM — Sinais Sonoros", icon:"📢", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Regra 35 — Sinais sonoros em visibilidade restrita por tipo de embarcação.",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Embarcação</th><th>Sinal</th><th>Intervalo</th></tr><tr><td>Prop. mecânica com seguimento</td><td>1 longo</td><td>≤ 2 min</td></tr><tr><td>Prop. mecânica parada s/ seguimento</td><td>2 longos (~2 s intervalo)</td><td>≤ 2 min</td></tr><tr><td>SG / CMR / R.Calado / Vela / Pesca / Rebocando</td><td>1 longo + 2 curtos</td><td>≤ 2 min</td></tr><tr><td>Rebocado (guarnecido)</td><td>1 longo + 3 curtos</td><td>≤ 2 min</td></tr><tr><td>Fundeada</td><td>Sino rápido ~5 s</td><td>≤ 1 min</td></tr><tr><td>Encalhada</td><td>Sino + 3 batidas separadas antes/após</td><td>≤ 1 min</td></tr><tr><td>Praticagem</td><td>+ 4 curtos (identificação)</td><td>—</td></tr></table></div>`,
+},
+{ cat:"RIPEAM — Sinais Sonoros", icon:"📢", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Regra 35 — Embarcação fundeada ≥ 100 m: como é o sinal sonoro?",
+  a:"Sino a <strong>vante</strong> (~5 s) + imediatamente após, gongo à <strong>ré</strong> (~5 s), a intervalos ≤ 1 min. Pode adicionar: 1 curto + 1 longo + 1 curto para advertir embarcações que se aproximam.",
+},
+{ cat:"RIPEAM — Sinais de Perigo", icon:"🆘", diff:"m", src:"RIPEAM / COLREG 1972",
+  q:"Anexo IV — Quais os principais sinais de perigo do RIPEAM?",
+  a:"• Tiro de canhão a cada ~1 min<br>• Toque contínuo de cerração<br>• Foguetes/granadas de <strong>estrelas encarnadas</strong><br>• Código Morse <strong>SOS</strong> (...---...)<br>• Radiotelefonia: <strong>MAYDAY</strong><br>• CIS: <strong>N.C.</strong><br>• Bandeira quadrada + esfera<br>• Chamas a bordo<br>• Foguete/tocha com <strong>luz encarnada</strong><br>• Fumaça <strong>alaranjada</strong><br>• Braços esticados movendo-se lentamente para cima e para baixo<br>• DSC VHF Canal 70 / MF-HF<br>• EPIRB<br><em>Proibido usar esses sinais sem estar em perigo.</em>",
+},
+{ cat:"RIPEAM — Anexos Técnicos", icon:"🔷", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Anexo I — Dimensões mínimas das marcas.",
+  a:"• Esfera: diâmetro ≥ <strong>0,6 m</strong><br>• Cone: base ≥ 0,6 m, altura = diâmetro<br>• Cilindro: diâmetro ≥ 0,6 m, altura = <strong>2 × diâmetro</strong><br>• Losango: 2 cones com base comum<br>Distância vertical entre marcas: mínimo <strong>1,5 m</strong><br>< 20 m: podem ser menores e proporcionais",
+},
+{ cat:"RIPEAM — Anexos Técnicos", icon:"🔷", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Anexo II — Sinais adicionais de pesca de arrasto em grupo (≥ 20 m).",
+  a:"• Lançando redes: <strong>2 brancas</strong> verticais<br>• Recolhendo redes: <strong>branca sobre encarnada</strong> vertical<br>• Rede presa: <strong>2 encarnadas</strong> verticais<br>Rede de cerco (traineira): 2 amarelas intermitentes alternadas a cada segundo (só quando tolhida).",
+},
+{ cat:"RIPEAM — Anexos Técnicos", icon:"🔷", diff:"d", src:"RIPEAM / COLREG 1972",
+  q:"Anexo III — Frequência dos apitos e alcance audível por porte.",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Comprimento</th><th>Frequência fund.</th><th>Alcance</th></tr><tr><td>≥ 200 m</td><td>70–200 Hz</td><td>2 MN</td></tr><tr><td>75–200 m</td><td>130–350 Hz</td><td>1,5 MN</td></tr><tr><td>20–75 m</td><td>250–700 Hz</td><td>1 MN</td></tr><tr><td>< 20 m</td><td>250–700 Hz</td><td>0,5 MN</td></tr></table></div>Diâmetro mínimo boca do sino (≥ 20 m): 300 mm. Sino/gongo: ≥ 110 dB a 1 m.`,
+},
+
+
+
+// ════════════════════════════════════════════════════════════
+// LESTA — LEI Nº 9.537/1997 — Segurança do Tráfego Aquaviário
+// ════════════════════════════════════════════════════════════
+
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Qual é o objeto principal da LESTA?",
+  a:"A LESTA rege a <strong>segurança da navegação</strong> nas águas sob jurisdição nacional. Seu foco é salvaguarda da vida humana, segurança da navegação e prevenção da poluição por embarcações, plataformas e instalações de apoio.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"A LESTA se aplica a embarcações brasileiras fora das águas jurisdicionais nacionais?",
+  a:"<strong>Sim</strong>. As embarcações brasileiras, exceto as de guerra, continuam sujeitas à LESTA mesmo fora das AJB, respeitada a soberania do Estado costeiro em águas estrangeiras.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"A LESTA se aplica a embarcações estrangeiras nas AJB?",
+  a:"<strong>Sim</strong>. Embarcações estrangeiras e aeronaves na superfície das águas sob jurisdição nacional estão sujeitas, no que couber, à LESTA.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"f", src:"LESTA — Lei nº 9.537/1997",
+  q:"Qual a diferença entre aquaviário e amador?",
+  a:"<strong>Aquaviário:</strong> habilitado pela Autoridade Marítima para operar embarcações em caráter profissional.<br><strong>Amador:</strong> habilitado para operar embarcações de esporte e recreio, em caráter não profissional.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quem é o armador, segundo a LESTA?",
+  a:"É a pessoa física ou jurídica que, em seu nome e sob sua responsabilidade, <strong>apresta a embarcação com fins comerciais</strong>, pondo-a ou não a navegar por sua conta.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quem é o comandante, segundo a LESTA?",
+  a:"É o tripulante responsável pela <strong>operação e manutenção da embarcação em condições de segurança</strong>, responsabilidade que se estende à carga, aos tripulantes e às demais pessoas a bordo.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Qual é a definição legal de embarcação?",
+  a:"Qualquer construção, inclusive plataformas flutuantes e, quando rebocadas, as fixas, sujeita à inscrição na Autoridade Marítima e capaz de se locomover na água, por meios próprios ou não, transportando pessoas ou cargas.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Qual a diferença entre Inspeção Naval e Vistoria?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Termo</th><th>Ideia central</th></tr><tr><td><strong>Inspeção Naval</strong></td><td>Fiscalização administrativa do cumprimento da LESTA, normas, regulamentos e atos internacionais.</td></tr><tr><td><strong>Vistoria</strong></td><td>Ação técnico-administrativa, eventual ou periódica, para verificar requisitos de segurança, habitabilidade e prevenção da poluição.</td></tr></table></div>`,
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Qual é o propósito da Autoridade Marítima na execução da LESTA?",
+  a:"Assegurar a <strong>salvaguarda da vida humana</strong>, a <strong>segurança da navegação</strong> no mar aberto e em hidrovias interiores, e a <strong>prevenção da poluição ambiental</strong> por embarcações, plataformas ou instalações de apoio.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quais temas a Autoridade Marítima pode normatizar segundo o art. 4º?",
+  a:"Habilitação de aquaviários e amadores, tráfego e permanência de embarcações, inspeções e vistorias, arqueação, borda livre, lotação, inscrição, obras/dragagens, marinas, empresas de navegação, peritos, classificadoras, sinais e auxílios à navegação, e aplicação de penalidade pelo Comandante.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Que ordens podem ser dadas a embarcação estrangeira irregular submetida à inspeção naval?",
+  a:"Se houver irregularidade documental ou condição operacional precária com ameaça ao meio ambiente, à tripulação, a terceiros ou à segurança do tráfego aquaviário, pode ser ordenada a: <strong>não entrar no porto</strong>, <strong>não sair do porto</strong>, <strong>sair das AJB</strong> ou <strong>arribar em porto nacional</strong>.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quais são os deveres básicos do Comandante previstos na LESTA?",
+  a:"Cumprir e fazer cumprir legislação, normas, regulamentos e atos internacionais; cumprir procedimentos de salvaguarda da vida humana, preservação ambiental, segurança da navegação, da embarcação e da carga; manter a disciplina a bordo; e comunicar fatos relevantes à Autoridade Marítima.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"O que o Comandante deve comunicar à Autoridade Marítima?",
+  a:"1. Alteração de sinais náuticos e qualquer obstáculo ou estorvo à navegação.<br>2. Acidentes e fatos da navegação ocorridos com sua embarcação.<br>3. Infração à LESTA ou às normas decorrentes cometida por outra embarcação.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"f", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quem está sujeito à autoridade do Comandante?",
+  a:"<strong>Todas as pessoas a bordo</strong> estão sujeitas à autoridade do Comandante.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quais poderes o Comandante pode exercer para garantir a segurança?",
+  a:"Pode impor sanções disciplinares, ordenar o desembarque de qualquer pessoa, ordenar detenção em camarote ou alojamento quando imprescindível à integridade física de terceiros, da embarcação ou da carga, e determinar o <strong>alijamento de carga</strong>.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Como a LESTA define o serviço de praticagem?",
+  a:"É o conjunto de atividades profissionais de <strong>assessoria ao Comandante</strong>, requeridas por peculiaridades locais que dificultem a livre e segura movimentação da embarcação.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Como é concedida a inscrição de aquaviários como práticos?",
+  a:"Obedece aos requisitos da Autoridade Marítima e é concedida <strong>especificamente para cada Zona de Praticagem</strong>, após aprovação em exame e estágio de qualificação.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"De que depende a manutenção da habilitação do prático?",
+  a:"Depende do cumprimento da <strong>frequência mínima de manobra</strong> estabelecida pela Autoridade Marítima.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"O serviço de praticagem é atividade essencial? O que a Autoridade Marítima pode fazer para assegurá-lo?",
+  a:"<strong>Sim</strong>. Deve estar permanentemente disponível nas Zonas de Praticagem. Para assegurar isso, a Autoridade Marítima pode estabelecer o número de práticos, fixar o preço do serviço e requisitar o serviço de práticos.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"O prático pode recusar a prestação do serviço de praticagem?",
+  a:"A LESTA diz que o prático <strong>não pode recusar-se</strong> à prestação do serviço, sob pena de suspensão do certificado de habilitação ou, em caso de reincidência, cancelamento.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quais medidas administrativas a Autoridade Marítima pode adotar?",
+  a:"Apreensão do certificado de habilitação; apreensão, retirada do tráfego ou impedimento de saída de embarcação; embargo de construção, reparo ou alteração de características de embarcação; embargo de obra; e embargo de mineração ou benfeitorias.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Qual o prazo para sanar irregularidade de embarcação apreendida?",
+  a:"A irregularidade que determinou a apreensão deve ser sanada em até <strong>90 dias</strong>. Caso contrário, a embarcação pode ser leiloada ou incorporada aos bens da União.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quem responde pelos danos causados aos sinais náuticos?",
+  a:"O causador do dano deve <strong>reparar os sinais náuticos</strong> ou indenizar as despesas de quem executar o reparo, independentemente da penalidade aplicável.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quais são os principais prazos no processo de infração da LESTA?",
+  a:`<div class="table-wrap"><table class="answer-table"><tr><th>Etapa</th><th>Prazo</th></tr><tr><td>Defesa após Auto de Infração</td><td><strong>15 dias úteis</strong></td></tr><tr><td>Decisão da autoridade</td><td><strong>30 dias</strong></td></tr><tr><td>Recurso</td><td><strong>5 dias úteis</strong></td></tr><tr><td>Pagamento da multa após intimação</td><td><strong>15 dias corridos</strong></td></tr></table></div>`,
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quais penalidades podem ser aplicadas por infrações à LESTA?",
+  a:"Multa, suspensão do certificado de habilitação, cancelamento do certificado de habilitação e demolição de obras e benfeitorias. Multa e demolição podem ser cumuladas com outras penalidades.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Qual o limite da pena de suspensão e quando o infrator pode requerer reabilitação após cancelamento?",
+  a:"A suspensão não pode ser superior a <strong>12 meses</strong>. Após cancelamento, o infrator pode requerer reabilitação após <strong>2 anos</strong>, submetendo-se novamente aos requisitos de certificação.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"m", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quais são as circunstâncias agravantes previstas na LESTA?",
+  a:"Reincidência; emprego de embarcação na prática de ato ilícito; embriaguez ou uso de substância entorpecente/tóxica; e grave ameaça à integridade física de pessoas.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Como são apurados os acidentes e fatos da navegação segundo a LESTA?",
+  a:"São apurados por <strong>inquérito administrativo</strong> instaurado pela Autoridade Marítima, para posterior julgamento no <strong>Tribunal Marítimo</strong>.",
+},
+{ cat:"LESTA — Lei nº 9.537/1997", icon:"⚖️", diff:"d", src:"LESTA — Lei nº 9.537/1997",
+  q:"Quem responde pelas infrações à LESTA?",
+  a:"Respondem solidária e isoladamente: proprietário, armador ou preposto da embarcação; proprietário ou construtor da obra; pessoa física ou jurídica proprietária de jazida ou que realizar pesquisa/lavra de minerais; e o autor material.",
+},
+
+// ════════════════════════════════════════════════════════════
+// NORMAM-302/DPC — IAFN
+// ════════════════════════════════════════════════════════════
+
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"A NORMAM-302/DPC trata de qual assunto?",
+  a:"Trata dos <strong>Inquéritos Administrativos sobre Acidentes e Fatos da Navegação</strong> — IAFN.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"A NORMAM-302 se aplica a quais embarcações e pessoas de forma geral?",
+  a:"Aplica-se a acidentes ou fatos da navegação envolvendo embarcações mercantes e de esporte/recreio em AJB, embarcações brasileiras no alto-mar ou em águas estrangeiras, aquaviários e amadores brasileiros, estrangeiros em território/AJB, proprietários, armadores, operadores, locatários, carregadores, agentes, classificadoras e demais envolvidos.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"Quando será instaurado IAFN?",
+  a:"Sempre que chegar ao conhecimento de um <strong>Agente da Autoridade Marítima</strong> a ocorrência de acidente ou fato da navegação.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"Quais Organizações Militares podem instaurar IAFN?",
+  a:"Somente as <strong>Capitanias dos Portos (CP)</strong> e as <strong>Delegacias (DL)</strong> podem instaurar IAFN.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Qual é a precedência para instauração de IAFN?",
+  a:"Tem precedência a CP ou DL: 1. da jurisdição onde ocorreu o acidente ou fato; 2. do primeiro porto de escala ou arribada; 3. de inscrição da embarcação; ou 4. designada pelo Tribunal Marítimo.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Quando um caso pode ser classificado como de Alta Relevância para a Segurança da Navegação?",
+  a:"Quando houver grande repercussão social, acentuado número de mortos/feridos, danos ambientais de grande amplitude, impacto no fluxo regular de embarcações, elevada complexidade, necessidade extraordinária de força de trabalho ou outras características peculiares.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"Qual o prazo para instauração do IAFN?",
+  a:"O IAFN deve ser instaurado <strong>imediatamente</strong> ou em até <strong>5 dias</strong>, contados da data em que o Agente da Autoridade Marítima tomou conhecimento do acidente ou fato da navegação.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Quais são os acidentes da navegação listados na NORMAM-302?",
+  a:"Naufrágio, encalhe, colisão, abalroação, água aberta, explosão, incêndio, varação, arribada, alijamento e avaria/defeito no navio ou instalações que ponha em risco a embarcação, as vidas e fazendas de bordo.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é naufrágio?",
+  a:"É o <strong>afundamento total ou parcial</strong> da embarcação devido a adernamento, emborcamento ou alagamento.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é colisão na NORMAM-302?",
+  a:"É o choque mecânico da embarcação, apêndices ou acessórios contra objeto que <strong>não seja outra embarcação</strong> ou contra pessoa, como recife, cais, casco soçobrado, boia, cabo submarino, banhista ou mergulhador.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"Qual a diferença prática entre colisão e abalroação?",
+  a:"<strong>Colisão:</strong> choque contra objeto que não é outra embarcação ou contra pessoa.<br><strong>Abalroação:</strong> choque entre embarcações.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é varação?",
+  a:"É o ato deliberado de fazer a embarcação <strong>encalhar ou pôr em seco</strong> para evitar que evento mais danoso sobrevenha.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é arribada?",
+  a:"É fazer a embarcação entrar em porto ou lugar <strong>não previsto</strong> para a travessia, ou seja, que não seja porto/local de escala programada ou de destino.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é alijamento?",
+  a:"É o ato deliberado de lançar n'água, no todo ou em parte, carga ou outros bens existentes a bordo, para salvar a embarcação, parte da carga ou outros bens.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Quais são os fatos da navegação ligados à condição da embarcação e da tripulação?",
+  a:"Mau aparelhamento da embarcação, impropriedade da embarcação para o serviço/local em que é utilizada e deficiência de equipagem.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é mau aparelhamento da embarcação?",
+  a:"É a falta ou impropriedade de aparelhos, equipamentos, peças sobressalentes, acessórios e materiais quando em desacordo com o projeto aprovado.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é impropriedade da embarcação para o serviço ou local?",
+  a:"É a utilização da embarcação <strong>em desacordo com sua destinação</strong>.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que é deficiência de equipagem?",
+  a:"É a falta ou deficiência quanto à <strong>quantidade</strong> e à <strong>qualificação</strong> dos tripulantes.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Quando a alteração de rota é fato da navegação?",
+  a:"Quando houver desvio da derrota inicialmente programada e para a qual o navio estava aprestado, <strong>pondo em risco a expedição ou gerando prejuízos</strong>.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Quais outros exemplos importantes de fatos da navegação?",
+  a:"Má estivação da carga que coloque a expedição em risco; recusa injustificada de socorro; fatos que prejudiquem ou ponham em risco a embarcação, vidas e fazendas de bordo, como clandestino a bordo; e emprego da embarcação em atos ilícitos.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Cabe IAFN para acidente ou fato envolvendo navio da Marinha do Brasil?",
+  a:"Regra geral: <strong>não cabe IAFN</strong> para navio da MB. Exceção: se o navio da MB estiver empregado em <strong>atividade comercial</strong>.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que a CP ou DL faz quando não cabe IAFN envolvendo navio da MB?",
+  a:"A CP ou DL apenas <strong>participa a ocorrência ao escalão hierárquico superior</strong>. A abertura de Sindicância e/ou Inquérito Policial Militar compete ao Comando imediatamente superior do navio envolvido.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Quando uma arribada justificada pode dispensar IAFN?",
+  a:"Quando previamente solicitada à CP, DL ou AG de despacho e ocorrer por necessidade como: acrescentar porto para abastecimento, serviço médico-hospitalar sem culpa de pessoas/serviços/aparelhos de bordo, substituir porto de destino sem prejuízo de terceiros, desembarcar corpo por morte natural comprovada ou pedir abrigo por mau tempo.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Quais arribadas são consideradas não justificadas e tornam obrigatório o IAFN?",
+  a:"Arribada de embarcação de pesca estrangeira não autorizada a operar em AJB; arribada por falta de víveres ou aguada por falta de provisão, má arrumação, descuido ou venda pelo comandante; e arribada por falta de condições de navegar decorrente de mau reparo, falta de apercebimento, ausência de equipamento ou má arrumação da carga.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Existe contraditório durante o processamento do IAFN?",
+  a:"<strong>Não</strong>. O IAFN é mera fase de coleta de provas. Por isso, não cabe a participação da parte interessada durante seu processamento até a conclusão final.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"Quem tem competência para avaliar e celebrar proposta de Acordo de Leniência ou Colaboração Premiada?",
+  a:"Somente a <strong>Procuradoria Especial da Marinha (PEM)</strong>.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"No depoimento, de quem se exige compromisso de dizer a verdade?",
+  a:"Somente dos <strong>maiores de 18 anos</strong>, em razão de eventual caracterização do crime de falso testemunho.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"d", src:"NORMAM-302/DPC — IAFN",
+  q:"Qual o prazo máximo para conclusão do IAFN e quem autoriza prorrogação excepcional acima de um ano?",
+  a:"O inquérito deve ser concluído em até <strong>90 dias</strong>. Em situações especiais e excepcionais em que não seja concluído no prazo máximo de <strong>1 ano</strong>, a prorrogação será autorizada somente pelo <strong>Comandante do DN</strong>.",
+},
+{ cat:"NORMAM-302/DPC — IAFN", icon:"📘", diff:"m", src:"NORMAM-302/DPC — IAFN",
+  q:"O que compete ao Comandante e ao Prático comunicar à Autoridade Marítima?",
+  a:"Qualquer alteração na sinalização náutica de auxílio à navegação, bem como acidentes e fatos da navegação ocorridos com sua embarcação ou com embarcação de outrem.",
+},
+
+// ════════════════════════════════════════════════════════════
+// RLESTA — Decreto nº 2.596/1998
+// ════════════════════════════════════════════════════════════
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por não possuir habilitação ou ASO?",
+  a:"<strong>Não possuir habilitação ou ASO:</strong> multa do grupo <strong>D</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por não portar habilitação ou ASO?",
+  a:"<strong>Não portar habilitação ou ASO:</strong> multa do grupo <strong>B</strong> ou suspensão da habilitação por até <strong>60 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por portar habilitação ou ASO desatualizado?",
+  a:"<strong>Portar habilitação ou ASO desatualizado:</strong> multa do grupo <strong>A</strong> ou suspensão da habilitação por até <strong>30 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"d", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Qual a diferença de penalidade entre não possuir, não portar e portar habilitação/ASO desatualizado?",
+  a:`<div class="table-wrap"><table class="answer-table">
+<tr><th>Situação</th><th>Penalidade</th></tr>
+<tr><td><strong>Não possuir</strong> habilitação ou ASO</td><td>Multa <strong>D</strong></td></tr>
+<tr><td><strong>Não portar</strong> habilitação ou ASO</td><td>Multa <strong>B</strong> ou até <strong>60 dias</strong> de suspensão</td></tr>
+<tr><td><strong>Portar desatualizado</strong></td><td>Multa <strong>A</strong> ou até <strong>30 dias</strong> de suspensão</td></tr>
+</table></div>`,
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por equipamento inoperante, em mau estado ou vencido?",
+  a:"<strong>Equipamento inoperante, em mau estado ou vencido:</strong> multa do grupo <strong>C</strong> ou suspensão da habilitação por até <strong>30 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por escada do prático inoperante ou em condição precária?",
+  a:"<strong>Escada do prático inoperante ou precária:</strong> multa do grupo <strong>B</strong> ou suspensão da habilitação por até <strong>30 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"d", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por conduzir embarcação embriagado ou sob efeito de drogas, quando não constituir crime?",
+  a:"<strong>Conduzir embarcação embriagado ou drogado</strong>, quando não constituir crime: suspensão da habilitação por até <strong>120 dias</strong>. Em caso de <strong>reincidência</strong>, sujeita-se ao <strong>cancelamento da habilitação</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por não contratar prático quando obrigatório?",
+  a:"<strong>Não contratar prático quando obrigatório:</strong> multa do grupo <strong>D</strong> ou suspensão da habilitação por até <strong>60 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por descumprir o RIPEAM?",
+  a:"<strong>Descumprir o RIPEAM:</strong> multa do grupo <strong>D</strong> ou suspensão da habilitação por até <strong>60 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por causar dano a sinal náutico?",
+  a:"<strong>Dano a sinal náutico:</strong> multa do grupo <strong>D</strong> ou suspensão da habilitação por até <strong>60 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por descumprir regras regionais de tráfego?",
+  a:"<strong>Descumprir regras regionais de tráfego:</strong> multa do grupo <strong>C</strong> ou suspensão da habilitação por até <strong>30 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Infrações e penalidades: qual a penalidade por navegar com velocidade superior à permitida?",
+  a:"<strong>Velocidade superior à permitida:</strong> multa do grupo <strong>C</strong> ou suspensão da habilitação por até <strong>30 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"d", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Cite algumas infrações que geram multa D ou suspensão da habilitação por até 60 dias?",
+  a:"Geram <strong>multa D</strong> ou suspensão da habilitação por até <strong>60 dias</strong>:<br>• Não contratar prático quando obrigatório<br>• Descumprir o RIPEAM<br>• Causar dano a sinal náutico",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"d", src:"RLESTA — Decreto nº 2.596/1998",
+  q:" Cite algumas infrações que geram multa C ou suspensão da habilitação por até 30 dias?",
+  a:"Geram <strong>multa C</strong> ou suspensão da habilitação por até <strong>30 dias</strong>:<br>• Equipamento inoperante, em mau estado ou vencido<br>• Descumprir regras regionais de tráfego<br>• Navegar com velocidade superior à permitida",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"d", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Qual a penalidade para o prático que recusar manobra?",
+  a:"<strong>Prático que recusar manobra:</strong> suspensão da habilitação por até <strong>12 meses</strong> ou <strong>cancelamento</strong> em caso de reincidência.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"m", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Qual a penalidade para o prático que deixar de cumprir normas da praticagem?",
+  a:"<strong>Prático que deixar de cumprir normas da praticagem:</strong> suspensão da habilitação por até <strong>120 dias</strong>.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"d", src:"RLESTA — Decreto nº 2.596/1998",
+  q:"Qual a penalidade para o comandante que descumprir o art. 8º da LESTA?",
+  a:"<strong>Comandante que descumprir o art. 8º da LESTA:</strong> suspensão da habilitação por até <strong>12 meses</strong> ou <strong>cancelamento</strong> em caso de reincidência.",
+},
+
+{ cat:"RLESTA — Decreto nº 2.596/1998", icon:"⚖️", diff:"d", src:"RLESTA — Decreto nº 2.596/1998",
+  q:" Cite algumas infrações que podem levar ao cancelamento da habilitação em caso de reincidência?",
+  a:"Podem levar ao <strong>cancelamento da habilitação</strong> em caso de reincidência:<br>• Conduzir embarcação embriagado ou drogado, quando não constituir crime<br>• Prático recusar manobra<br>• Comandante descumprir o art. 8º da LESTA",
+},
+
+
+];
+
+// Agrupamento principal por livro/publicação.
+// O assunto original fica salvo em c.topic para aparecer no texto da pergunta.
+CARDS.forEach(c => {
+  if (!c.topic) c.topic = c.cat;
+  c.cat = c.src || c.cat;
+});
+
+// Adaptive Study Engine
+const DB_KEY = "flashpratico_history_v2";
+const SETTINGS_KEY = "flashpratico_settings_v2";
+const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
+const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
+const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUser = null;
+let ONLINE_HISTORY = [];
+let isOnlineMode = true;
+const MIN_SAMPLE = 5;
+let deck = [], idx = 0, isFlipped = false;
+let scoreRight = 0, scoreWrong = 0, scoreHard = 0;
+let answered = 0, activeCat = "Todas", activeTab = "study";
+let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", label:"Todas as publicações" };
+
+function slugify(text){
+  return String(text || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 80);
+}
+
+function inferTopic(card){
+  const pub = card.src || card.cat || "Geral";
+  const old = card.cat || "Geral";
+  const q = String(card.q || "").toLowerCase();
+  if(pub !== old) return old;
+
+  if(pub.includes("RLESTA")) return "Infrações e Penalidades";
+
+  if(pub.includes("LESTA")){
+    if(q.includes("praticagem") || q.includes("prático")) return "Serviço de Praticagem";
+    if(q.includes("comandante") || q.includes("art. 8")) return "Comandante";
+    if(q.includes("autoridade marítima") || q.includes("atribuições")) return "Autoridade Marítima";
+    if(q.includes("penalidade") || q.includes("multa") || q.includes("suspensão") || q.includes("cancelamento") || q.includes("auto de infração")) return "Medidas e Penalidades";
+    if(q.includes("conceito") || q.includes("definição") || q.includes("aquaviário") || q.includes("armador") || q.includes("inspeção naval") || q.includes("vistoria")) return "Conceitos e Definições";
+    return "Disposições Gerais";
+  }
+
+  if(pub.includes("NORMAM-302")){
+    if(q.includes("acidente") && !q.includes("fato")) return "Acidentes da Navegação";
+    if(q.includes("fato") || q.includes("fatos da navegação")) return "Fatos da Navegação";
+    if(q.includes("arribada")) return "Arribada";
+    if(q.includes("prazo") || q.includes("prova") || q.includes("depoimento") || q.includes("contraditório")) return "Prazos e Provas";
+    if(q.includes("competência") || q.includes("precedência") || q.includes("instaur")) return "Competência e Instauração";
+    if(q.includes("aplica")) return "Aplicação";
+    return "IAFN — Geral";
+  }
+
+  return old;
+}
+
+function normalizeCards(){
+  CARDS.forEach((c, i) => {
+    const originalCat = c.cat || c.src || "Geral";
+    const publication = c.src || originalCat;
+    c.originalCat = c.originalCat || originalCat;
+    c.publicacao = c.publicacao || publication;
+    c.assunto = c.assunto || c.topic || inferTopic(c);
+    c.topic = c.assunto;
+    c.cat = c.publicacao; // filtro superior passa a ser por publicação/livro
+    c.id = c.id || `${slugify(c.publicacao)}_${slugify(c.assunto)}_${String(i+1).padStart(3,'0')}`;
+  });
+}
+normalizeCards();
+
+let CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
+
+const COLORS = {
+  "Shiphandling for the Mariner":"#3db8b0",
+  "Theory and Practices of Marine Pilotage":"#5b6af0",
+  "Mooring and Anchoring Ships Vol. 1":"#639922",
+  "Estabilidade dos Rebocadores":"#7f77dd",
+  "Navegação Integrada 2026":"#378add",
+  "Bridge Team Management":"#f0a04b",
+  "RIPEAM / COLREG 1972":"#e05c5c",
+  "LESTA — Lei nº 9.537/1997":"#c96abd",
+  "RLESTA — Decreto nº 2.596/1998":"#ba7517",
+  "NORMAM-302/DPC — IAFN":"#4caf7d"
+};
+function getColor(cat){ return COLORS[cat] || "#5b6af0"; }
+
+function getHistory(){
+  if(isOnlineMode) return ONLINE_HISTORY;
+  try { return JSON.parse(localStorage.getItem(DB_KEY) || "[]"); }
+  catch(e){ return []; }
+}
+function setHistory(hist){
+  if(isOnlineMode) { ONLINE_HISTORY = hist; return; }
+  localStorage.setItem(DB_KEY, JSON.stringify(hist));
+}
+async function saveEvent(card, result){
+  const event = {
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+Math.random(),
+    card_id: card.id,
+    publicacao: card.publicacao,
+    assunto: card.assunto,
+    result,
+    ts: new Date().toISOString()
+  };
+  if(isOnlineMode && currentUser){
+    ONLINE_HISTORY.push(event);
+    const { error } = await supabaseClient
+      .from("respostas")
+      .insert({ card_id: card.id, resultado: result });
+    if(error){
+      console.error("Erro ao salvar no Supabase:", error);
+      setSyncStatus("Erro ao salvar resposta: " + error.message);
+    } else {
+      setSyncStatus("Resposta salva no Supabase.");
+    }
+    return;
+  }
+  const hist = getHistory();
+  hist.push(event);
+  if(hist.length > 20000) hist.splice(0, hist.length - 20000);
+  setHistory(hist);
+}
+
+function setSyncStatus(msg){
+  const el = document.getElementById("sync-status");
+  if(el) el.textContent = "Status: " + msg;
+}
+
+function calcStatsForEvents(events){
+  const right = events.filter(e => e.result === "right").length;
+  const wrong = events.filter(e => e.result === "wrong").length;
+  const hard = events.filter(e => e.result === "hard").length;
+  const skip = events.filter(e => e.result === "skip").length;
+  const answered = right + wrong + hard; // hard conta como respondida, mas não como acerto consolidado
+  const pct = answered ? Math.round((right / answered) * 100) : null;
+  return { right, wrong, hard, skip, answered, pct };
+}
+
+function cardStats(cardId){ return calcStatsForEvents(getHistory().filter(e => e.card_id === cardId)); }
+
+function isCardHard(card){
+  const events = getHistory().filter(e => e.card_id === card.id && ["right","wrong","hard"].includes(e.result));
+  const st = calcStatsForEvents(events);
+  const lastTwo = events.slice(-2).map(e => e.result);
+  if(st.hard >= 1) return true;
+  if(st.answered >= 3 && st.pct !== null && st.pct < 70) return true;
+  if(lastTwo.length === 2 && lastTwo.every(x => x === "wrong")) return true;
+  return false;
+}
+
+function hasCardWrong(card){ return getHistory().some(e => e.card_id === card.id && e.result === "wrong"); }
+
+function statusFromPct(pct, answered){
+  if(!answered) return {label:"Não estudado", cls:"regular", icon:"⚪"};
+  if(answered < MIN_SAMPLE) return {label:"Pouca amostra", cls:"regular", icon:"⚪"};
+  if(pct < 50) return {label:"Crítico", cls:"critical", icon:"🔴"};
+  if(pct < 70) return {label:"Difícil", cls:"hard", icon:"🟠"};
+  if(pct < 85) return {label:"Regular", cls:"regular", icon:"🟡"};
+  if(pct < 95) return {label:"Bom", cls:"good", icon:"🟢"};
+  return {label:"Dominado", cls:"good", icon:"✅"};
+}
+
+function groupDashboardStats(){
+  const hist = getHistory();
+  const groups = new Map();
+  CARDS.forEach(c => {
+    const key = c.publicacao + "|||" + c.assunto;
+    if(!groups.has(key)) groups.set(key, {publicacao:c.publicacao, assunto:c.assunto, cards:0, events:[]});
+    groups.get(key).cards++;
+  });
+  hist.forEach(e => {
+    if(!e.publicacao || !e.assunto) return;
+    const key = e.publicacao + "|||" + e.assunto;
+    if(!groups.has(key)) groups.set(key, {publicacao:e.publicacao, assunto:e.assunto, cards:0, events:[]});
+    groups.get(key).events.push(e);
+  });
+  return Array.from(groups.values()).map(g => {
+    const stats = calcStatsForEvents(g.events);
+    const status = statusFromPct(stats.pct ?? 0, stats.answered);
+    return {...g, ...stats, status};
+  }).sort((a,b) => {
+    const ap = a.pct === null ? 101 : a.pct;
+    const bp = b.pct === null ? 101 : b.pct;
+    if(a.answered < MIN_SAMPLE && b.answered >= MIN_SAMPLE) return 1;
+    if(b.answered < MIN_SAMPLE && a.answered >= MIN_SAMPLE) return -1;
+    return ap - bp || b.answered - a.answered || a.publicacao.localeCompare(b.publicacao);
+  });
+}
+
+function overallStats(){
+  const hist = getHistory();
+  const st = calcStatsForEvents(hist);
+  const studiedCards = new Set(hist.filter(e => ["right","wrong","hard"].includes(e.result)).map(e => e.card_id)).size;
+  return {...st, totalCards:CARDS.length, studiedCards, events:hist.length};
+}
+
+function renderSummary(targetId){
+  const st = overallStats();
+  const pct = st.pct === null ? "—" : st.pct + "%";
+  document.getElementById(targetId).innerHTML = `
+    <div class="summary-card"><div class="summary-n">${st.totalCards}</div><div class="summary-l">Cards no banco</div></div>
+    <div class="summary-card"><div class="summary-n">${st.answered}</div><div class="summary-l">Respondidas</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--green)">${st.right}</div><div class="summary-l">Acertos</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--accent2)">${pct}</div><div class="summary-l">Aproveitamento</div></div>
+  `;
+}
+
+function buildDashboard(filter="all"){
+  renderSummary("summary-grid");
+  let groups = groupDashboardStats();
+  if(filter === "weak") groups = groups.filter(g => g.answered >= MIN_SAMPLE && g.pct < 70);
+  if(filter === "sample") groups = groups.filter(g => g.answered > 0 && g.answered < MIN_SAMPLE);
+
+  const el = document.getElementById("diag-list");
+  if(!groups.length){
+    el.innerHTML = `<div class="empty-state">Ainda não há dados suficientes nesse filtro. Estude alguns cards e volte para ver o ranking.</div>`;
+    return;
+  }
+
+  el.innerHTML = groups.map((g, index) => {
+    const pctText = g.pct === null ? "—" : g.pct + "%";
+    const cls = g.status.cls;
+    const statusText = `${g.status.icon} ${g.status.label}`;
+    return `
+      <div class="diag-card ${cls === "critical" ? "critical" : cls === "hard" ? "hard" : cls === "good" ? "good" : ""}">
+        <div class="diag-top">
+          <div>
+            <div class="diag-name"><span class="diag-pub">${escapeHtml(g.publicacao)}</span> — <span class="diag-topic">${escapeHtml(g.assunto)}</span></div>
+            <div class="study-mode-badge">#${index+1} no ranking</div>
+          </div>
+          <div class="pct-badge pct-${cls}">${pctText}</div>
+        </div>
+        <div class="diag-meta">
+          <span class="meta-pill status-pill">${statusText}</span>
+          <span class="meta-pill">${g.answered} respondidas</span>
+          <span class="meta-pill">${g.right} acertos</span>
+          <span class="meta-pill">${g.wrong} erros</span>
+          <span class="meta-pill">${g.hard} difíceis</span>
+          <span class="meta-pill">${g.cards} cards no assunto</span>
+        </div>
+        <div class="diag-actions">
+          <button class="action-btn primary" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "all")'>Estudar assunto</button>
+          <button class="action-btn warn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "wrong")'>Só erradas</button>
+          <button class="action-btn hardbtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "hard")'>Só difíceis</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function escapeHtml(str){
+  return String(str ?? "").replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+}
+
+function showTab(tab){
+  activeTab = tab;
+  ["study","diag","db"].forEach(t => document.getElementById("tab-"+t).classList.toggle("active", t===tab));
+  const studyDisplay = tab === "study";
+  document.querySelector(".prog-wrap").style.display = studyDisplay ? "block" : "none";
+  document.getElementById("study-title").style.display = studyDisplay ? "block" : "none";
+  document.getElementById("card-area").style.display = studyDisplay && !document.getElementById("complete").classList.contains("show") ? "flex" : "none";
+  document.getElementById("complete").style.display = studyDisplay && document.getElementById("complete").classList.contains("show") ? "flex" : "none";
+  document.getElementById("diagnostic-screen").style.display = tab === "diag" ? "block" : "none";
+  document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
+  if(tab === "diag") buildDashboard("all");
+  if(tab === "db") renderSummary("db-summary");
+}
+
+function buildCatPills(){
+  const el = document.getElementById('cat-pills');
+  el.innerHTML = CATS.map(c =>
+    `<div class="cat-pill ${c===activeCat?'active':''}" onclick="selectCat('${c.replace(/'/g,"\\'")}')">` +
+    (c==="Todas" ? "Todas ("+CARDS.length+")" : c + " (" + CARDS.filter(x=>x.publicacao===c).length + ")") + `</div>`
+  ).join('');
+}
+
+function resetSessionScore(){
+  scoreRight=0; scoreWrong=0; scoreHard=0; answered=0;
+  document.getElementById('score-right').textContent='0';
+  document.getElementById('score-wrong').textContent='0';
+}
+
+function selectCat(cat){
+  activeCat = cat;
+  buildCatPills();
+  deck = (cat==="Todas" ? [...CARDS] : CARDS.filter(c=>c.publicacao===cat));
+  currentStudy = { type:"publication", publicacao:cat==="Todas"?null:cat, assunto:null, mode:"all", label:cat==="Todas"?"Todas as publicações":cat };
+  idx = 0; isFlipped=false; resetSessionScore();
+  document.getElementById('complete').classList.remove('show');
+  document.getElementById('complete').style.display='none';
+  updateStudyTitle();
+  showTab('study');
+  showCard();
+}
+
+function studyGroup(publicacao, assunto, mode="all"){
+  let cards = CARDS.filter(c => c.publicacao === publicacao && c.assunto === assunto);
+  if(mode === "wrong") cards = cards.filter(hasCardWrong);
+  if(mode === "hard") cards = cards.filter(isCardHard);
+  if(!cards.length){
+    alert("Ainda não há cards para esse filtro. Use 'Estudar assunto' para estudar todos os cards do bloco.");
+    return;
+  }
+  activeCat = publicacao;
+  buildCatPills();
+  deck = [...cards];
+  idx = 0; isFlipped=false; resetSessionScore();
+  currentStudy = { type:"topic", publicacao, assunto, mode, label:`${publicacao} — ${assunto}` };
+  document.getElementById('complete').classList.remove('show');
+  document.getElementById('complete').style.display='none';
+  updateStudyTitle();
+  showTab('study');
+  showCard();
+}
+
+function updateStudyTitle(){
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", hard:"Somente difíceis"};
+  const label = currentStudy.label || "Todas as publicações";
+  const mode = modeMap[currentStudy.mode] || "Todos os cards";
+  const count = deck.length;
+  document.getElementById('study-title').innerHTML = `<strong>Modo:</strong> ${escapeHtml(label)} <span class="study-mode-badge">${mode}</span> <span class="study-mode-badge">${count} cards</span>`;
+}
+
+function showCard(){
+  if(idx >= deck.length){ showComplete(); return; }
+  const c = deck[idx];
+  isFlipped = false;
+  const card = document.getElementById('card');
+  card.classList.remove('flipped');
+  document.getElementById('btn-row').style.display='none';
+
+  const col = getColor(c.publicacao);
+  document.getElementById('front-cat').textContent = c.publicacao;
+  document.getElementById('front-cat').style.cssText=`background:${col}22;color:${col};border:1px solid ${col}44;border-radius:12px;padding:3px 10px;font-size:10px;font-weight:700;`;
+  const diffMap = {f:['diff-f','Fácil'],m:['diff-m','Médio'],d:['diff-d','Difícil']};
+  const [dc, dl] = diffMap[c.diff]||['diff-m','Médio'];
+  document.getElementById('front-diff').className='diff-badge '+dc;
+  document.getElementById('front-diff').textContent=dl;
+  document.getElementById('back-diff').className='diff-badge '+dc;
+  document.getElementById('back-diff').textContent=dl;
+  document.getElementById('q-icon').textContent = c.icon||'❓';
+  const topicPrefix = (c.assunto && c.assunto !== c.publicacao) ? c.assunto + " — " : "";
+  document.getElementById('q-text').textContent = "De acordo com " + (c.publicacao||"—") + ": " + topicPrefix + c.q;
+  document.getElementById('q-hint').textContent = c.hint ? '💡 ' + c.hint : '';
+  document.getElementById('q-src').textContent = c.publicacao + (c.assunto ? " · " + c.assunto : "");
+  document.getElementById('a-text').innerHTML = c.a;
+
+  updateProgress();
+  updateStudyTitle();
+  card.classList.add('slide-in');
+  setTimeout(()=>card.classList.remove('slide-in'), 300);
+}
+
+function flipCard(){
+  isFlipped = !isFlipped;
+  document.getElementById('card').classList.toggle('flipped', isFlipped);
+  document.getElementById('btn-row').style.display = isFlipped ? 'flex' : 'none';
+}
+
+function answer(type){
+  const c = deck[idx];
+  if(!c) return;
+  saveEvent(c, type);
+  if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
+  if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
+  if(type==='hard') scoreHard++;
+  answered++;
+  idx++;
+  showCard();
+}
+
+function skipCard(){
+  const c = deck[idx];
+  if(c) saveEvent(c, "skip");
+  idx++; isFlipped=false; showCard();
+}
+function prevCard(){ if(idx>0){idx--;isFlipped=false;showCard();} }
+function shuffleCards(){ for(let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];} idx=0;isFlipped=false;showCard(); }
+
+function updateProgress(){
+  const total = deck.length;
+  const pct = total ? Math.round((idx/total)*100) : 0;
+  document.getElementById('prog-text').textContent = `${Math.min(idx,total)} / ${total}`;
+  document.getElementById('prog-fill').style.width = pct+'%';
+}
+
+function showComplete(){
+  document.getElementById('card-area').style.display='none';
+  const comp = document.getElementById('complete');
+  comp.classList.add('show');
+  comp.style.display='flex';
+  const total = answered;
+  const pct = total ? Math.round((scoreRight/total)*100) : 0;
+  document.getElementById('fin-right').textContent = scoreRight;
+  document.getElementById('fin-wrong').textContent = scoreWrong;
+  document.getElementById('fin-hard').textContent = scoreHard;
+  document.getElementById('fin-pct').textContent = pct+'%';
+}
+
+function restart(){
+  document.getElementById('complete').classList.remove('show');
+  document.getElementById('complete').style.display='none';
+  if(currentStudy.type === "topic") studyGroup(currentStudy.publicacao, currentStudy.assunto, currentStudy.mode);
+  else selectCat(activeCat);
+}
+
+async function resetHistory(){
+  if(!confirm("Tem certeza que deseja apagar todo o histórico de desempenho desta conta?")) return;
+  if(isOnlineMode && currentUser){
+    const { error } = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
+    if(error){ alert("Erro ao apagar histórico: " + error.message); return; }
+    ONLINE_HISTORY = [];
+    setSyncStatus("Histórico apagado no Supabase.");
+  } else {
+    localStorage.removeItem(DB_KEY);
+  }
+  buildDashboard("all");
+  renderSummary("db-summary");
+  alert("Histórico apagado.");
+}
+
+function exportHistory(){
+  const payload = {
+    app:"FlashPratico",
+    version:2,
+    exported_at:new Date().toISOString(),
+    history:getHistory()
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = "flashpratico_historico.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function importHistory(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try{
+      const data = JSON.parse(reader.result);
+      const incoming = Array.isArray(data) ? data : data.history;
+      if(!Array.isArray(incoming)) throw new Error("Formato inválido");
+      const clean = incoming.filter(e => e && e.card_id && e.result && e.ts);
+      if(isOnlineMode && currentUser){
+        const rows = clean.map(e => ({ card_id:e.card_id, resultado:e.result, created_at:e.ts }));
+        if(rows.length){
+          const { error } = await supabaseClient.from("respostas").insert(rows);
+          if(error) throw error;
+        }
+        await loadResponsesFromSupabase();
+        setSyncStatus("Histórico importado para o Supabase.");
+      } else {
+        const merged = [...getHistory(), ...clean];
+        const unique = new Map(merged.map(e => [e.id || (e.card_id+e.result+e.ts), e]));
+        setHistory(Array.from(unique.values()));
+      }
+      renderSummary("db-summary");
+      alert("Histórico importado com sucesso.");
+    }catch(err){ console.error(err); alert("Não consegui importar esse arquivo JSON: " + (err.message || "erro desconhecido")); }
+  };
+  reader.readAsText(file);
+  event.target.value = "";
+}
+
+async function loginSupabase(){
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  const msg = document.getElementById("auth-msg");
+  msg.textContent = "Entrando...";
+  const { data, error } = await supabaseClient.auth.signInWithPassword({ email, password });
+  if(error){ msg.textContent = "Erro: " + error.message; return; }
+  currentUser = data.user;
+  await startAuthenticatedApp();
+}
+
+async function signupSupabase(){
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  const msg = document.getElementById("auth-msg");
+  msg.textContent = "Criando conta...";
+  const { data, error } = await supabaseClient.auth.signUp({ email, password });
+  if(error){ msg.textContent = "Erro: " + error.message; return; }
+  if(data.session){
+    currentUser = data.user;
+    await startAuthenticatedApp();
+  } else {
+    msg.textContent = "Conta criada. Verifique seu e-mail para confirmar, depois clique em Entrar.";
+  }
+}
+
+async function logoutSupabase(){
+  await supabaseClient.auth.signOut();
+  currentUser = null;
+  ONLINE_HISTORY = [];
+  document.getElementById("app").style.display = "none";
+  document.getElementById("auth-screen").style.display = "flex";
+  document.getElementById("auth-msg").textContent = "Você saiu da conta.";
+}
+
+async function loadCardsFromSupabase(){
+  setSyncStatus("carregando cards...");
+  const { data, error } = await supabaseClient
+    .from("cards")
+    .select("id,publicacao,assunto,icon,diff,src,q,a,ativo")
+    .eq("ativo", true)
+    .order("publicacao", { ascending:true })
+    .order("assunto", { ascending:true });
+  if(error) throw error;
+  CARDS.length = 0;
+  data.forEach(c => CARDS.push({
+    id:c.id,
+    cat:c.publicacao,
+    publicacao:c.publicacao,
+    assunto:c.assunto,
+    topic:c.assunto,
+    icon:c.icon || "📘",
+    diff:c.diff || "m",
+    src:c.src || c.publicacao,
+    q:c.q,
+    a:c.a,
+    ativo:c.ativo
+  }));
+  CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
+}
+
+async function loadResponsesFromSupabase(){
+  setSyncStatus("carregando histórico...");
+  const { data, error } = await supabaseClient
+    .from("respostas")
+    .select("id,card_id,resultado,created_at")
+    .order("created_at", { ascending:true });
+  if(error) throw error;
+  const cardMap = new Map(CARDS.map(c => [c.id, c]));
+  ONLINE_HISTORY = (data || []).map(r => {
+    const c = cardMap.get(r.card_id) || {};
+    return {
+      id:String(r.id),
+      card_id:r.card_id,
+      publicacao:c.publicacao,
+      assunto:c.assunto,
+      result:r.resultado,
+      ts:r.created_at
+    };
+  });
+}
+
+async function startAuthenticatedApp(){
+  document.getElementById("auth-screen").style.display = "none";
+  document.getElementById("app").style.display = "block";
+  try{
+    await loadCardsFromSupabase();
+    await loadResponsesFromSupabase();
+    buildCatPills();
+    selectCat("Todas");
+    showTab("study");
+    setSyncStatus(`conectado como ${currentUser.email}. ${CARDS.length} cards carregados.`);
+  }catch(error){
+    console.error(error);
+    alert("Erro ao iniciar com Supabase: " + error.message);
+    setSyncStatus("erro: " + error.message);
+  }
+}
+
+async function initApp(){
+  document.getElementById("auth-screen").style.display = "flex";
+  document.getElementById("app").style.display = "none";
+  const { data } = await supabaseClient.auth.getSession();
+  if(data.session?.user){
+    currentUser = data.session.user;
+    await startAuthenticatedApp();
+  } else {
+    document.getElementById("auth-msg").textContent = "Entre ou crie uma conta para começar.";
+  }
+}
+
+initApp();
+</script>
+</body>
+</html>
