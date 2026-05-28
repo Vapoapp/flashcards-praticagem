@@ -118,9 +118,11 @@
 
 
   /* ADAPTIVE STUDY SYSTEM */
-  .tabbar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
+  .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
   .tab-btn { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 14px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
   .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent2); }
+  .tab-btn.today { background: rgba(61,184,176,0.14); color: var(--teal); border-color: rgba(61,184,176,0.35); }
+  .tab-btn.today:active { transform: scale(0.98); }
   .screen { padding: 14px 16px 90px; }
   .study-title { max-width: 420px; margin: 8px auto 0; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; font-size: 12px; color: var(--muted); line-height: 1.45; }
   .study-title strong { color: var(--text); }
@@ -151,11 +153,12 @@
   .diag-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .meta-pill { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; }
   .status-pill { font-weight: 900; }
-  .diag-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+  .diag-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
   .action-btn { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 12px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
   .action-btn.primary { background: rgba(91,106,240,0.22); color: var(--accent2); border-color: rgba(91,106,240,0.45); }
   .action-btn.warn { background: rgba(224,92,92,0.14); color: var(--red); border-color: rgba(224,92,92,0.35); }
   .action-btn.hardbtn { background: rgba(240,160,75,0.14); color: var(--amber); border-color: rgba(240,160,75,0.35); }
+  .action-btn.duebtn { background: rgba(61,184,176,0.14); color: var(--teal); border-color: rgba(61,184,176,0.35); }
   .empty-state { max-width: 760px; margin: 20px auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; color: var(--muted); font-size: 14px; line-height: 1.6; }
   .db-panel { max-width: 760px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 16px; }
   .db-panel h3 { font-size: 18px; margin-bottom: 8px; }
@@ -227,6 +230,7 @@
   <!-- NAVIGATION -->
   <div class="tabbar">
     <button class="tab-btn active" id="tab-study" onclick="showTab('study')">Estudar</button>
+    <button class="tab-btn today" id="tab-today" onclick="studyToday()">Hoje</button>
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
   </div>
@@ -235,10 +239,11 @@
   <div class="screen" id="diagnostic-screen" style="display:none;">
     <div class="diag-head">
       <div class="diag-title">Diagnóstico de estudo</div>
-      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. Clique em “Estudar assunto” para abrir todos os flashcards daquele bloco.</div>
+      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. Os cards certos passam a demorar mais para reaparecer no modo “Hoje”.</div>
     </div>
     <div class="summary-grid" id="summary-grid"></div>
     <div class="diag-controls">
+      <button class="mini-btn" onclick="studyToday()">Estudar hoje</button>
       <button class="mini-btn" onclick="buildDashboard('all')">Todos</button>
       <button class="mini-btn" onclick="buildDashboard('weak')">Só fracos</button>
       <button class="mini-btn" onclick="buildDashboard('sample')">Pouca amostra</button>
@@ -250,9 +255,10 @@
   <div class="screen" id="database-screen" style="display:none;">
     <div class="db-panel">
       <h3>Banco de desempenho</h3>
-      <p>Histórico conectado ao Supabase. Seus acertos, erros, difíceis e pulos ficam salvos na nuvem e podem ser acessados em outros aparelhos com o mesmo login.</p><p id="sync-status">Status: conectando...</p>
+      <p>Histórico conectado ao Supabase. Seus acertos, erros, difíceis e pulos ficam salvos na nuvem. A revisão espaçada agenda automaticamente quando cada card deve voltar.</p><p id="sync-status">Status: conectando...</p>
       <div class="summary-grid" id="db-summary"></div>
       <div class="db-actions">
+        <button class="mini-btn" onclick="studyToday()">Estudar hoje</button>
         <button class="mini-btn" onclick="exportHistory()">Exportar histórico</button>
         <button class="mini-btn logout-btn" onclick="logoutSupabase()">Sair da conta</button>
         <button class="mini-btn" onclick="document.getElementById('import-file').click()">Importar histórico</button>
@@ -1492,6 +1498,8 @@ const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
 const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let currentUser = null;
 let ONLINE_HISTORY = [];
+let REVIEW_STATE = new Map();
+let REVIEW_TABLE_READY = true;
 let isOnlineMode = true;
 const MIN_SAMPLE = 5;
 let deck = [], idx = 0, isFlipped = false;
@@ -1587,6 +1595,7 @@ async function saveEvent(card, result){
   };
   if(isOnlineMode && currentUser){
     ONLINE_HISTORY.push(event);
+    updateReviewState(card, result);
     const { error } = await supabaseClient
       .from("respostas")
       .insert({ card_id: card.id, resultado: result });
@@ -1598,6 +1607,7 @@ async function saveEvent(card, result){
     }
     return;
   }
+  updateReviewState(card, result);
   const hist = getHistory();
   hist.push(event);
   if(hist.length > 20000) hist.splice(0, hist.length - 20000);
@@ -1607,6 +1617,129 @@ async function saveEvent(card, result){
 function setSyncStatus(msg){
   const el = document.getElementById("sync-status");
   if(el) el.textContent = "Status: " + msg;
+}
+
+function addMinutes(date, minutes){
+  return new Date(date.getTime() + minutes * 60 * 1000);
+}
+function addDays(date, days){
+  return new Date(date.getTime() + days * 24 * 60 * 60 * 1000);
+}
+function reviewStateFor(card){
+  return REVIEW_STATE.get(card.id) || null;
+}
+function nextReviewText(card){
+  const st = reviewStateFor(card);
+  if(!st) return "Novo";
+  if(!st.proxima_revisao) return "Revisão pendente";
+  const next = new Date(st.proxima_revisao);
+  const now = new Date();
+  if(next <= now) return "Vencido para revisão";
+  const diffMs = next - now;
+  const diffMin = Math.ceil(diffMs / 60000);
+  if(diffMin < 60) return `Volta em ${diffMin} min`;
+  const diffHours = Math.ceil(diffMs / 3600000);
+  if(diffHours < 48) return `Volta em ${diffHours} h`;
+  const diffDays = Math.ceil(diffMs / 86400000);
+  return `Volta em ${diffDays} dias`;
+}
+function isDueCard(card){
+  const st = reviewStateFor(card);
+  if(!st) return false;
+  if(!st.proxima_revisao) return true;
+  return new Date(st.proxima_revisao).getTime() <= Date.now();
+}
+function isNewCard(card){
+  return !REVIEW_STATE.has(card.id);
+}
+function reviewPriority(card){
+  const st = reviewStateFor(card);
+  if(!st) return 10;
+  let p = 0;
+  if(st.ultimo_resultado === "wrong") p -= 100;
+  if(st.ultimo_resultado === "hard") p -= 60;
+  if(st.acertos_seguidos >= 3) p += 50;
+  const next = st.proxima_revisao ? new Date(st.proxima_revisao).getTime() : 0;
+  p += next / 100000000000;
+  return p;
+}
+function spacedIntervalFor(result, previous){
+  const now = new Date();
+  const prev = previous || {};
+  const oldStreak = Number(prev.acertos_seguidos || 0);
+  let streak = oldStreak;
+  let intervalDays = Number(prev.intervalo_dias || 0);
+  let next = now;
+
+  if(result === "right"){
+    streak = oldStreak + 1;
+    const intervals = [0, 3, 7, 15, 30, 60, 120, 180];
+    intervalDays = intervals[Math.min(streak, intervals.length - 1)];
+    next = addDays(now, intervalDays);
+  } else if(result === "hard"){
+    streak = Math.max(0, oldStreak - 1);
+    intervalDays = 1;
+    next = addDays(now, 1);
+  } else if(result === "wrong"){
+    streak = 0;
+    intervalDays = 0;
+    next = addMinutes(now, 10);
+  } else if(result === "skip"){
+    streak = oldStreak;
+    intervalDays = Number(prev.intervalo_dias || 0);
+    next = prev.proxima_revisao ? new Date(prev.proxima_revisao) : now;
+  }
+
+  return { streak, intervalDays, next };
+}
+async function updateReviewState(card, result){
+  const previous = REVIEW_STATE.get(card.id) || {};
+  const { streak, intervalDays, next } = spacedIntervalFor(result, previous);
+  const row = {
+    user_id: currentUser?.id,
+    card_id: card.id,
+    acertos_seguidos: streak,
+    intervalo_dias: intervalDays,
+    proxima_revisao: next.toISOString(),
+    ultima_revisao: new Date().toISOString(),
+    ultimo_resultado: result,
+    total_acertos: Number(previous.total_acertos || 0) + (result === "right" ? 1 : 0),
+    total_erros: Number(previous.total_erros || 0) + (result === "wrong" ? 1 : 0),
+    total_dificeis: Number(previous.total_dificeis || 0) + (result === "hard" ? 1 : 0),
+    total_pulos: Number(previous.total_pulos || 0) + (result === "skip" ? 1 : 0),
+    updated_at: new Date().toISOString()
+  };
+  REVIEW_STATE.set(card.id, row);
+  if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
+    const { error } = await supabaseClient
+      .from("estado_cards_usuario")
+      .upsert(row, { onConflict: "user_id,card_id" });
+    if(error){
+      console.error("Erro ao atualizar revisão espaçada:", error);
+      REVIEW_TABLE_READY = false;
+      setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
+    }
+  }
+}
+function getStudyTodayCards(){
+  const due = CARDS.filter(isDueCard).sort((a,b) => reviewPriority(a) - reviewPriority(b));
+  const fresh = CARDS.filter(isNewCard);
+  const maxTotal = 60;
+  const minNew = due.length < 30 ? Math.min(30 - due.length, fresh.length) : 0;
+  const cards = [...due.slice(0, maxTotal), ...fresh.slice(0, minNew)];
+  return cards.slice(0, maxTotal);
+}
+function reviewCounters(){
+  const due = CARDS.filter(isDueCard).length;
+  const fresh = CARDS.filter(isNewCard).length;
+  let mastered = 0;
+  REVIEW_STATE.forEach(st => { if(Number(st.acertos_seguidos || 0) >= 4 && st.proxima_revisao && new Date(st.proxima_revisao) > new Date()) mastered++; });
+  const overdue = CARDS.filter(c => {
+    const st = reviewStateFor(c);
+    if(!st?.proxima_revisao) return false;
+    return new Date(st.proxima_revisao).getTime() < Date.now() - 24*60*60*1000;
+  }).length;
+  return {due, fresh, mastered, overdue};
 }
 
 function calcStatsForEvents(events){
@@ -1622,6 +1755,8 @@ function calcStatsForEvents(events){
 function cardStats(cardId){ return calcStatsForEvents(getHistory().filter(e => e.card_id === cardId)); }
 
 function isCardHard(card){
+  const rs = reviewStateFor(card);
+  if(rs && (rs.ultimo_resultado === "hard" || rs.ultimo_resultado === "wrong")) return true;
   const events = getHistory().filter(e => e.card_id === card.id && ["right","wrong","hard"].includes(e.result));
   const st = calcStatsForEvents(events);
   const lastTwo = events.slice(-2).map(e => e.result);
@@ -1648,19 +1783,22 @@ function groupDashboardStats(){
   const groups = new Map();
   CARDS.forEach(c => {
     const key = c.publicacao + "|||" + c.assunto;
-    if(!groups.has(key)) groups.set(key, {publicacao:c.publicacao, assunto:c.assunto, cards:0, events:[]});
+    if(!groups.has(key)) groups.set(key, {publicacao:c.publicacao, assunto:c.assunto, cards:0, cardsList:[], events:[]});
     groups.get(key).cards++;
+    groups.get(key).cardsList.push(c);
   });
   hist.forEach(e => {
     if(!e.publicacao || !e.assunto) return;
     const key = e.publicacao + "|||" + e.assunto;
-    if(!groups.has(key)) groups.set(key, {publicacao:e.publicacao, assunto:e.assunto, cards:0, events:[]});
+    if(!groups.has(key)) groups.set(key, {publicacao:e.publicacao, assunto:e.assunto, cards:0, cardsList:[], events:[]});
     groups.get(key).events.push(e);
   });
   return Array.from(groups.values()).map(g => {
     const stats = calcStatsForEvents(g.events);
     const status = statusFromPct(stats.pct ?? 0, stats.answered);
-    return {...g, ...stats, status};
+    const dueCards = (g.cardsList || []).filter(c => isDueCard(c)).length;
+    const newCards = (g.cardsList || []).filter(c => isNewCard(c)).length;
+    return {...g, ...stats, status, dueCards, newCards};
   }).sort((a,b) => {
     const ap = a.pct === null ? 101 : a.pct;
     const bp = b.pct === null ? 101 : b.pct;
@@ -1674,7 +1812,7 @@ function overallStats(){
   const hist = getHistory();
   const st = calcStatsForEvents(hist);
   const studiedCards = new Set(hist.filter(e => ["right","wrong","hard"].includes(e.result)).map(e => e.card_id)).size;
-  return {...st, totalCards:CARDS.length, studiedCards, events:hist.length};
+  return {...st, totalCards:CARDS.length, studiedCards, events:hist.length, ...reviewCounters()};
 }
 
 function renderSummary(targetId){
@@ -1682,7 +1820,7 @@ function renderSummary(targetId){
   const pct = st.pct === null ? "—" : st.pct + "%";
   document.getElementById(targetId).innerHTML = `
     <div class="summary-card"><div class="summary-n">${st.totalCards}</div><div class="summary-l">Cards no banco</div></div>
-    <div class="summary-card"><div class="summary-n">${st.answered}</div><div class="summary-l">Respondidas</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--teal)">${st.due + Math.min(st.fresh, Math.max(0, 30 - st.due))}</div><div class="summary-l">Para estudar hoje</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--green)">${st.right}</div><div class="summary-l">Acertos</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--accent2)">${pct}</div><div class="summary-l">Aproveitamento</div></div>
   `;
@@ -1720,8 +1858,11 @@ function buildDashboard(filter="all"){
           <span class="meta-pill">${g.wrong} erros</span>
           <span class="meta-pill">${g.hard} difíceis</span>
           <span class="meta-pill">${g.cards} cards no assunto</span>
+          <span class="meta-pill">${g.dueCards} vencidos</span>
+          <span class="meta-pill">${g.newCards} novos</span>
         </div>
         <div class="diag-actions">
+          <button class="action-btn duebtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "due")'>Revisar hoje</button>
           <button class="action-btn primary" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "all")'>Estudar assunto</button>
           <button class="action-btn warn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "wrong")'>Só erradas</button>
           <button class="action-btn hardbtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "hard")'>Só difíceis</button>
@@ -1738,6 +1879,8 @@ function escapeHtml(str){
 function showTab(tab){
   activeTab = tab;
   ["study","diag","db"].forEach(t => document.getElementById("tab-"+t).classList.toggle("active", t===tab));
+  const todayTab = document.getElementById("tab-today");
+  if(todayTab) todayTab.classList.toggle("active", currentStudy.type === "today" && tab === "study");
   const studyDisplay = tab === "study";
   document.querySelector(".prog-wrap").style.display = studyDisplay ? "block" : "none";
   document.getElementById("study-title").style.display = studyDisplay ? "block" : "none";
@@ -1780,6 +1923,7 @@ function studyGroup(publicacao, assunto, mode="all"){
   let cards = CARDS.filter(c => c.publicacao === publicacao && c.assunto === assunto);
   if(mode === "wrong") cards = cards.filter(hasCardWrong);
   if(mode === "hard") cards = cards.filter(isCardHard);
+  if(mode === "due") cards = cards.filter(c => isDueCard(c) || isNewCard(c));
   if(!cards.length){
     alert("Ainda não há cards para esse filtro. Use 'Estudar assunto' para estudar todos os cards do bloco.");
     return;
@@ -1796,8 +1940,26 @@ function studyGroup(publicacao, assunto, mode="all"){
   showCard();
 }
 
+function studyToday(){
+  const cards = getStudyTodayCards();
+  if(!cards.length){
+    alert("Não há revisões vencidas agora. Para avançar, escolha uma publicação ou assunto e estude novos cards.");
+    return;
+  }
+  activeCat = "Todas";
+  buildCatPills();
+  deck = [...cards];
+  idx = 0; isFlipped=false; resetSessionScore();
+  currentStudy = { type:"today", publicacao:null, assunto:null, mode:"today", label:"Estudar hoje" };
+  document.getElementById('complete').classList.remove('show');
+  document.getElementById('complete').style.display='none';
+  updateStudyTitle();
+  showTab('study');
+  showCard();
+}
+
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", hard:"Somente difíceis"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", hard:"Somente difíceis", due:"Vencidos + novos", today:"Revisão espaçada"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = deck.length;
@@ -1825,7 +1987,7 @@ function showCard(){
   const topicPrefix = (c.assunto && c.assunto !== c.publicacao) ? c.assunto + " — " : "";
   document.getElementById('q-text').textContent = "De acordo com " + (c.publicacao||"—") + ": " + topicPrefix + c.q;
   document.getElementById('q-hint').textContent = c.hint ? '💡 ' + c.hint : '';
-  document.getElementById('q-src').textContent = c.publicacao + (c.assunto ? " · " + c.assunto : "");
+  document.getElementById('q-src').textContent = c.publicacao + (c.assunto ? " · " + c.assunto : "") + " · " + nextReviewText(c);
   document.getElementById('a-text').innerHTML = c.a;
 
   updateProgress();
@@ -1883,7 +2045,8 @@ function showComplete(){
 function restart(){
   document.getElementById('complete').classList.remove('show');
   document.getElementById('complete').style.display='none';
-  if(currentStudy.type === "topic") studyGroup(currentStudy.publicacao, currentStudy.assunto, currentStudy.mode);
+  if(currentStudy.type === "today") studyToday();
+  else if(currentStudy.type === "topic") studyGroup(currentStudy.publicacao, currentStudy.assunto, currentStudy.mode);
   else selectCat(activeCat);
 }
 
@@ -1892,8 +2055,10 @@ async function resetHistory(){
   if(isOnlineMode && currentUser){
     const { error } = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
     if(error){ alert("Erro ao apagar histórico: " + error.message); return; }
+    await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
     ONLINE_HISTORY = [];
-    setSyncStatus("Histórico apagado no Supabase.");
+    REVIEW_STATE = new Map();
+    setSyncStatus("Histórico e revisão espaçada apagados no Supabase.");
   } else {
     localStorage.removeItem(DB_KEY);
   }
@@ -1907,7 +2072,8 @@ function exportHistory(){
     app:"FlashPratico",
     version:2,
     exported_at:new Date().toISOString(),
-    history:getHistory()
+    history:getHistory(),
+    review_state:Array.from(REVIEW_STATE.values())
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
   const url = URL.createObjectURL(blob);
@@ -2012,6 +2178,22 @@ async function loadCardsFromSupabase(){
   CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
 }
 
+async function loadReviewStateFromSupabase(){
+  setSyncStatus("carregando revisão espaçada...");
+  REVIEW_STATE = new Map();
+  REVIEW_TABLE_READY = true;
+  const { data, error } = await supabaseClient
+    .from("estado_cards_usuario")
+    .select("user_id,card_id,acertos_seguidos,intervalo_dias,proxima_revisao,ultima_revisao,ultimo_resultado,total_acertos,total_erros,total_dificeis,total_pulos,updated_at");
+  if(error){
+    console.warn("Tabela de revisão espaçada ainda não disponível:", error);
+    REVIEW_TABLE_READY = false;
+    setSyncStatus("rode a migração de revisão espaçada no Supabase.");
+    return;
+  }
+  (data || []).forEach(row => REVIEW_STATE.set(row.card_id, row));
+}
+
 async function loadResponsesFromSupabase(){
   setSyncStatus("carregando histórico...");
   const { data, error } = await supabaseClient
@@ -2038,6 +2220,7 @@ async function startAuthenticatedApp(){
   document.getElementById("app").style.display = "block";
   try{
     await loadCardsFromSupabase();
+    await loadReviewStateFromSupabase();
     await loadResponsesFromSupabase();
     buildCatPills();
     selectCat("Todas");
