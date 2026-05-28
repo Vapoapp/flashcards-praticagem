@@ -293,8 +293,7 @@
 
   <!-- NAVIGATION -->
   <div class="tabbar">
-    <button class="tab-btn active" id="tab-study" onclick="showTab('study')">Estudar</button>
-    <button class="tab-btn today" id="tab-today" onclick="studyToday()">Hoje</button>
+    <button class="tab-btn active" id="tab-study" onclick="smartStudy()">Estudar</button>
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
   </div>
@@ -303,11 +302,11 @@
   <div class="screen" id="diagnostic-screen" style="display:none;">
     <div class="diag-head">
       <div class="diag-title">Diagnóstico de estudo</div>
-      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. Os cards certos passam a demorar mais para reaparecer no modo “Hoje”.</div>
+      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. O botão Estudar monta um baralho inteligente: erradas, difíceis e vencidas primeiro; cards dominados ficam para depois.</div>
     </div>
     <div class="summary-grid" id="summary-grid"></div>
     <div class="diag-controls">
-      <button class="mini-btn" onclick="studyToday()">Estudar hoje</button>
+      <button class="mini-btn" onclick="smartStudy()">Estudar</button>
       <button class="mini-btn" onclick="buildDashboard('all')">Todos</button>
       <button class="mini-btn" onclick="buildDashboard('weak')">Só fracos</button>
       <button class="mini-btn" onclick="buildDashboard('sample')">Pouca amostra</button>
@@ -322,7 +321,7 @@
       <p>Histórico conectado ao Supabase. Seus acertos, erros, difíceis e pulos ficam salvos na nuvem. A revisão espaçada agenda automaticamente quando cada card deve voltar.</p><p id="sync-status">Status: conectando...</p>
       <div class="summary-grid" id="db-summary"></div>
       <div class="db-actions">
-        <button class="mini-btn" onclick="studyToday()">Estudar hoje</button>
+        <button class="mini-btn" onclick="smartStudy()">Estudar</button>
         <button class="mini-btn" onclick="exportHistory()">Exportar histórico</button>
         <button class="mini-btn logout-btn" onclick="logoutSupabase()">Sair da conta</button>
         <button class="mini-btn" onclick="document.getElementById('import-file').click()">Importar histórico</button>
@@ -1785,13 +1784,33 @@ async function updateReviewState(card, result){
     }
   }
 }
+function uniqueCards(cards){
+  const seen = new Set();
+  const out = [];
+  cards.forEach(card => {
+    if(!card || seen.has(card.id)) return;
+    seen.add(card.id);
+    out.push(card);
+  });
+  return out;
+}
+
+function baseCardsForActiveFilter(){
+  return activeCat === "Todas" ? [...CARDS] : CARDS.filter(c => c.publicacao === activeCat);
+}
+
+function getSmartStudyCards(baseCards = null){
+  const base = baseCards || baseCardsForActiveFilter();
+  const due = base.filter(isDueCard).sort((a,b) => reviewPriority(a) - reviewPriority(b));
+  const weak = base.filter(c => !isDueCard(c) && !isNewCard(c) && isCardHard(c)).sort((a,b) => reviewPriority(a) - reviewPriority(b));
+  const fresh = base.filter(isNewCard);
+  const scheduled = base.filter(c => !isDueCard(c) && !isNewCard(c) && !isCardHard(c)).sort((a,b) => reviewPriority(a) - reviewPriority(b));
+  return uniqueCards([...due, ...weak, ...fresh, ...scheduled]);
+}
+
+// Mantido como alias para botões antigos/caches antigos: agora o modo correto é o Estudar inteligente.
 function getStudyTodayCards(){
-  const due = CARDS.filter(isDueCard).sort((a,b) => reviewPriority(a) - reviewPriority(b));
-  const fresh = CARDS.filter(isNewCard);
-  const maxTotal = 60;
-  const minNew = due.length < 30 ? Math.min(30 - due.length, fresh.length) : 0;
-  const cards = [...due.slice(0, maxTotal), ...fresh.slice(0, minNew)];
-  return cards.slice(0, maxTotal);
+  return getSmartStudyCards(CARDS);
 }
 function reviewCounters(){
   const due = CARDS.filter(isDueCard).length;
@@ -1884,7 +1903,7 @@ function renderSummary(targetId){
   const pct = st.pct === null ? "—" : st.pct + "%";
   document.getElementById(targetId).innerHTML = `
     <div class="summary-card"><div class="summary-n">${st.totalCards}</div><div class="summary-l">Cards no banco</div></div>
-    <div class="summary-card"><div class="summary-n" style="color:var(--teal)">${st.due + Math.min(st.fresh, Math.max(0, 30 - st.due))}</div><div class="summary-l">Para estudar hoje</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--teal)">${getSmartStudyCards().length}</div><div class="summary-l">No estudo inteligente</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--green)">${st.right}</div><div class="summary-l">Acertos</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--accent2)">${pct}</div><div class="summary-l">Aproveitamento</div></div>
   `;
@@ -1943,8 +1962,6 @@ function escapeHtml(str){
 function showTab(tab){
   activeTab = tab;
   ["study","diag","db"].forEach(t => document.getElementById("tab-"+t).classList.toggle("active", t===tab));
-  const todayTab = document.getElementById("tab-today");
-  if(todayTab) todayTab.classList.toggle("active", currentStudy.type === "today" && tab === "study");
   const studyDisplay = tab === "study";
   document.querySelector(".prog-wrap").style.display = studyDisplay ? "block" : "none";
   document.getElementById("study-title").style.display = studyDisplay ? "block" : "none";
@@ -2028,9 +2045,25 @@ function resetSessionScore(){
 function selectCat(cat){
   activeCat = cat;
   buildCatPills();
-  deck = (cat==="Todas" ? [...CARDS] : CARDS.filter(c=>c.publicacao===cat));
-  currentStudy = { type:"publication", publicacao:cat==="Todas"?null:cat, assunto:null, mode:"all", label:cat==="Todas"?"Todas as publicações":cat };
+  deck = getSmartStudyCards(baseCardsForActiveFilter());
+  currentStudy = { type:"smart", publicacao:cat==="Todas"?null:cat, assunto:null, mode:"smart", label:cat==="Todas"?"Todas as publicações":cat };
   idx = 0; isFlipped=false; resetSessionScore();
+  document.getElementById('complete').classList.remove('show');
+  document.getElementById('complete').style.display='none';
+  updateStudyTitle();
+  showTab('study');
+  showCard();
+}
+
+function smartStudy(){
+  const cards = getSmartStudyCards(baseCardsForActiveFilter());
+  if(!cards.length){
+    alert("Não há cards disponíveis para esse filtro.");
+    return;
+  }
+  deck = [...cards];
+  idx = 0; isFlipped=false; resetSessionScore();
+  currentStudy = { type:"smart", publicacao:activeCat==="Todas"?null:activeCat, assunto:null, mode:"smart", label:activeCat==="Todas"?"Todas as publicações":activeCat };
   document.getElementById('complete').classList.remove('show');
   document.getElementById('complete').style.display='none';
   updateStudyTitle();
@@ -2060,25 +2093,13 @@ function studyGroup(publicacao, assunto, mode="all"){
 }
 
 function studyToday(){
-  const cards = getStudyTodayCards();
-  if(!cards.length){
-    alert("Não há revisões vencidas agora. Para avançar, escolha uma publicação ou assunto e estude novos cards.");
-    return;
-  }
   activeCat = "Todas";
   buildCatPills();
-  deck = [...cards];
-  idx = 0; isFlipped=false; resetSessionScore();
-  currentStudy = { type:"today", publicacao:null, assunto:null, mode:"today", label:"Estudar hoje" };
-  document.getElementById('complete').classList.remove('show');
-  document.getElementById('complete').style.display='none';
-  updateStudyTitle();
-  showTab('study');
-  showCard();
+  smartStudy();
 }
 
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", hard:"Somente difíceis", due:"Vencidos + novos", today:"Revisão espaçada"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", hard:"Somente difíceis", due:"Vencidos + novos", today:"Revisão espaçada", smart:"Prioridade inteligente"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = deck.length;
@@ -2164,7 +2185,7 @@ function showComplete(){
 function restart(){
   document.getElementById('complete').classList.remove('show');
   document.getElementById('complete').style.display='none';
-  if(currentStudy.type === "today") studyToday();
+  if(currentStudy.type === "smart") smartStudy();
   else if(currentStudy.type === "topic") studyGroup(currentStudy.publicacao, currentStudy.assunto, currentStudy.mode);
   else selectCat(activeCat);
 }
