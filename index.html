@@ -127,7 +127,7 @@
 
 
   /* ADAPTIVE STUDY SYSTEM */
-  .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
+  .tabbar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
   .tab-btn { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 14px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
   .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent2); }
   .tab-btn.today { background: rgba(61,184,176,0.14); color: var(--teal); border-color: rgba(61,184,176,0.35); }
@@ -246,7 +246,7 @@
     .nav-row { margin-top: 5px; }
   }
   @media (max-width: 520px) {
-    .tabbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .tabbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     .tab-btn { font-size: 11px; padding: 8px 4px; }
     .card-wrapper, .btn-row, .nav-row, .study-title { max-width: 100%; }
   }
@@ -1985,74 +1985,26 @@ function scrollCats(direction){
 }
 
 function initCatDrag(){
-  const el = document.getElementById('cat-pills');
-  if(!el || el.dataset.dragReady === '1') return;
-  el.dataset.dragReady = '1';
-  let isDown = false;
-  let startX = 0;
-  let startLeft = 0;
-  let moved = false;
-
-  el.addEventListener('pointerdown', (e) => {
-    if(e.pointerType === 'mouse' && e.button !== 0) return;
-    isDown = true;
-    moved = false;
-    startX = e.clientX;
-    startLeft = el.scrollLeft;
-    el.classList.add('dragging');
-    el.setPointerCapture?.(e.pointerId);
-  });
-
-  el.addEventListener('pointermove', (e) => {
-    if(!isDown) return;
-    const dx = e.clientX - startX;
-    if(Math.abs(dx) > 7) moved = true;
-    if(moved){
-      el.scrollLeft = startLeft - dx;
-    }
-  });
-
-  function finishDrag(e){
-    if(!isDown) return;
-    isDown = false;
-    el.classList.remove('dragging');
-    try { el.releasePointerCapture?.(e.pointerId); } catch(_) {}
-    if(moved){
-      el.dataset.justDragged = '1';
-      setTimeout(() => { el.dataset.justDragged = '0'; }, 120);
-    }
-  }
-
-  el.addEventListener('pointerup', finishDrag);
-  el.addEventListener('pointercancel', finishDrag);
-  el.addEventListener('mouseleave', finishDrag);
-
-  // Clique real nas publicações. Usar delegação evita falha quando a barra é reconstruída.
-  el.addEventListener('click', (e) => {
-    const btn = e.target.closest('.cat-pill');
-    if(!btn) return;
-    if(el.dataset.justDragged === '1'){
-      e.preventDefault();
-      return;
-    }
-    e.preventDefault();
-    selectCat(btn.dataset.cat);
-  });
+  // v8: desativado para evitar conflito entre arrastar e clicar.
+  // A navegação horizontal agora é feita pelos botões ‹ › e pela barra/trackpad.
+  return;
 }
+
 
 function buildCatPills(){
   const el = document.getElementById('cat-pills');
   el.innerHTML = CATS.map(c => {
     const count = c === "Todas" ? CARDS.length : CARDS.filter(x => x.publicacao === c).length;
     const label = c === "Todas" ? `Todas (${count})` : `${c} (${count})`;
-    return `<button class="cat-pill ${c===activeCat?'active':''}" type="button" data-cat="${escapeHtml(c)}" title="Estudar ${escapeHtml(c)}">${escapeHtml(label)}</button>`;
+    const safeValue = encodeURIComponent(c);
+    return `<button class="cat-pill ${c===activeCat?'active':''}" type="button" onclick="selectCat(decodeURIComponent('${safeValue}'))" title="Estudar ${escapeHtml(c)}">${escapeHtml(label)}</button>`;
   }).join('');
-  initCatDrag();
   requestAnimationFrame(() => {
     const active = el.querySelector('.cat-pill.active');
     active?.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' });
   });
 }
+
 
 function resetSessionScore(){
   scoreRight=0; scoreWrong=0; scoreHard=0; answered=0;
