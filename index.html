@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v9: Arquivados por usuário + estudar inteligente -->
+<!-- versão v11: imagens nos flashcards + arquivados por usuário + estudar inteligente -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -177,6 +177,13 @@
   .archive-pill { font-size: 10px; font-weight: 800; color: var(--accent2); border: 1px solid rgba(124,140,248,.35); background: rgba(91,106,240,.14); border-radius: 999px; padding: 3px 8px; }
   .archive-q { font-size: 14px; font-weight: 700; line-height: 1.45; margin-bottom: 8px; color: var(--text); }
   .archive-a { font-size: 13px; line-height: 1.55; color: var(--muted); margin-bottom: 12px; max-height: 90px; overflow: auto; padding-right: 4px; }
+
+  /* IMAGENS NOS FLASHCARDS */
+  .card-img-wrap { width: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; margin: 4px 0 12px; }
+  .card-img { max-width: min(82%, 360px); max-height: min(34vh, 260px); object-fit: contain; border-radius: 14px; background: #fff; border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 8px 28px rgba(0,0,0,.25); }
+  .card-img-caption { margin-top: 6px; font-size: 11px; color: var(--muted); text-align: center; }
+  .archive-img { max-width: 220px; max-height: 150px; object-fit: contain; border-radius: 12px; background:#fff; border:1px solid var(--border2); margin: 8px 0 10px; display:block; }
+
   .restore-btn { border: 1px solid rgba(76,175,125,.38); background: rgba(76,175,125,.14); color: var(--green); border-radius: 12px; padding: 9px 10px; font-size: 12px; font-weight: 800; cursor: pointer; }
   .restore-btn:active { transform: scale(.97); }
 
@@ -382,6 +389,10 @@
           </div>
           <div class="card-body">
             <div class="question-icon" id="q-icon">❓</div>
+            <div class="card-img-wrap" id="q-img-wrap" style="display:none;">
+              <img id="q-img" class="card-img" alt="">
+              <div id="q-img-caption" class="card-img-caption"></div>
+            </div>
             <div class="question-text" id="q-text">Carregando...</div>
             <div class="hint" id="q-hint"></div>
             <div class="src-badge" id="q-src"></div>
@@ -394,6 +405,10 @@
             <span class="diff-badge" id="back-diff">—</span>
           </div>
           <div class="card-body" style="overflow-y:auto; max-height: calc(var(--card-h) - 100px);">
+            <div class="card-img-wrap" id="a-img-wrap" style="display:none;">
+              <img id="a-img" class="card-img" alt="">
+              <div id="a-img-caption" class="card-img-caption"></div>
+            </div>
             <div id="a-text" class="answer-text">—</div>
           </div>
           <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></div>
@@ -1666,7 +1681,8 @@ const COLORS = {
   "RIPEAM / COLREG 1972":"#e05c5c",
   "LESTA — Lei nº 9.537/1997":"#c96abd",
   "RLESTA — Decreto nº 2.596/1998":"#ba7517",
-  "NORMAM-302/DPC — IAFN":"#4caf7d"
+  "NORMAM-302/DPC — IAFN":"#4caf7d",
+  "FLAGS":"#f0a04b"
 };
 function getColor(cat){ return COLORS[cat] || "#5b6af0"; }
 
@@ -2152,6 +2168,7 @@ function renderArchivedCards(){
         <span class="archive-pill">${escapeHtml(c.assunto || "Sem assunto")}</span>
         <span class="archive-pill">${escapeHtml(c.id)}</span>
       </div>
+      ${c.image_q_url ? `<img class="archive-img" src="${escapeHtml(c.image_q_url)}" alt="${escapeHtml(c.image_caption || 'Imagem do flashcard')}">` : ""}
       <div class="archive-q">${escapeHtml(c.q)}</div>
       <div class="archive-a">${c.a}</div>
       <button class="restore-btn" type="button" data-restore-id="${escapeHtml(c.id)}">Retornar ao baralho</button>
@@ -2237,6 +2254,28 @@ function updateStudyTitle(){
   document.getElementById('study-title').innerHTML = `<strong>Modo:</strong> ${escapeHtml(label)} <span class="study-mode-badge">${mode}</span> <span class="study-mode-badge">${count} cards</span>`;
 }
 
+
+function setCardImage(prefix, url, caption){
+  const wrap = document.getElementById(prefix + "-img-wrap");
+  const img = document.getElementById(prefix + "-img");
+  const cap = document.getElementById(prefix + "-img-caption");
+  if(!wrap || !img) return;
+  if(url){
+    img.src = url;
+    img.alt = caption || "Imagem do flashcard";
+    wrap.style.display = "flex";
+    if(cap){
+      cap.textContent = caption || "";
+      cap.style.display = caption ? "block" : "none";
+    }
+  } else {
+    img.removeAttribute("src");
+    img.alt = "";
+    wrap.style.display = "none";
+    if(cap){ cap.textContent = ""; cap.style.display = "none"; }
+  }
+}
+
 function showCard(){
   if(idx >= deck.length){ showComplete(); return; }
   const c = deck[idx];
@@ -2255,6 +2294,8 @@ function showCard(){
   document.getElementById('back-diff').className='diff-badge '+dc;
   document.getElementById('back-diff').textContent=dl;
   document.getElementById('q-icon').textContent = c.icon||'❓';
+  setCardImage("q", c.image_q_url, c.image_caption || "");
+  setCardImage("a", c.image_a_url, c.image_caption || "");
   const topicPrefix = (c.assunto && c.assunto !== c.publicacao) ? c.assunto + " — " : "";
   document.getElementById('q-text').textContent = "De acordo com " + (c.publicacao||"—") + ": " + topicPrefix + c.q;
   document.getElementById('q-hint').textContent = c.hint ? '💡 ' + c.hint : '';
@@ -2428,7 +2469,7 @@ async function loadCardsFromSupabase(){
   setSyncStatus("carregando cards...");
   const { data, error } = await supabaseClient
     .from("cards")
-    .select("id,publicacao,assunto,icon,diff,src,q,a,ativo")
+    .select("id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption")
     .eq("ativo", true)
     .order("publicacao", { ascending:true })
     .order("assunto", { ascending:true });
@@ -2445,7 +2486,10 @@ async function loadCardsFromSupabase(){
     src:c.src || c.publicacao,
     q:c.q,
     a:c.a,
-    ativo:c.ativo
+    ativo:c.ativo,
+    image_q_url:c.image_q_url || "",
+    image_a_url:c.image_a_url || "",
+    image_caption:c.image_caption || ""
   }));
   CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
 }
