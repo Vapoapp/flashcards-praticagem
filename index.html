@@ -1717,7 +1717,7 @@ async function saveEvent(card, result){
     await updateReviewState(card, result);
     const { error } = await supabaseClient
       .from("respostas")
-      .insert({ card_id: card.id, resultado: result });
+      .insert({ user_id: currentUser.id, card_id: card.id, resultado: result });
     if(error){
       console.error("Erro ao salvar no Supabase:", error);
       setSyncStatus("Erro ao salvar resposta: " + error.message);
@@ -2076,10 +2076,12 @@ async function loadArchivedFromSupabase(){
   setSyncStatus("carregando arquivados...");
   ARCHIVED_CARDS = new Set();
   ARCHIVE_TABLE_READY = true;
-  const { data, error } = await supabaseClient
+  let query = supabaseClient
     .from("flashcard_arquivados")
-    .select("card_id, archived_at")
+    .select("user_id, card_id, archived_at")
     .order("archived_at", { ascending:false });
+  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  const { data, error } = await query;
   if(error){
     console.warn("Tabela de arquivados ainda não disponível:", error);
     ARCHIVE_TABLE_READY = false;
@@ -2141,6 +2143,7 @@ async function restoreArchivedCard(cardId){
     const { error } = await supabaseClient
       .from("flashcard_arquivados")
       .delete()
+      .eq("user_id", currentUser.id)
       .eq("card_id", cardId);
 
     if(error){
@@ -2202,26 +2205,64 @@ function resetSessionScore(){
   document.getElementById('score-wrong').textContent='0';
 }
 
+
+function nextAvailableTextFor(cards){
+  const futureDates = cards
+    .map(c => reviewStateFor(c)?.proxima_revisao)
+    .filter(Boolean)
+    .map(x => new Date(x))
+    .filter(d => !isNaN(d.getTime()) && d.getTime() > Date.now())
+    .sort((a,b) => a - b);
+  if(!futureDates.length) return "Nenhum card novo ou vencido neste filtro.";
+  const next = futureDates[0];
+  const diffMs = next.getTime() - Date.now();
+  const diffMin = Math.ceil(diffMs / 60000);
+  if(diffMin < 60) return `Próxima revisão em ${diffMin} min.`;
+  const diffHours = Math.ceil(diffMs / 3600000);
+  if(diffHours < 48) return `Próxima revisão em ${diffHours} h.`;
+  const diffDays = Math.ceil(diffMs / 86400000);
+  return `Próxima revisão em ${diffDays} dias.`;
+}
+
+function showNoAvailableCards(scopeLabel, totalCards){
+  document.getElementById('card-area').style.display='none';
+  const comp = document.getElementById('complete');
+  comp.classList.add('show');
+  comp.style.display='flex';
+  const base = baseCardsForActiveFilter();
+  comp.querySelector('.complete-emoji').textContent = '⏳';
+  comp.querySelector('h2').textContent = 'Nenhum card disponível agora';
+  comp.querySelector('p').innerHTML = `${escapeHtml(scopeLabel || 'Este baralho')} tem ${totalCards || base.length} card(s), mas nenhum está novo ou vencido para revisão. ${escapeHtml(nextAvailableTextFor(base))}`;
+  document.getElementById('fin-right').textContent = scoreRight;
+  document.getElementById('fin-wrong').textContent = scoreWrong;
+  document.getElementById('fin-hard').textContent = scoreHard;
+  document.getElementById('fin-pct').textContent = '—';
+  updateProgress();
+}
+
 function selectCat(cat){
   activeCat = cat;
   buildCatPills();
-  deck = getSmartStudyCards(baseCardsForActiveFilter());
+
+  // Ao clicar numa publicação/assunto na barra superior, o usuário está escolhendo
+  // ver aquele baralho completo. Aqui NÃO aplicamos bloqueio de revisão espaçada.
+  // O bloqueio por tempo fica restrito ao botão/aba Estudar inteligente.
+  const base = baseCardsForActiveFilter();
+  deck = [...base];
   sessionTotal = deck.length;
-  currentStudy = { type:"smart", publicacao:cat==="Todas"?null:cat, assunto:null, mode:"smart", label:cat==="Todas"?"Todas as publicações":cat };
+  currentStudy = { type:"category", publicacao:cat==="Todas"?null:cat, assunto:null, mode:"all", label:cat==="Todas"?"Todas as publicações":cat };
   idx = 0; isFlipped=false; resetSessionScore();
   document.getElementById('complete').classList.remove('show');
   document.getElementById('complete').style.display='none';
   updateStudyTitle();
   showTab('study');
+  if(!deck.length){ showNoAvailableCards(currentStudy.label, base.length); return; }
   showCard();
 }
 
 function smartStudy(){
-  const cards = getSmartStudyCards(baseCardsForActiveFilter());
-  if(!cards.length){
-    alert("Não há cards disponíveis para esse filtro.");
-    return;
-  }
+  const base = baseCardsForActiveFilter();
+  const cards = getSmartStudyCards(base);
   deck = [...cards];
   sessionTotal = deck.length;
   idx = 0; isFlipped=false; resetSessionScore();
@@ -2230,19 +2271,23 @@ function smartStudy(){
   document.getElementById('complete').style.display='none';
   updateStudyTitle();
   showTab('study');
+  if(!deck.length){ showNoAvailableCards(currentStudy.label, base.length); return; }
   showCard();
 }
 
 function studyGroup(publicacao, assunto, mode="all"){
   let cards = visibleCards(CARDS).filter(c => c.publicacao === publicacao && c.assunto === assunto);
-  // Todos os modos de estudo respeitam a revisão espaçada.
-  // Cards com proxima_revisao no futuro ficam bloqueados até a data/hora correta.
-  cards = cards.filter(isStudyAvailable);
+
+  // Nos filtros do Diagnóstico, "Estudar assunto", "Só erradas" e "Só difíceis"
+  // mostram o conjunto solicitado independentemente do prazo. Apenas "Revisar vencidos"
+  // aplica a regra da revisão espaçada.
   if(mode === "wrong") cards = cards.filter(hasCardWrong);
   if(mode === "hard") cards = cards.filter(isCardHard);
   if(mode === "due") cards = cards.filter(c => isDueCard(c) || isNewCard(c));
   if(!cards.length){
-    alert("Não há cards vencidos ou novos para esse filtro. Cards com prazo futuro só voltarão na data agendada.");
+    alert(mode === "due"
+      ? "Não há cards vencidos ou novos para esse filtro. Cards com prazo futuro só voltarão na data agendada."
+      : "Não há cards nesse filtro.");
     return;
   }
   activeCat = publicacao;
@@ -2397,6 +2442,9 @@ function showComplete(){
   const comp = document.getElementById('complete');
   comp.classList.add('show');
   comp.style.display='flex';
+  comp.querySelector('.complete-emoji').textContent = '🎉';
+  comp.querySelector('h2').textContent = 'Baralho concluído!';
+  comp.querySelector('p').textContent = 'Você completou todos os flashcards da categoria selecionada.';
   const total = answered;
   const pct = total ? Math.round((scoreRight/total)*100) : 0;
   document.getElementById('fin-right').textContent = scoreRight;
@@ -2571,27 +2619,35 @@ async function loadReviewStateFromSupabase(){
   setSyncStatus("carregando revisão espaçada...");
   REVIEW_STATE = new Map();
   REVIEW_TABLE_READY = true;
-  const { data, error } = await supabaseClient
+  let query = supabaseClient
     .from("estado_cards_usuario")
     .select("user_id,card_id,acertos_seguidos,intervalo_dias,proxima_revisao,ultima_revisao,ultimo_resultado,total_acertos,total_erros,total_dificeis,total_pulos,updated_at");
+  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  const { data, error } = await query;
   if(error){
     console.warn("Tabela de revisão espaçada ainda não disponível:", error);
     REVIEW_TABLE_READY = false;
     setSyncStatus("rode a migração de revisão espaçada no Supabase.");
     return;
   }
-  (data || []).forEach(row => REVIEW_STATE.set(row.card_id, row));
+  (data || [])
+    .filter(row => !currentUser?.id || !row.user_id || row.user_id === currentUser.id)
+    .forEach(row => REVIEW_STATE.set(row.card_id, row));
 }
 
 async function loadResponsesFromSupabase(){
   setSyncStatus("carregando histórico...");
-  const { data, error } = await supabaseClient
+  let query = supabaseClient
     .from("respostas")
-    .select("id,card_id,resultado,created_at")
+    .select("id,user_id,card_id,resultado,created_at")
     .order("created_at", { ascending:true });
+  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  const { data, error } = await query;
   if(error) throw error;
   const cardMap = new Map(CARDS.map(c => [c.id, c]));
-  ONLINE_HISTORY = (data || []).map(r => {
+  ONLINE_HISTORY = (data || [])
+    .filter(r => !currentUser?.id || !r.user_id || r.user_id === currentUser.id)
+    .map(r => {
     const c = cardMap.get(r.card_id) || {};
     return {
       id:String(r.id),
