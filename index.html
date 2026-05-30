@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v12: imagens nos flashcards + proteção contra tela preta + arquivados -->
+<!-- versão v13: revisão espaçada respeitada + imagem sem legenda na frente + proteção contra tela preta + arquivados -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -1618,7 +1618,7 @@ let isOnlineMode = true;
 const MIN_SAMPLE = 5;
 let deck = [], idx = 0, isFlipped = false;
 let scoreRight = 0, scoreWrong = 0, scoreHard = 0;
-let answered = 0, activeCat = "Todas", activeTab = "study";
+let answered = 0, sessionDone = 0, sessionTotal = 0, activeCat = "Todas", activeTab = "study";
 let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", label:"Todas as publicações" };
 
 function slugify(text){
@@ -1771,6 +1771,13 @@ function isDueCard(card){
 function isNewCard(card){
   return !REVIEW_STATE.has(card.id);
 }
+function isStudyAvailable(card){
+  // Regra central da revisão espaçada:
+  // - Card novo pode aparecer.
+  // - Card com revisão vencida pode aparecer.
+  // - Card agendado para o futuro NÃO entra no baralho, mesmo se estiver marcado como difícil/errado.
+  return isNewCard(card) || isDueCard(card);
+}
 function reviewPriority(card){
   const st = reviewStateFor(card);
   if(!st) return 10;
@@ -1859,13 +1866,14 @@ function baseCardsForActiveFilter(){
 function getSmartStudyCards(baseCards = null){
   const base = baseCards || baseCardsForActiveFilter();
   const due = base.filter(isDueCard).sort((a,b) => reviewPriority(a) - reviewPriority(b));
-  const weak = base.filter(c => !isDueCard(c) && !isNewCard(c) && isCardHard(c)).sort((a,b) => reviewPriority(a) - reviewPriority(b));
   const fresh = base.filter(isNewCard);
-  const scheduled = base.filter(c => !isDueCard(c) && !isNewCard(c) && !isCardHard(c)).sort((a,b) => reviewPriority(a) - reviewPriority(b));
-  return uniqueCards([...due, ...weak, ...fresh, ...scheduled]);
+  // Não incluir cards agendados para o futuro.
+  // Antes, cards "difíceis" e "dominados" entravam mesmo com proxima_revisao futura,
+  // por isso um card marcado como "Volta em 7 dias" podia reaparecer no mesmo dia.
+  return uniqueCards([...due, ...fresh]);
 }
 
-// Mantido como alias para botões antigos/caches antigos: agora o modo correto é o Estudar inteligente.
+// Mantido como alias para botões antigos/caches antigos: agora retorna somente vencidos + novos.
 function getStudyTodayCards(){
   return getSmartStudyCards(visibleCards(CARDS));
 }
@@ -2189,7 +2197,7 @@ function renderArchivedCards(){
 }
 
 function resetSessionScore(){
-  scoreRight=0; scoreWrong=0; scoreHard=0; answered=0;
+  scoreRight=0; scoreWrong=0; scoreHard=0; answered=0; sessionDone=0;
   document.getElementById('score-right').textContent='0';
   document.getElementById('score-wrong').textContent='0';
 }
@@ -2198,6 +2206,7 @@ function selectCat(cat){
   activeCat = cat;
   buildCatPills();
   deck = getSmartStudyCards(baseCardsForActiveFilter());
+  sessionTotal = deck.length;
   currentStudy = { type:"smart", publicacao:cat==="Todas"?null:cat, assunto:null, mode:"smart", label:cat==="Todas"?"Todas as publicações":cat };
   idx = 0; isFlipped=false; resetSessionScore();
   document.getElementById('complete').classList.remove('show');
@@ -2214,6 +2223,7 @@ function smartStudy(){
     return;
   }
   deck = [...cards];
+  sessionTotal = deck.length;
   idx = 0; isFlipped=false; resetSessionScore();
   currentStudy = { type:"smart", publicacao:activeCat==="Todas"?null:activeCat, assunto:null, mode:"smart", label:activeCat==="Todas"?"Todas as publicações":activeCat };
   document.getElementById('complete').classList.remove('show');
@@ -2225,16 +2235,20 @@ function smartStudy(){
 
 function studyGroup(publicacao, assunto, mode="all"){
   let cards = visibleCards(CARDS).filter(c => c.publicacao === publicacao && c.assunto === assunto);
+  // Todos os modos de estudo respeitam a revisão espaçada.
+  // Cards com proxima_revisao no futuro ficam bloqueados até a data/hora correta.
+  cards = cards.filter(isStudyAvailable);
   if(mode === "wrong") cards = cards.filter(hasCardWrong);
   if(mode === "hard") cards = cards.filter(isCardHard);
   if(mode === "due") cards = cards.filter(c => isDueCard(c) || isNewCard(c));
   if(!cards.length){
-    alert("Ainda não há cards para esse filtro. Use 'Estudar assunto' para estudar todos os cards do bloco.");
+    alert("Não há cards vencidos ou novos para esse filtro. Cards com prazo futuro só voltarão na data agendada.");
     return;
   }
   activeCat = publicacao;
   buildCatPills();
   deck = [...cards];
+  sessionTotal = deck.length;
   idx = 0; isFlipped=false; resetSessionScore();
   currentStudy = { type:"topic", publicacao, assunto, mode, label:`${publicacao} — ${assunto}` };
   document.getElementById('complete').classList.remove('show');
@@ -2254,8 +2268,9 @@ function updateStudyTitle(){
   const modeMap = {all:"Todos os cards", wrong:"Somente erradas", hard:"Somente difíceis", due:"Vencidos + novos", today:"Revisão espaçada", smart:"Prioridade inteligente"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
-  const count = deck.length;
-  document.getElementById('study-title').innerHTML = `<strong>Modo:</strong> ${escapeHtml(label)} <span class="study-mode-badge">${mode}</span> <span class="study-mode-badge">${count} cards</span>`;
+  const count = sessionTotal || deck.length;
+  const remaining = deck.length;
+  document.getElementById('study-title').innerHTML = `<strong>Modo:</strong> ${escapeHtml(label)} <span class="study-mode-badge">${mode}</span> <span class="study-mode-badge">${remaining}/${count} restantes</span>`;
 }
 
 
@@ -2280,6 +2295,27 @@ function setCardImage(prefix, url, caption){
   }
 }
 
+function isFlagsCard(card){
+  return String(card?.publicacao || card?.src || "").trim().toUpperCase() === "FLAGS";
+}
+
+function frontQuestionText(card){
+  if(isFlagsCard(card)){
+    return "De acordo com o Código Internacional de Sinais — Que bandeira é esta e qual o seu significado?";
+  }
+  const topicPrefix = (card.assunto && card.assunto !== card.publicacao) ? card.assunto + " — " : "";
+  return "De acordo com " + (card.publicacao || "—") + ": " + topicPrefix + card.q;
+}
+
+function frontSourceText(card){
+  if(isFlagsCard(card)){
+    // Na frente dos cards de bandeiras, nunca exibir nome/código da bandeira.
+    // O assunto/legenda pode conter algo como “Bandeira Papa (P)”, então fixamos a fonte genérica.
+    return "FLAGS · Código Internacional de Sinais · " + nextReviewText(card);
+  }
+  return card.publicacao + (card.assunto ? " · " + card.assunto : "") + " · " + nextReviewText(card);
+}
+
 function showCard(){
   if(idx >= deck.length){ showComplete(); return; }
   const c = deck[idx];
@@ -2298,12 +2334,13 @@ function showCard(){
   document.getElementById('back-diff').className='diff-badge '+dc;
   document.getElementById('back-diff').textContent=dl;
   document.getElementById('q-icon').textContent = c.icon||'❓';
-  setCardImage("q", c.image_q_url || "", c.image_caption || "");
+  // Frente: não mostrar legenda/nome da imagem. Para FLAGS, isso vale para TODAS as bandeiras.
+  setCardImage("q", c.image_q_url || "", "");
+  // Verso: a legenda pode aparecer, pois já é área de resposta.
   setCardImage("a", c.image_a_url || "", c.image_caption || "");
-  const topicPrefix = (c.assunto && c.assunto !== c.publicacao) ? c.assunto + " — " : "";
-  document.getElementById('q-text').textContent = "De acordo com " + (c.publicacao||"—") + ": " + topicPrefix + c.q;
+  document.getElementById('q-text').textContent = frontQuestionText(c);
   document.getElementById('q-hint').textContent = c.hint ? '💡 ' + c.hint : '';
-  document.getElementById('q-src').textContent = c.publicacao + (c.assunto ? " · " + c.assunto : "") + " · " + nextReviewText(c);
+  document.getElementById('q-src').textContent = frontSourceText(c);
   document.getElementById('a-text').innerHTML = c.a;
 
   updateProgress();
@@ -2326,22 +2363,32 @@ async function answer(type){
   if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
   if(type==='hard') scoreHard++;
   answered++;
-  idx++;
+  sessionDone++;
+  // Remove da fila atual imediatamente. Assim, mesmo se o usuário embaralhar,
+  // o card recém-agendado não reaparece no mesmo estudo.
+  deck.splice(idx, 1);
+  if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
+  isFlipped=false;
   showCard();
 }
 
 async function skipCard(){
   const c = deck[idx];
   if(c) await saveEvent(c, "skip");
-  idx++; isFlipped=false; showCard();
+  sessionDone++;
+  deck.splice(idx, 1);
+  if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
+  isFlipped=false;
+  showCard();
 }
 function prevCard(){ if(idx>0){idx--;isFlipped=false;showCard();} }
 function shuffleCards(){ for(let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];} idx=0;isFlipped=false;showCard(); }
 
 function updateProgress(){
-  const total = deck.length;
-  const pct = total ? Math.round((idx/total)*100) : 0;
-  document.getElementById('prog-text').textContent = `${Math.min(idx,total)} / ${total}`;
+  const total = sessionTotal || deck.length;
+  const done = Math.min(sessionDone, total);
+  const pct = total ? Math.round((done/total)*100) : 0;
+  document.getElementById('prog-text').textContent = `${done} / ${total}`;
   document.getElementById('prog-fill').style.width = pct+'%';
 }
 
@@ -2598,7 +2645,7 @@ window.restoreArchivedCard = restoreArchivedCard;
 window.archiveCurrentCard = archiveCurrentCard;
 window.showTab = showTab;
 window.selectCat = selectCat;
-window.startSmartStudy = startSmartStudy;
+window.startSmartStudy = smartStudy;
 
 initApp().catch(error => {
   console.error("Erro no initApp:", error);
