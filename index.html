@@ -2094,19 +2094,44 @@ async function archiveCurrentCard(event){
 }
 
 async function restoreArchivedCard(cardId){
+  cardId = String(cardId || "");
   const c = CARDS.find(card => card.id === cardId);
-  if(!c) return;
+  if(!c) {
+    alert("Não encontrei esse flashcard na lista carregada. Atualize a página e tente novamente.");
+    return;
+  }
+
+  // Atualização otimista: remove da tela imediatamente.
+  // Se o Supabase recusar, recolocamos o card em Arquivados.
+  const wasArchived = ARCHIVED_CARDS.has(cardId);
+  ARCHIVED_CARDS.delete(cardId);
+  buildCatPills();
+  renderArchivedCards();
+  setSyncStatus("Restaurando card...");
+
   if(isOnlineMode && currentUser && ARCHIVE_TABLE_READY){
     const { error } = await supabaseClient
       .from("flashcard_arquivados")
       .delete()
-      .eq("user_id", currentUser.id)
       .eq("card_id", cardId);
-    if(error){ alert("Erro ao restaurar card: " + error.message); return; }
+
+    if(error){
+      if(wasArchived) ARCHIVED_CARDS.add(cardId);
+      buildCatPills();
+      renderArchivedCards();
+      console.error("Erro ao restaurar card:", error);
+      alert("Erro ao restaurar card: " + error.message);
+      return;
+    }
+
+    // Recarrega do banco para garantir que a lista local ficou igual ao Supabase.
+    await loadArchivedFromSupabase();
   }
-  ARCHIVED_CARDS.delete(cardId);
+
   buildCatPills();
   renderArchivedCards();
+  if(activeTab === "diag") buildDashboard("all");
+  if(activeTab === "db") renderSummary("db-summary");
   setSyncStatus("Card restaurado para o baralho.");
 }
 
@@ -2129,9 +2154,17 @@ function renderArchivedCards(){
       </div>
       <div class="archive-q">${escapeHtml(c.q)}</div>
       <div class="archive-a">${c.a}</div>
-      <button class="restore-btn" onclick="restoreArchivedCard(${JSON.stringify(c.id)})">Retornar ao baralho</button>
+      <button class="restore-btn" type="button" data-restore-id="${escapeHtml(c.id)}">Retornar ao baralho</button>
     </div>
   `).join("");
+
+  el.querySelectorAll(".restore-btn[data-restore-id]").forEach(btn => {
+    btn.addEventListener("click", async (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      await restoreArchivedCard(btn.dataset.restoreId);
+    });
+  });
 }
 
 function resetSessionScore(){
@@ -2486,6 +2519,12 @@ async function initApp(){
     document.getElementById("auth-msg").textContent = "Entre ou crie uma conta para começar.";
   }
 }
+
+window.restoreArchivedCard = restoreArchivedCard;
+window.archiveCurrentCard = archiveCurrentCard;
+window.showTab = showTab;
+window.selectCat = selectCat;
+window.startSmartStudy = startSmartStudy;
 
 initApp();
 </script>
