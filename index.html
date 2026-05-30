@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v6: estudar inteligente, sem botão Hoje, revisão máxima 30 dias -->
+<!-- versão v9: Arquivados por usuário + estudar inteligente -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -127,7 +127,7 @@
 
 
   /* ADAPTIVE STUDY SYSTEM */
-  .tabbar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
+  .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
   .tab-btn { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 14px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
   .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent2); }
   .tab-btn.today { background: rgba(61,184,176,0.14); color: var(--teal); border-color: rgba(61,184,176,0.35); }
@@ -168,6 +168,18 @@
   .action-btn.warn { background: rgba(224,92,92,0.14); color: var(--red); border-color: rgba(224,92,92,0.35); }
   .action-btn.hardbtn { background: rgba(240,160,75,0.14); color: var(--amber); border-color: rgba(240,160,75,0.35); }
   .action-btn.duebtn { background: rgba(61,184,176,0.14); color: var(--teal); border-color: rgba(61,184,176,0.35); }
+  .archive-link { border: none; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; padding: 4px 8px; border-radius: 10px; opacity: .72; }
+  .archive-link:hover { opacity: 1; color: var(--red); background: rgba(224,92,92,0.10); }
+  .archive-list { max-width: 860px; margin: 12px auto 0; display: grid; gap: 10px; }
+  .archive-empty { max-width: 760px; margin: 16px auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; color: var(--muted); font-size: 13px; line-height: 1.6; }
+  .archive-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 14px; }
+  .archive-meta { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:8px; }
+  .archive-pill { font-size: 10px; font-weight: 800; color: var(--accent2); border: 1px solid rgba(124,140,248,.35); background: rgba(91,106,240,.14); border-radius: 999px; padding: 3px 8px; }
+  .archive-q { font-size: 14px; font-weight: 700; line-height: 1.45; margin-bottom: 8px; color: var(--text); }
+  .archive-a { font-size: 13px; line-height: 1.55; color: var(--muted); margin-bottom: 12px; max-height: 90px; overflow: auto; padding-right: 4px; }
+  .restore-btn { border: 1px solid rgba(76,175,125,.38); background: rgba(76,175,125,.14); color: var(--green); border-radius: 12px; padding: 9px 10px; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .restore-btn:active { transform: scale(.97); }
+
   .empty-state { max-width: 760px; margin: 20px auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 18px; color: var(--muted); font-size: 14px; line-height: 1.6; }
   .db-panel { max-width: 760px; margin: 0 auto; background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 16px; }
   .db-panel h3 { font-size: 18px; margin-bottom: 8px; }
@@ -226,7 +238,7 @@
   .btn-icon { font-size: 16px; }
   .nav-row { flex: 0 0 auto; max-width: 520px; margin-top: 6px; }
   .btn-nav { padding: 8px; border-radius: 10px; }
-  #diagnostic-screen, #database-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 20px; }
+  #diagnostic-screen, #database-screen, #archived-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 20px; }
   .complete { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   @media (max-height: 780px) {
     .header { padding: 6px 10px 5px; }
@@ -246,7 +258,7 @@
     .nav-row { margin-top: 5px; }
   }
   @media (max-width: 520px) {
-    .tabbar { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .tabbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     .tab-btn { font-size: 11px; padding: 8px 4px; }
     .card-wrapper, .btn-row, .nav-row, .study-title { max-width: 100%; }
   }
@@ -299,6 +311,7 @@
     <button class="tab-btn active" id="tab-study" onclick="smartStudy()">Estudar</button>
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
+    <button class="tab-btn" id="tab-arch" onclick="showTab('arch')">Arquivados</button>
   </div>
 
   <!-- DIAGNOSTIC SCREEN -->
@@ -334,6 +347,20 @@
     </div>
   </div>
 
+
+  <!-- ARCHIVED SCREEN -->
+  <div class="screen" id="archived-screen" style="display:none;">
+    <div class="diag-head">
+      <div class="diag-title">Arquivados</div>
+      <div class="diag-sub">Flashcards marcados como “Não mostrar mais”. Eles não aparecem no baralho inteligente, nem nos filtros de publicação. Você pode restaurar qualquer card para ele voltar ao estudo.</div>
+    </div>
+    <div class="diag-controls">
+      <button class="mini-btn" onclick="renderArchivedCards()">Atualizar lista</button>
+      <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
+    </div>
+    <div class="archive-list" id="archive-list"></div>
+  </div>
+
   <!-- PROGRESS -->
   <div class="prog-wrap">
     <div class="prog-row">
@@ -359,7 +386,7 @@
             <div class="hint" id="q-hint"></div>
             <div class="src-badge" id="q-src"></div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Toque para ver a resposta</span></div>
+          <div class="card-footer"><span class="tap-hint">Toque para ver a resposta</span><br><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></div>
         </div>
         <div class="card-face card-back">
           <div class="card-header">
@@ -369,7 +396,7 @@
           <div class="card-body" style="overflow-y:auto; max-height: calc(var(--card-h) - 100px);">
             <div id="a-text" class="answer-text">—</div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span></div>
+          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></div>
         </div>
       </div>
     </div>
@@ -1565,6 +1592,8 @@ const supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 let currentUser = null;
 let ONLINE_HISTORY = [];
 let REVIEW_STATE = new Map();
+let ARCHIVED_CARDS = new Set();
+let ARCHIVE_TABLE_READY = true;
 let REVIEW_TABLE_READY = true;
 let isOnlineMode = true;
 const MIN_SAMPLE = 5;
@@ -1640,6 +1669,10 @@ const COLORS = {
   "NORMAM-302/DPC — IAFN":"#4caf7d"
 };
 function getColor(cat){ return COLORS[cat] || "#5b6af0"; }
+
+function isArchived(card){ return ARCHIVED_CARDS.has(card.id); }
+function visibleCards(cards = CARDS){ return cards.filter(c => !isArchived(c)); }
+function archivedCards(){ return CARDS.filter(c => isArchived(c)); }
 
 function getHistory(){
   if(isOnlineMode) return ONLINE_HISTORY;
@@ -1799,7 +1832,8 @@ function uniqueCards(cards){
 }
 
 function baseCardsForActiveFilter(){
-  return activeCat === "Todas" ? [...CARDS] : CARDS.filter(c => c.publicacao === activeCat);
+  const base = activeCat === "Todas" ? [...CARDS] : CARDS.filter(c => c.publicacao === activeCat);
+  return visibleCards(base);
 }
 
 function getSmartStudyCards(baseCards = null){
@@ -1813,11 +1847,12 @@ function getSmartStudyCards(baseCards = null){
 
 // Mantido como alias para botões antigos/caches antigos: agora o modo correto é o Estudar inteligente.
 function getStudyTodayCards(){
-  return getSmartStudyCards(CARDS);
+  return getSmartStudyCards(visibleCards(CARDS));
 }
 function reviewCounters(){
-  const due = CARDS.filter(isDueCard).length;
-  const fresh = CARDS.filter(isNewCard).length;
+  const available = visibleCards(CARDS);
+  const due = available.filter(isDueCard).length;
+  const fresh = available.filter(isNewCard).length;
   let mastered = 0;
   REVIEW_STATE.forEach(st => { if(Number(st.acertos_seguidos || 0) >= 4 && st.proxima_revisao && new Date(st.proxima_revisao) > new Date()) mastered++; });
   const overdue = CARDS.filter(c => {
@@ -1867,7 +1902,7 @@ function statusFromPct(pct, answered){
 function groupDashboardStats(){
   const hist = getHistory();
   const groups = new Map();
-  CARDS.forEach(c => {
+  visibleCards(CARDS).forEach(c => {
     const key = c.publicacao + "|||" + c.assunto;
     if(!groups.has(key)) groups.set(key, {publicacao:c.publicacao, assunto:c.assunto, cards:0, cardsList:[], events:[]});
     groups.get(key).cards++;
@@ -1964,7 +1999,7 @@ function escapeHtml(str){
 
 function showTab(tab){
   activeTab = tab;
-  ["study","diag","db"].forEach(t => document.getElementById("tab-"+t).classList.toggle("active", t===tab));
+  ["study","diag","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
   const studyDisplay = tab === "study";
   document.querySelector(".prog-wrap").style.display = studyDisplay ? "block" : "none";
   document.getElementById("study-title").style.display = studyDisplay ? "block" : "none";
@@ -1972,8 +2007,10 @@ function showTab(tab){
   document.getElementById("complete").style.display = studyDisplay && document.getElementById("complete").classList.contains("show") ? "flex" : "none";
   document.getElementById("diagnostic-screen").style.display = tab === "diag" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
+  document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
   if(tab === "diag") buildDashboard("all");
   if(tab === "db") renderSummary("db-summary");
+  if(tab === "arch") renderArchivedCards();
 }
 
 
@@ -1994,7 +2031,7 @@ function initCatDrag(){
 function buildCatPills(){
   const el = document.getElementById('cat-pills');
   el.innerHTML = CATS.map(c => {
-    const count = c === "Todas" ? CARDS.length : CARDS.filter(x => x.publicacao === c).length;
+    const count = c === "Todas" ? visibleCards(CARDS).length : visibleCards(CARDS).filter(x => x.publicacao === c).length;
     const label = c === "Todas" ? `Todas (${count})` : `${c} (${count})`;
     const safeValue = encodeURIComponent(c);
     return `<button class="cat-pill ${c===activeCat?'active':''}" type="button" onclick="selectCat(decodeURIComponent('${safeValue}'))" title="Estudar ${escapeHtml(c)}">${escapeHtml(label)}</button>`;
@@ -2005,6 +2042,97 @@ function buildCatPills(){
   });
 }
 
+
+
+async function loadArchivedFromSupabase(){
+  setSyncStatus("carregando arquivados...");
+  ARCHIVED_CARDS = new Set();
+  ARCHIVE_TABLE_READY = true;
+  const { data, error } = await supabaseClient
+    .from("flashcard_arquivados")
+    .select("card_id, archived_at")
+    .order("archived_at", { ascending:false });
+  if(error){
+    console.warn("Tabela de arquivados ainda não disponível:", error);
+    ARCHIVE_TABLE_READY = false;
+    setSyncStatus("rode a migração de arquivados no Supabase.");
+    return;
+  }
+  (data || []).forEach(row => ARCHIVED_CARDS.add(row.card_id));
+}
+
+async function archiveCard(card){
+  if(!card) return;
+  ARCHIVED_CARDS.add(card.id);
+  if(isOnlineMode && currentUser && ARCHIVE_TABLE_READY){
+    const { error } = await supabaseClient
+      .from("flashcard_arquivados")
+      .upsert({ user_id: currentUser.id, card_id: card.id, archived_at: new Date().toISOString() }, { onConflict:"user_id,card_id" });
+    if(error){
+      ARCHIVED_CARDS.delete(card.id);
+      console.error("Erro ao arquivar card:", error);
+      alert("Erro ao arquivar card. Verifique se a migração de Arquivados foi rodada no Supabase. " + error.message);
+      return false;
+    }
+  }
+  return true;
+}
+
+async function archiveCurrentCard(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const c = deck[idx];
+  if(!c) return;
+  if(!confirm("Arquivar este flashcard? Ele não aparecerá mais no baralho, mas ficará disponível na pasta Arquivados.")) return;
+  const ok = await archiveCard(c);
+  if(!ok) return;
+  deck = deck.filter(card => card.id !== c.id);
+  if(idx >= deck.length) idx = Math.max(0, deck.length);
+  buildCatPills();
+  setSyncStatus("Card arquivado.");
+  if(deck.length === 0){ showComplete(); return; }
+  showCard();
+}
+
+async function restoreArchivedCard(cardId){
+  const c = CARDS.find(card => card.id === cardId);
+  if(!c) return;
+  if(isOnlineMode && currentUser && ARCHIVE_TABLE_READY){
+    const { error } = await supabaseClient
+      .from("flashcard_arquivados")
+      .delete()
+      .eq("user_id", currentUser.id)
+      .eq("card_id", cardId);
+    if(error){ alert("Erro ao restaurar card: " + error.message); return; }
+  }
+  ARCHIVED_CARDS.delete(cardId);
+  buildCatPills();
+  renderArchivedCards();
+  setSyncStatus("Card restaurado para o baralho.");
+}
+
+function renderArchivedCards(){
+  const el = document.getElementById("archive-list");
+  if(!el) return;
+  const list = archivedCards().sort((a,b) => (a.publicacao||"").localeCompare(b.publicacao||"") || (a.assunto||"").localeCompare(b.assunto||""));
+  const tab = document.getElementById("tab-arch");
+  if(tab) tab.textContent = `Arquivados (${list.length})`;
+  if(!list.length){
+    el.innerHTML = `<div class="archive-empty">Nenhum flashcard arquivado ainda. Quando você clicar em <strong>Não mostrar mais</strong> dentro de um flashcard, ele aparecerá aqui para consulta e poderá ser restaurado.</div>`;
+    return;
+  }
+  el.innerHTML = list.map(c => `
+    <div class="archive-card">
+      <div class="archive-meta">
+        <span class="archive-pill">${escapeHtml(c.publicacao)}</span>
+        <span class="archive-pill">${escapeHtml(c.assunto || "Sem assunto")}</span>
+        <span class="archive-pill">${escapeHtml(c.id)}</span>
+      </div>
+      <div class="archive-q">${escapeHtml(c.q)}</div>
+      <div class="archive-a">${c.a}</div>
+      <button class="restore-btn" onclick="restoreArchivedCard(${JSON.stringify(c.id)})">Retornar ao baralho</button>
+    </div>
+  `).join("");
+}
 
 function resetSessionScore(){
   scoreRight=0; scoreWrong=0; scoreHard=0; answered=0;
@@ -2042,7 +2170,7 @@ function smartStudy(){
 }
 
 function studyGroup(publicacao, assunto, mode="all"){
-  let cards = CARDS.filter(c => c.publicacao === publicacao && c.assunto === assunto);
+  let cards = visibleCards(CARDS).filter(c => c.publicacao === publicacao && c.assunto === assunto);
   if(mode === "wrong") cards = cards.filter(hasCardWrong);
   if(mode === "hard") cards = cards.filter(isCardHard);
   if(mode === "due") cards = cards.filter(c => isDueCard(c) || isNewCard(c));
@@ -2257,6 +2385,7 @@ async function logoutSupabase(){
   await supabaseClient.auth.signOut();
   currentUser = null;
   ONLINE_HISTORY = [];
+  ARCHIVED_CARDS = new Set();
   document.getElementById("app").style.display = "none";
   document.getElementById("auth-screen").style.display = "flex";
   document.getElementById("auth-msg").textContent = "Você saiu da conta.";
@@ -2330,13 +2459,15 @@ async function startAuthenticatedApp(){
   document.getElementById("app").style.display = "flex";
   try{
     await loadCardsFromSupabase();
+    await loadArchivedFromSupabase();
     await loadReviewStateFromSupabase();
     await loadResponsesFromSupabase();
     buildCatPills();
+    renderArchivedCards();
     initCatDrag();
     selectCat("Todas");
     showTab("study");
-    setSyncStatus(`conectado como ${currentUser.email}. ${CARDS.length} cards carregados.`);
+    setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${archivedCards().length} arquivados.`);
   }catch(error){
     console.error(error);
     alert("Erro ao iniciar com Supabase: " + error.message);
