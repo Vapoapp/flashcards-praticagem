@@ -269,31 +269,6 @@
     .card-wrapper, .btn-row, .nav-row, .study-title { max-width: 100%; }
   }
 
-
-  /* EDITAR FLASHCARD */
-  .edit-link { border: none; background: transparent; color: var(--accent2); font-size: 11px; cursor: pointer; padding: 4px 8px; border-radius: 10px; opacity: .9; font-weight: 800; }
-  .edit-link:hover { opacity: 1; background: rgba(91,106,240,0.12); }
-  .footer-actions { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
-  .edit-modal-backdrop { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.62); display: none; align-items: center; justify-content: center; padding: 16px; }
-  .edit-modal { width: min(720px, 100%); max-height: min(92dvh, 820px); overflow: auto; background: var(--surface); border: 1px solid var(--border2); border-radius: 20px; box-shadow: 0 24px 90px rgba(0,0,0,.45); }
-  .edit-modal-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
-  .edit-modal-title { font-size: 18px; font-weight: 900; }
-  .edit-modal-sub { font-size: 12px; color: var(--muted); line-height: 1.45; margin-top: 4px; }
-  .edit-close { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 12px; width: 34px; height: 34px; cursor: pointer; font-size: 18px; }
-  .edit-form { padding: 16px 18px 18px; display: grid; gap: 12px; }
-  .edit-grid { display: grid; grid-template-columns: 1fr 120px; gap: 10px; }
-  .edit-field { display:flex; flex-direction:column; gap:6px; }
-  .edit-field label { font-size: 12px; color: var(--muted); font-weight: 900; }
-  .edit-field input, .edit-field textarea, .edit-field select { width:100%; border:1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 13px; padding: 11px 12px; font-size: 14px; outline:none; font-family: inherit; }
-  .edit-field textarea { min-height: 96px; resize: vertical; line-height: 1.45; }
-  .edit-field textarea.answer-edit { min-height: 170px; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; font-size: 13px; }
-  .edit-help { font-size: 11px; color: var(--muted); line-height: 1.45; }
-  .edit-actions { display:flex; gap: 10px; justify-content:flex-end; flex-wrap:wrap; margin-top: 2px; }
-  .edit-save { border: 1px solid var(--accent2); background: var(--accent); color:#fff; border-radius: 13px; padding: 12px 16px; font-weight: 900; cursor:pointer; }
-  .edit-cancel { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 13px; padding: 12px 16px; font-weight: 900; cursor:pointer; }
-  .edit-save:disabled { opacity: .55; cursor: not-allowed; }
-  @media (max-width: 620px) { .edit-grid { grid-template-columns: 1fr; } }
-
 </style>
 </head>
 <body>
@@ -421,7 +396,7 @@
             <div class="hint" id="q-hint"></div>
             <div class="src-badge" id="q-src"></div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Toque para ver a resposta</span><br><span class="footer-actions"><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint">Toque para ver a resposta</span><br><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></div>
         </div>
         <div class="card-face card-back">
           <div class="card-header">
@@ -435,7 +410,7 @@
             </div>
             <div id="a-text" class="answer-text">—</div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></div>
         </div>
       </div>
     </div>
@@ -465,65 +440,6 @@
     </div>
     <button class="btn-restart" onclick="restart()">Reiniciar baralho</button>
   </div>
-
-  <!-- EDIT MODAL -->
-  <div class="edit-modal-backdrop" id="edit-modal-backdrop" onclick="closeEditModal(event)">
-    <div class="edit-modal" role="dialog" aria-modal="true" aria-labelledby="edit-modal-title" onclick="event.stopPropagation()">
-      <div class="edit-modal-head">
-        <div>
-          <div class="edit-modal-title" id="edit-modal-title">Editar flashcard</div>
-          <div class="edit-modal-sub" id="edit-modal-sub">As alterações serão salvas no Supabase e aplicadas imediatamente neste aparelho.</div>
-        </div>
-        <button class="edit-close" type="button" onclick="closeEditModal()" aria-label="Fechar">×</button>
-      </div>
-      <div class="edit-form">
-        <div class="edit-grid">
-          <div class="edit-field">
-            <label for="edit-assunto">Assunto</label>
-            <input id="edit-assunto" type="text">
-          </div>
-          <div class="edit-field">
-            <label for="edit-diff">Dificuldade</label>
-            <select id="edit-diff">
-              <option value="f">Fácil</option>
-              <option value="m">Médio</option>
-              <option value="d">Difícil</option>
-            </select>
-          </div>
-        </div>
-        <div class="edit-field">
-          <label for="edit-q">Pergunta</label>
-          <textarea id="edit-q"></textarea>
-          <div class="edit-help" id="edit-q-help"></div>
-        </div>
-        <div class="edit-field">
-          <label for="edit-a">Resposta</label>
-          <textarea id="edit-a" class="answer-edit"></textarea>
-          <div class="edit-help">A resposta aceita HTML. Para quebra de linha, use &lt;br&gt;. Para negrito, use &lt;strong&gt;texto&lt;/strong&gt;.</div>
-        </div>
-        <div class="edit-grid">
-          <div class="edit-field">
-            <label for="edit-image-q-url">URL da imagem da frente</label>
-            <input id="edit-image-q-url" type="url" placeholder="https://...">
-          </div>
-          <div class="edit-field">
-            <label for="edit-image-a-url">URL da imagem do verso</label>
-            <input id="edit-image-a-url" type="url" placeholder="https://...">
-          </div>
-        </div>
-        <div class="edit-field">
-          <label for="edit-image-caption">Legenda/nome da imagem</label>
-          <input id="edit-image-caption" type="text" placeholder="Ex.: Bandeira Papa (P)">
-          <div class="edit-help">Nos cards FLAGS, essa legenda continua oculta na frente e pode aparecer apenas no verso.</div>
-        </div>
-        <div class="edit-actions">
-          <button class="edit-cancel" type="button" onclick="closeEditModal()">Cancelar</button>
-          <button class="edit-save" id="edit-save-btn" type="button" onclick="saveCardEdit()">Salvar no banco</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const CARDS = [
@@ -2543,91 +2459,6 @@ function restart(){
   if(currentStudy.type === "smart") smartStudy();
   else if(currentStudy.type === "topic") studyGroup(currentStudy.publicacao, currentStudy.assunto, currentStudy.mode);
   else selectCat(activeCat);
-}
-
-
-let editingCardId = null;
-
-function editCurrentCard(event){
-  if(event){ event.preventDefault(); event.stopPropagation(); }
-  const c = deck[idx];
-  if(!c) return;
-  editingCardId = c.id;
-  document.getElementById("edit-modal-title").textContent = "Editar flashcard";
-  document.getElementById("edit-modal-sub").textContent = `${c.publicacao || "—"} · ${c.id}`;
-  document.getElementById("edit-assunto").value = c.assunto || "";
-  document.getElementById("edit-diff").value = c.diff || "m";
-  document.getElementById("edit-q").value = c.q || "";
-  document.getElementById("edit-a").value = c.a || "";
-  document.getElementById("edit-image-q-url").value = c.image_q_url || "";
-  document.getElementById("edit-image-a-url").value = c.image_a_url || "";
-  document.getElementById("edit-image-caption").value = c.image_caption || "";
-  const qHelp = document.getElementById("edit-q-help");
-  qHelp.textContent = isFlagsCard(c)
-    ? "Observação: nos cards FLAGS, a frente usa a pergunta padrão do Código Internacional de Sinais. Edite aqui apenas se quiser manter o texto interno organizado no banco."
-    : "Edite o texto da pergunta. A frente do card continua montando automaticamente: publicação + assunto + pergunta.";
-  const saveBtn = document.getElementById("edit-save-btn");
-  saveBtn.disabled = false;
-  saveBtn.textContent = "Salvar no banco";
-  document.getElementById("edit-modal-backdrop").style.display = "flex";
-  setTimeout(() => document.getElementById("edit-q")?.focus(), 50);
-}
-
-function closeEditModal(event){
-  if(event && event.target && event.target.id !== "edit-modal-backdrop") return;
-  document.getElementById("edit-modal-backdrop").style.display = "none";
-  editingCardId = null;
-}
-
-async function saveCardEdit(){
-  const cardId = editingCardId;
-  const c = CARDS.find(card => card.id === cardId);
-  if(!c){ alert("Não encontrei esse flashcard para editar."); return; }
-  if(!currentUser || !supabaseClient){ alert("Entre no Supabase para salvar alterações no banco."); return; }
-
-  const payload = {
-    assunto: document.getElementById("edit-assunto").value.trim() || c.assunto || "Geral",
-    diff: document.getElementById("edit-diff").value || "m",
-    q: document.getElementById("edit-q").value.trim(),
-    a: document.getElementById("edit-a").value.trim(),
-    image_q_url: document.getElementById("edit-image-q-url").value.trim(),
-    image_a_url: document.getElementById("edit-image-a-url").value.trim(),
-    image_caption: document.getElementById("edit-image-caption").value.trim()
-  };
-
-  if(!payload.q){ alert("A pergunta não pode ficar vazia."); return; }
-  if(!payload.a){ alert("A resposta não pode ficar vazia."); return; }
-
-  const saveBtn = document.getElementById("edit-save-btn");
-  saveBtn.disabled = true;
-  saveBtn.textContent = "Salvando...";
-  setSyncStatus("salvando correção do flashcard...");
-
-  const { error } = await supabaseClient
-    .from("cards")
-    .update(payload)
-    .eq("id", cardId);
-
-  if(error){
-    console.error("Erro ao atualizar flashcard:", error);
-    saveBtn.disabled = false;
-    saveBtn.textContent = "Salvar no banco";
-    alert("Erro ao salvar no Supabase: " + error.message + "
-
-Se for erro de permissão, é preciso liberar UPDATE na tabela cards para usuários autenticados.");
-    setSyncStatus("erro ao salvar correção: " + error.message);
-    return;
-  }
-
-  Object.assign(c, payload, { topic: payload.assunto, cat: c.publicacao });
-  deck.forEach(card => { if(card.id === cardId) Object.assign(card, payload, { topic: payload.assunto, cat: card.publicacao }); });
-  CATS = ["Todas", ...new Set(CARDS.map(card => card.publicacao))];
-  buildCatPills();
-  if(activeTab === "diag") buildDashboard("all");
-  if(activeTab === "db") renderSummary("db-summary");
-  closeEditModal();
-  setSyncStatus("Flashcard atualizado no Supabase.");
-  showCard();
 }
 
 async function resetHistory(){
