@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v13: revisão espaçada respeitada + imagem sem legenda na frente + proteção contra tela preta + arquivados -->
+<!-- versão v15: imagens responsivas no verso + revisão espaçada respeitada + imagem sem legenda na frente + proteção contra tela preta + arquivados -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -183,6 +183,48 @@
   .card-img { max-width: min(82%, 360px); max-height: min(34vh, 260px); object-fit: contain; border-radius: 14px; background: #fff; border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 8px 28px rgba(0,0,0,.25); }
   .card-img-caption { margin-top: 6px; font-size: 11px; color: var(--muted); text-align: center; }
   .archive-img { max-width: 220px; max-height: 150px; object-fit: contain; border-radius: 12px; background:#fff; border:1px solid var(--border2); margin: 8px 0 10px; display:block; }
+
+  /* Imagens embutidas no texto da resposta, vindas do Supabase/SQL em HTML.
+     Ex.: <img class="answer-card-img" src="data:image/png;base64,...">
+     Força adaptação ao tamanho do flashcard e evita rolagem horizontal. */
+  .answer-text {
+    max-width: 100%;
+    overflow-x: hidden;
+    word-break: normal;
+  }
+  .card-back .card-body,
+  .answer-text,
+  .answer-text p,
+  .answer-text div {
+    max-width: 100%;
+    overflow-wrap: break-word;
+  }
+  .answer-text img,
+  .answer-card-img {
+    display: block !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    max-height: 42vh;
+    object-fit: contain;
+    margin: 14px auto 0 !important;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid rgba(255,255,255,0.16);
+    box-shadow: 0 8px 28px rgba(0,0,0,.25);
+  }
+  @media (max-height: 780px) {
+    .answer-text img,
+    .answer-card-img { max-height: 36vh; }
+  }
+  @media (max-width: 520px) {
+    .answer-text img,
+    .answer-card-img {
+      width: 100% !important;
+      max-height: 34vh;
+      border-radius: 10px;
+    }
+  }
   .restore-btn { border: 1px solid rgba(76,175,125,.38); background: rgba(76,175,125,.14); color: var(--green); border-radius: 12px; padding: 9px 10px; font-size: 12px; font-weight: 800; cursor: pointer; }
   .restore-btn:active { transform: scale(.97); }
 
