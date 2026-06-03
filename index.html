@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v15: imagens responsivas no verso + revisão espaçada respeitada + imagem sem legenda na frente + proteção contra tela preta + arquivados -->
+<!-- versão v21: cobertura + não estudados + erradas recorrentes + zerar assunto + ciclo inteligente -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -162,12 +162,14 @@
   .diag-meta { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
   .meta-pill { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.05); border: 1px solid var(--border); border-radius: 999px; padding: 4px 8px; }
   .status-pill { font-weight: 900; }
-  .diag-actions { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-top: 12px; }
+  .diag-actions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
   .action-btn { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 12px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
   .action-btn.primary { background: rgba(91,106,240,0.22); color: var(--accent2); border-color: rgba(91,106,240,0.45); }
   .action-btn.warn { background: rgba(224,92,92,0.14); color: var(--red); border-color: rgba(224,92,92,0.35); }
   .action-btn.hardbtn { background: rgba(240,160,75,0.14); color: var(--amber); border-color: rgba(240,160,75,0.35); }
   .action-btn.duebtn { background: rgba(61,184,176,0.14); color: var(--teal); border-color: rgba(61,184,176,0.35); }
+  .action-btn.recurrentbtn { background: rgba(240,160,75,0.14); color: var(--amber); border-color: rgba(240,160,75,0.35); }
+  .action-btn.resetbtn { background: rgba(255,255,255,0.04); color: var(--muted); border-color: var(--border2); }
   .archive-link { border: none; background: transparent; color: var(--muted); font-size: 11px; cursor: pointer; padding: 4px 8px; border-radius: 10px; opacity: .72; }
   .archive-link:hover { opacity: 1; color: var(--red); background: rgba(224,92,92,0.10); }
   .archive-list { max-width: 860px; margin: 12px auto 0; display: grid; gap: 10px; }
@@ -391,13 +393,14 @@
   <div class="screen" id="diagnostic-screen" style="display:none;">
     <div class="diag-head">
       <div class="diag-title">Diagnóstico de estudo</div>
-      <div class="diag-sub">Ranking por publicação + assunto, ordenado do menor aproveitamento para o maior. O botão Estudar monta um baralho inteligente: erradas, difíceis e vencidas primeiro; cards dominados ficam para depois. Intervalo máximo de revisão: 30 dias.</div>
+      <div class="diag-sub">Ranking por publicação + assunto, priorizando cobertura do baralho: não estudados primeiro, depois erradas recorrentes, erradas e vencidas. Aproveitamento = acertos ÷ (acertos + erros). O ciclo inteligente intercala 3 não estudados + 1 errado e deixa os acertados para depois. Intervalo máximo de revisão: 30 dias.</div>
     </div>
     <div class="summary-grid" id="summary-grid"></div>
     <div class="diag-controls">
       <button class="mini-btn" onclick="smartStudy()">Estudar</button>
       <button class="mini-btn" onclick="buildDashboard('all')">Todos</button>
-      <button class="mini-btn" onclick="buildDashboard('weak')">Só fracos</button>
+      <button class="mini-btn" onclick="buildDashboard('unseen')">Não Estudados</button>
+      <button class="mini-btn" onclick="buildDashboard('recurrent')">Erradas recorrentes</button>
       <button class="mini-btn" onclick="buildDashboard('sample')">Pouca amostra</button>
     </div>
     <div class="diag-list" id="diag-list"></div>
@@ -407,7 +410,7 @@
   <div class="screen" id="database-screen" style="display:none;">
     <div class="db-panel">
       <h3>Banco de desempenho</h3>
-      <p>Histórico conectado ao Supabase. Seus acertos, erros, difíceis e pulos ficam salvos na nuvem. A revisão espaçada agenda automaticamente quando cada card deve voltar.</p><p id="sync-status">Status: conectando...</p>
+      <p>Histórico conectado ao Supabase. Seus acertos, erros e pulos ficam salvos na nuvem. O ciclo inteligente prioriza cards não estudados, intercala errados na proporção 3:1 e evita repetir cards acertados antes de completar o baralho.</p><p id="sync-status">Status: conectando...</p>
       <div class="summary-grid" id="db-summary"></div>
       <div class="db-actions">
         <button class="mini-btn" onclick="smartStudy()">Estudar</button>
@@ -484,7 +487,6 @@
 
     <div class="btn-row" id="btn-row" style="display:none;">
       <button class="btn btn-wrong" onclick="answer('wrong')"><span class="btn-icon">✗</span>Errei</button>
-      <button class="btn btn-hard" onclick="answer('hard')"><span class="btn-icon">~</span>Difícil</button>
       <button class="btn btn-right" onclick="answer('right')"><span class="btn-icon">✓</span>Acertei</button>
     </div>
     <div class="nav-row">
@@ -502,7 +504,7 @@
     <div class="stats-grid">
       <div class="stat-box"><div class="stat-n" style="color:var(--green)" id="fin-right">0</div><div class="stat-l">Acertos</div></div>
       <div class="stat-box"><div class="stat-n" style="color:var(--red)" id="fin-wrong">0</div><div class="stat-l">Erros</div></div>
-      <div class="stat-box"><div class="stat-n" style="color:var(--amber)" id="fin-hard">0</div><div class="stat-l">Difíceis</div></div>
+      <div class="stat-box"><div class="stat-n" style="color:var(--amber)" id="fin-hard">0</div><div class="stat-l">Respondidos</div></div>
       <div class="stat-box"><div class="stat-n" style="color:var(--accent2)" id="fin-pct">0%</div><div class="stat-l">Aproveit.</div></div>
     </div>
     <button class="btn-restart" onclick="restart()">Reiniciar baralho</button>
@@ -599,6 +601,7 @@ let REVIEW_TABLE_READY = true;
 let isOnlineMode = true;
 const MIN_SAMPLE = 5;
 let deck = [], idx = 0, isFlipped = false;
+let SESSION_CARD_ATTEMPTS = new Map();
 let scoreRight = 0, scoreWrong = 0, scoreHard = 0;
 let answered = 0, sessionDone = 0, sessionTotal = 0, activeCat = "Todas", activeTab = "study";
 let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", label:"Todas as publicações" };
@@ -729,9 +732,53 @@ function addDays(date, days){
 function reviewStateFor(card){
   return REVIEW_STATE.get(card.id) || null;
 }
-function nextReviewText(card){
+function hasStudyResult(result){
+  return ["right", "wrong", "hard"].includes(result);
+}
+function cardEventsFor(card){
+  return getHistory().filter(e => e.card_id === card.id);
+}
+function studyEventsForCard(card){
+  return cardEventsFor(card).filter(e => hasStudyResult(e.result));
+}
+function lastEventForCard(card){
+  const events = cardEventsFor(card);
+  return events.length ? events[events.length - 1] : null;
+}
+function lastStudyEventForCard(card){
+  const events = studyEventsForCard(card);
+  return events.length ? events[events.length - 1] : null;
+}
+function lastStudyResult(card){
+  const last = lastStudyEventForCard(card);
+  if(last) return last.result;
   const st = reviewStateFor(card);
-  if(!st) return "Novo";
+  if(st && hasStudyResult(st.ultimo_resultado)) return st.ultimo_resultado;
+  return null;
+}
+function hasCardBeenAnswered(card){
+  const st = reviewStateFor(card);
+  const totalAnswered = Number(st?.total_acertos || 0) + Number(st?.total_erros || 0) + Number(st?.total_dificeis || 0);
+  if(totalAnswered > 0) return true;
+  if(st && hasStudyResult(st.ultimo_resultado)) return true;
+  return !!lastStudyEventForCard(card);
+}
+function isWrongReviewCard(card){
+  return lastStudyResult(card) === "wrong";
+}
+function isHardReviewCard(card){
+  return lastStudyResult(card) === "hard";
+}
+function isRightReviewCard(card){
+  return lastStudyResult(card) === "right";
+}
+function nextReviewText(card){
+  if(isNewCard(card)) return "Não estudado";
+  const st = reviewStateFor(card);
+  const last = lastStudyResult(card);
+  if(last === "wrong") return "Errado — reforço";
+  if(last === "hard") return "Revisão pendente";
+  if(!st) return "Revisão pendente";
   if(!st.proxima_revisao) return "Revisão pendente";
   const next = new Date(st.proxima_revisao);
   const now = new Date();
@@ -751,25 +798,89 @@ function isDueCard(card){
   return new Date(st.proxima_revisao).getTime() <= Date.now();
 }
 function isNewCard(card){
-  return !REVIEW_STATE.has(card.id);
+  // Novo = nunca respondido com Acertei/Errei.
+  // Pular não tira o card da fila de novos.
+  return !hasCardBeenAnswered(card);
 }
 function isStudyAvailable(card){
-  // Regra central da revisão espaçada:
-  // - Card novo pode aparecer.
-  // - Card com revisão vencida pode aparecer.
-  // - Card agendado para o futuro NÃO entra no baralho, mesmo se estiver marcado como difícil/errado.
-  return isNewCard(card) || isDueCard(card);
+  // Disponibilidade individual. A regra completa depende do baralho ativo:
+  // enquanto existir card novo no filtro, os acertados não furam a fila.
+  return isNewCard(card) || isWrongReviewCard(card) || isHardReviewCard(card) || isDueCard(card);
+}
+function isSameLocalDay(a, b){
+  if(!a || !b) return false;
+  const da = new Date(a), db = new Date(b);
+  if(isNaN(da.getTime()) || isNaN(db.getTime())) return false;
+  return da.getFullYear() === db.getFullYear()
+    && da.getMonth() === db.getMonth()
+    && da.getDate() === db.getDate();
+}
+function wasReviewedToday(card){
+  const last = lastEventForCard(card);
+  return !!(last?.ts && isSameLocalDay(last.ts, new Date()));
+}
+function attemptsToday(card){
+  return cardEventsFor(card).filter(e => isSameLocalDay(e.ts, new Date())).length;
+}
+function totalAttempts(card){
+  return studyEventsForCard(card).length;
+}
+function wrongCountForCard(card){
+  return studyEventsForCard(card).filter(e => e.result === "wrong").length;
+}
+function isRecurrentWrongCard(card){
+  return wrongCountForCard(card) >= 2;
+}
+function sessionAttemptCount(card){
+  return SESSION_CARD_ATTEMPTS.get(card.id) || 0;
+}
+function noteSessionAttempt(card){
+  SESSION_CARD_ATTEMPTS.set(card.id, sessionAttemptCount(card) + 1);
+}
+function shuffleCopy(arr){
+  const out = [...arr];
+  for(let i=out.length-1;i>0;i--){
+    const j = Math.floor(Math.random()*(i+1));
+    [out[i], out[j]] = [out[j], out[i]];
+  }
+  return out;
 }
 function reviewPriority(card){
   const st = reviewStateFor(card);
-  if(!st) return 10;
-  let p = 0;
-  if(st.ultimo_resultado === "wrong") p -= 100;
-  if(st.ultimo_resultado === "hard") p -= 60;
-  if(st.acertos_seguidos >= 3) p += 50;
-  const next = st.proxima_revisao ? new Date(st.proxima_revisao).getTime() : 0;
-  p += next / 100000000000;
-  return p;
+  const last = lastStudyResult(card);
+  const now = Date.now();
+  const next = st?.proxima_revisao ? new Date(st.proxima_revisao).getTime() : 0;
+  const overdueHours = next && next < now ? Math.min(96, (now - next) / 3600000) : 0;
+  let p = 100;
+
+  // Quanto menor o número, mais cedo o card entra.
+  if(last === "wrong") p -= 80;
+  if(last === "hard") p -= 45;
+  if(last === "right") p += 35;
+  p -= overdueHours * 0.8;
+  p += Math.min(40, totalAttempts(card) * 2);
+  p += attemptsToday(card) * 8;
+  return p + Math.random();
+}
+function takeFrom(bucket, count){
+  const out = [];
+  while(bucket.length && out.length < count) out.push(bucket.shift());
+  return out;
+}
+function interleaveNewAndWrong(newCards, wrongCards){
+  const out = [];
+  const seen = new Set();
+  const add = (items) => items.forEach(card => {
+    if(card && !seen.has(card.id)) { seen.add(card.id); out.push(card); }
+  });
+
+  // Regra pedida: a cada 3 cards novos, aparece 1 errado.
+  // Se não houver errado, segue só com novos. Se acabarem os novos, paramos o ciclo.
+  while(newCards.length){
+    add(takeFrom(newCards, 3));
+    add(takeFrom(wrongCards, 1));
+  }
+  return out;
 }
 function spacedIntervalFor(result, previous){
   const now = new Date();
@@ -781,6 +892,8 @@ function spacedIntervalFor(result, previous){
 
   if(result === "right"){
     streak = oldStreak + 1;
+    // 1º acerto: só volta após 3 dias.
+    // Depois cresce gradualmente até o teto de 30 dias.
     const intervals = [0, 3, 5, 7, 10, 15, 20, 30];
     intervalDays = intervals[Math.min(streak, intervals.length - 1)];
     next = addDays(now, intervalDays);
@@ -791,8 +904,10 @@ function spacedIntervalFor(result, previous){
   } else if(result === "wrong"){
     streak = 0;
     intervalDays = 0;
-    next = addMinutes(now, 10);
+    // Errado fica disponível para reforço, mas só entra na proporção 3 novos : 1 errado.
+    next = now;
   } else if(result === "skip"){
+    // Pular não conta como respondido e não altera a programação real do card.
     streak = oldStreak;
     intervalDays = Number(prev.intervalo_dias || 0);
     next = prev.proxima_revisao ? new Date(prev.proxima_revisao) : now;
@@ -809,8 +924,8 @@ async function updateReviewState(card, result){
     acertos_seguidos: streak,
     intervalo_dias: intervalDays,
     proxima_revisao: next.toISOString(),
-    ultima_revisao: new Date().toISOString(),
-    ultimo_resultado: result,
+    ultima_revisao: result === "skip" ? (previous.ultima_revisao || null) : new Date().toISOString(),
+    ultimo_resultado: result === "skip" ? (previous.ultimo_resultado || "skip") : result,
     total_acertos: Number(previous.total_acertos || 0) + (result === "right" ? 1 : 0),
     total_erros: Number(previous.total_erros || 0) + (result === "wrong" ? 1 : 0),
     total_dificeis: Number(previous.total_dificeis || 0) + (result === "hard" ? 1 : 0),
@@ -847,15 +962,37 @@ function baseCardsForActiveFilter(){
 
 function getSmartStudyCards(baseCards = null){
   const base = baseCards || baseCardsForActiveFilter();
-  const due = base.filter(isDueCard).sort((a,b) => reviewPriority(a) - reviewPriority(b));
-  const fresh = base.filter(isNewCard);
-  // Não incluir cards agendados para o futuro.
-  // Antes, cards "difíceis" e "dominados" entravam mesmo com proxima_revisao futura,
-  // por isso um card marcado como "Volta em 7 dias" podia reaparecer no mesmo dia.
-  return uniqueCards([...due, ...fresh]);
+  const newCards = shuffleCopy(base.filter(isNewCard));
+  const wrongCards = base
+    .filter(c => !isNewCard(c) && isWrongReviewCard(c) && sessionAttemptCount(c) < 2)
+    .sort((a,b) => reviewPriority(a) - reviewPriority(b));
+
+  // Fase 1 — cobertura do baralho:
+  // enquanto houver cards nunca respondidos, eles mandam na fila.
+  // Errados entram como reforço controlado: 3 novos + 1 errado.
+  // Acertados não reaparecem nessa fase, mesmo vencidos.
+  if(newCards.length){
+    return uniqueCards(interleaveNewAndWrong(newCards, wrongCards));
+  }
+
+  // Fase 2 — revisão depois que todo o baralho ativo já foi respondido ao menos uma vez.
+  // Agora entram errados, revisões pendentes e acertados vencidos. Acertados só voltam se a data venceu.
+  const hardCards = base
+    .filter(c => !isWrongReviewCard(c) && isHardReviewCard(c))
+    .sort((a,b) => reviewPriority(a) - reviewPriority(b));
+
+  const rightDue = base
+    .filter(c => isRightReviewCard(c) && isDueCard(c))
+    .sort((a,b) => reviewPriority(a) - reviewPriority(b));
+
+  const otherDue = base
+    .filter(c => !isWrongReviewCard(c) && !isHardReviewCard(c) && !isRightReviewCard(c) && isDueCard(c))
+    .sort((a,b) => reviewPriority(a) - reviewPriority(b));
+
+  return uniqueCards([...wrongCards, ...hardCards, ...rightDue, ...otherDue]);
 }
 
-// Mantido como alias para botões antigos/caches antigos: agora retorna somente vencidos + novos.
+// Mantido como alias para botões antigos/caches antigos: agora retorna somente vencidos + não estudados.
 function getStudyTodayCards(){
   return getSmartStudyCards(visibleCards(CARDS));
 }
@@ -878,9 +1015,17 @@ function calcStatsForEvents(events){
   const wrong = events.filter(e => e.result === "wrong").length;
   const hard = events.filter(e => e.result === "hard").length;
   const skip = events.filter(e => e.result === "skip").length;
-  const answered = right + wrong + hard; // hard conta como respondida, mas não como acerto consolidado
+
+  // Nova regra de aproveitamento:
+  // % = acertos / (acertos + erros).
+  // Históricos antigos marcados como "hard/difícil" não entram no cálculo do percentual.
+  const answered = right + wrong;
   const pct = answered ? Math.round((right / answered) * 100) : null;
-  return { right, wrong, hard, skip, answered, pct };
+
+  // viewed mantém a noção de cards que já foram vistos em algum momento,
+  // inclusive registros antigos de "hard".
+  const viewed = right + wrong + hard;
+  return { right, wrong, hard, skip, answered, viewed, pct };
 }
 
 function cardStats(cardId){ return calcStatsForEvents(getHistory().filter(e => e.card_id === cardId)); }
@@ -903,7 +1048,7 @@ function statusFromPct(pct, answered){
   if(!answered) return {label:"Não estudado", cls:"regular", icon:"⚪"};
   if(answered < MIN_SAMPLE) return {label:"Pouca amostra", cls:"regular", icon:"⚪"};
   if(pct < 50) return {label:"Crítico", cls:"critical", icon:"🔴"};
-  if(pct < 70) return {label:"Difícil", cls:"hard", icon:"🟠"};
+  if(pct < 70) return {label:"Atenção", cls:"hard", icon:"🟠"};
   if(pct < 85) return {label:"Regular", cls:"regular", icon:"🟡"};
   if(pct < 95) return {label:"Bom", cls:"good", icon:"🟢"};
   return {label:"Dominado", cls:"good", icon:"✅"};
@@ -928,9 +1073,17 @@ function groupDashboardStats(){
     const stats = calcStatsForEvents(g.events);
     const status = statusFromPct(stats.pct ?? 0, stats.answered);
     const dueCards = (g.cardsList || []).filter(c => isDueCard(c)).length;
-    const newCards = (g.cardsList || []).filter(c => isNewCard(c)).length;
-    return {...g, ...stats, status, dueCards, newCards};
+    const unstudiedCards = (g.cardsList || []).filter(c => isNewCard(c)).length;
+    const studiedCards = Math.max(0, Number(g.cards || 0) - unstudiedCards);
+    const coveragePct = g.cards ? Math.round((studiedCards / g.cards) * 100) : 0;
+    const recurrentWrongCards = (g.cardsList || []).filter(c => isRecurrentWrongCard(c)).length;
+    return {...g, ...stats, status, dueCards, unstudiedCards, studiedCards, coveragePct, recurrentWrongCards};
   }).sort((a,b) => {
+    // Ordem principal: cobrir o baralho inteiro antes de otimizar desempenho.
+    if(b.unstudiedCards !== a.unstudiedCards) return b.unstudiedCards - a.unstudiedCards;
+    if(b.recurrentWrongCards !== a.recurrentWrongCards) return b.recurrentWrongCards - a.recurrentWrongCards;
+    if(b.wrong !== a.wrong) return b.wrong - a.wrong;
+    if(b.dueCards !== a.dueCards) return b.dueCards - a.dueCards;
     const ap = a.pct === null ? 101 : a.pct;
     const bp = b.pct === null ? 101 : b.pct;
     if(a.answered < MIN_SAMPLE && b.answered >= MIN_SAMPLE) return 1;
@@ -942,17 +1095,21 @@ function groupDashboardStats(){
 function overallStats(){
   const hist = getHistory();
   const st = calcStatsForEvents(hist);
-  const studiedCards = new Set(hist.filter(e => ["right","wrong","hard"].includes(e.result)).map(e => e.card_id)).size;
-  return {...st, totalCards:CARDS.length, studiedCards, events:hist.length, ...reviewCounters()};
+  const available = visibleCards(CARDS);
+  const studiedCards = available.filter(c => hasCardBeenAnswered(c)).length;
+  const unstudiedCards = available.filter(c => isNewCard(c)).length;
+  const coveragePct = available.length ? Math.round((studiedCards / available.length) * 100) : 0;
+  const recurrentWrongCards = available.filter(c => isRecurrentWrongCard(c)).length;
+  return {...st, totalCards:available.length, studiedCards, unstudiedCards, coveragePct, recurrentWrongCards, events:hist.length, ...reviewCounters()};
 }
 
 function renderSummary(targetId){
   const st = overallStats();
   const pct = st.pct === null ? "—" : st.pct + "%";
   document.getElementById(targetId).innerHTML = `
-    <div class="summary-card"><div class="summary-n">${st.totalCards}</div><div class="summary-l">Cards no banco</div></div>
-    <div class="summary-card"><div class="summary-n" style="color:var(--teal)">${getSmartStudyCards().length}</div><div class="summary-l">No estudo inteligente</div></div>
-    <div class="summary-card"><div class="summary-n" style="color:var(--green)">${st.right}</div><div class="summary-l">Acertos</div></div>
+    <div class="summary-card"><div class="summary-n">${st.totalCards}</div><div class="summary-l">Cards ativos</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--teal)">${st.unstudiedCards}</div><div class="summary-l">Não estudados</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--green)">${st.coveragePct}%</div><div class="summary-l">Cobertura</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--accent2)">${pct}</div><div class="summary-l">Aproveitamento</div></div>
   `;
 }
@@ -960,12 +1117,18 @@ function renderSummary(targetId){
 function buildDashboard(filter="all"){
   renderSummary("summary-grid");
   let groups = groupDashboardStats();
-  if(filter === "weak") groups = groups.filter(g => g.answered >= MIN_SAMPLE && g.pct < 70);
+  if(filter === "unseen") groups = groups.filter(g => g.unstudiedCards > 0);
+  if(filter === "recurrent") groups = groups.filter(g => g.recurrentWrongCards > 0);
   if(filter === "sample") groups = groups.filter(g => g.answered > 0 && g.answered < MIN_SAMPLE);
 
   const el = document.getElementById("diag-list");
   if(!groups.length){
-    el.innerHTML = `<div class="empty-state">Ainda não há dados suficientes nesse filtro. Estude alguns cards e volte para ver o ranking.</div>`;
+    const msg = filter === "unseen"
+      ? "Não há cards não estudados nesse filtro. Todos os cards ativos já foram vistos pelo menos uma vez."
+      : filter === "recurrent"
+        ? "Não há cards com erro recorrente."
+        : "Ainda não há dados suficientes nesse filtro. Estude alguns cards e volte para ver o ranking.";
+    el.innerHTML = `<div class="empty-state">${msg}</div>`;
     return;
   }
 
@@ -979,24 +1142,27 @@ function buildDashboard(filter="all"){
           <div>
             <div class="diag-name"><span class="diag-pub">${escapeHtml(g.publicacao)}</span> — <span class="diag-topic">${escapeHtml(g.assunto)}</span></div>
             <div class="study-mode-badge">#${index+1} no ranking</div>
+            <div class="study-mode-badge">Cobertura ${g.studiedCards}/${g.cards} (${g.coveragePct}%)</div>
           </div>
-          <div class="pct-badge pct-${cls}">${pctText}</div>
+          <div class="pct-badge pct-${cls}" title="Aproveitamento = acertos ÷ (acertos + erros)">${pctText}</div>
         </div>
         <div class="diag-meta">
           <span class="meta-pill status-pill">${statusText}</span>
           <span class="meta-pill">${g.answered} respondidas</span>
           <span class="meta-pill">${g.right} acertos</span>
           <span class="meta-pill">${g.wrong} erros</span>
-          <span class="meta-pill">${g.hard} difíceis</span>
+          <span class="meta-pill">${g.recurrentWrongCards} erradas recorrentes</span>
           <span class="meta-pill">${g.cards} cards no assunto</span>
+          <span class="meta-pill">${g.unstudiedCards} não estudados</span>
           <span class="meta-pill">${g.dueCards} vencidos</span>
-          <span class="meta-pill">${g.newCards} novos</span>
         </div>
         <div class="diag-actions">
           <button class="action-btn duebtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "due")'>Revisar vencidos</button>
           <button class="action-btn primary" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "all")'>Estudar assunto</button>
+          <button class="action-btn duebtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "new")'>Não Estudados</button>
           <button class="action-btn warn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "wrong")'>Só erradas</button>
-          <button class="action-btn hardbtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "hard")'>Só difíceis</button>
+          <button class="action-btn recurrentbtn" onclick='studyGroup(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)}, "recurrent")'>Erradas recorrentes</button>
+          <button class="action-btn resetbtn" onclick='resetTopicHistory(${JSON.stringify(g.publicacao)}, ${JSON.stringify(g.assunto)})'>Zerar assunto</button>
         </div>
       </div>
     `;
@@ -1182,6 +1348,7 @@ function renderArchivedCards(){
 }
 
 function resetSessionScore(){
+  SESSION_CARD_ATTEMPTS = new Map();
   scoreRight=0; scoreWrong=0; scoreHard=0; answered=0; sessionDone=0;
   document.getElementById('score-right').textContent='0';
   document.getElementById('score-wrong').textContent='0';
@@ -1214,10 +1381,10 @@ function showNoAvailableCards(scopeLabel, totalCards){
   const base = baseCardsForActiveFilter();
   comp.querySelector('.complete-emoji').textContent = '⏳';
   comp.querySelector('h2').textContent = 'Nenhum card disponível agora';
-  comp.querySelector('p').innerHTML = `${escapeHtml(scopeLabel || 'Este baralho')} tem ${totalCards || base.length} card(s), mas nenhum está novo ou vencido para revisão. ${escapeHtml(nextAvailableTextFor(base))}`;
+  comp.querySelector('p').innerHTML = `${escapeHtml(scopeLabel || 'Este baralho')} tem ${totalCards || base.length} card(s). Todos os cards disponíveis já foram respondidos ou ainda estão bloqueados pela revisão. ${escapeHtml(nextAvailableTextFor(base))}`;
   document.getElementById('fin-right').textContent = scoreRight;
   document.getElementById('fin-wrong').textContent = scoreWrong;
-  document.getElementById('fin-hard').textContent = scoreHard;
+  document.getElementById('fin-hard').textContent = answered;
   document.getElementById('fin-pct').textContent = '—';
   updateProgress();
 }
@@ -1260,16 +1427,20 @@ function smartStudy(){
 function studyGroup(publicacao, assunto, mode="all"){
   let cards = visibleCards(CARDS).filter(c => c.publicacao === publicacao && c.assunto === assunto);
 
-  // Nos filtros do Diagnóstico, "Estudar assunto", "Só erradas" e "Só difíceis"
-  // mostram o conjunto solicitado independentemente do prazo. Apenas "Revisar vencidos"
-  // aplica a regra da revisão espaçada.
+  // Nos filtros do Diagnóstico, "Estudar assunto", "Só erradas" e "Não Estudados"
+  // mostram o conjunto solicitado. Apenas "Revisar vencidos" aplica o ciclo inteligente.
   if(mode === "wrong") cards = cards.filter(hasCardWrong);
-  if(mode === "hard") cards = cards.filter(isCardHard);
-  if(mode === "due") cards = cards.filter(c => isDueCard(c) || isNewCard(c));
+  if(mode === "recurrent") cards = cards.filter(isRecurrentWrongCard);
+  if(mode === "new") cards = cards.filter(isNewCard);
+  if(mode === "due") cards = getSmartStudyCards(cards);
   if(!cards.length){
     alert(mode === "due"
-      ? "Não há cards vencidos ou novos para esse filtro. Cards com prazo futuro só voltarão na data agendada."
-      : "Não há cards nesse filtro.");
+      ? "Não há cards vencidos ou não estudados para esse filtro. Cards com prazo futuro só voltarão na data agendada."
+      : mode === "new"
+        ? "Não há cards não estudados nesse filtro. Todos já foram vistos pelo menos uma vez."
+        : mode === "recurrent"
+          ? "Não há cards com erro recorrente nesse filtro."
+          : "Não há cards nesse filtro.");
     return;
   }
   activeCat = publicacao;
@@ -1292,7 +1463,7 @@ function studyToday(){
 }
 
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", hard:"Somente difíceis", due:"Vencidos + novos", today:"Revisão espaçada", smart:"Prioridade inteligente"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = sessionTotal || deck.length;
@@ -1385,6 +1556,7 @@ function flipCard(){
 async function answer(type){
   const c = deck[idx];
   if(!c) return;
+  noteSessionAttempt(c);
   await saveEvent(c, type);
   if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
   if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
@@ -1431,7 +1603,7 @@ function showComplete(){
   const pct = total ? Math.round((scoreRight/total)*100) : 0;
   document.getElementById('fin-right').textContent = scoreRight;
   document.getElementById('fin-wrong').textContent = scoreWrong;
-  document.getElementById('fin-hard').textContent = scoreHard;
+  document.getElementById('fin-hard').textContent = answered;
   document.getElementById('fin-pct').textContent = pct+'%';
 }
 
@@ -1541,6 +1713,48 @@ async function resetHistory(){
   buildDashboard("all");
   renderSummary("db-summary");
   alert("Histórico apagado.");
+}
+
+
+async function resetTopicHistory(publicacao, assunto){
+  const cards = visibleCards(CARDS).filter(c => c.publicacao === publicacao && c.assunto === assunto);
+  const cardIds = cards.map(c => c.id);
+  if(!cardIds.length){ alert("Não encontrei cards nesse assunto."); return; }
+  const ok = confirm(`Zerar o desempenho de ${publicacao} — ${assunto}?\n\nIsso apaga acertos, erros, revisões e estatísticas somente deste assunto. Os flashcards não serão apagados.`);
+  if(!ok) return;
+
+  try{
+    if(isOnlineMode && currentUser){
+      const resp = await supabaseClient
+        .from("respostas")
+        .delete()
+        .eq("user_id", currentUser.id)
+        .in("card_id", cardIds);
+      if(resp.error) throw resp.error;
+
+      if(REVIEW_TABLE_READY){
+        const reviewResp = await supabaseClient
+          .from("estado_cards_usuario")
+          .delete()
+          .eq("user_id", currentUser.id)
+          .in("card_id", cardIds);
+        if(reviewResp.error) console.warn("Erro ao apagar estado de revisão do assunto:", reviewResp.error);
+      }
+      ONLINE_HISTORY = ONLINE_HISTORY.filter(e => !cardIds.includes(e.card_id));
+    } else {
+      const hist = getHistory().filter(e => !cardIds.includes(e.card_id));
+      setHistory(hist);
+    }
+
+    cardIds.forEach(id => REVIEW_STATE.delete(id));
+    if(activeTab === "diag") buildDashboard("all");
+    if(activeTab === "db") renderSummary("db-summary");
+    setSyncStatus(`Desempenho zerado para ${publicacao} — ${assunto}.`);
+    alert("Desempenho deste assunto zerado. Os cards voltam como Não Estudados.");
+  }catch(err){
+    console.error(err);
+    alert("Erro ao zerar desempenho do assunto: " + (err.message || err));
+  }
 }
 
 function exportHistory(){
@@ -1767,6 +1981,7 @@ window.archiveCurrentCard = archiveCurrentCard;
 window.showTab = showTab;
 window.selectCat = selectCat;
 window.startSmartStudy = smartStudy;
+window.resetTopicHistory = resetTopicHistory;
 
 initApp().catch(error => {
   console.error("Erro no initApp:", error);
