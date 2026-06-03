@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v21: cobertura + não estudados + erradas recorrentes + zerar assunto + ciclo inteligente -->
+<!-- versão v25: resumo geral com total de cards acertados e errados -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -154,7 +154,10 @@
   .diag-name { font-size: 14px; font-weight: 900; line-height: 1.35; }
   .diag-pub { color: var(--accent2); }
   .diag-topic { color: var(--text); }
+  .pct-wrap { display: flex; align-items: flex-start; justify-content: flex-end; gap: 6px; flex-shrink: 0; flex-wrap: wrap; }
   .pct-badge { min-width: 62px; text-align: center; border-radius: 14px; padding: 7px 8px; font-size: 18px; font-weight: 900; background: var(--surface2); }
+  .pct-badge.pub-pct { min-width: 74px; font-size: 12px; padding: 7px 8px; color: var(--muted); border: 1px solid var(--border); line-height: 1.1; }
+  .pct-badge.pub-pct strong { display: block; color: var(--accent2); font-size: 15px; line-height: 1.1; }
   .pct-critical { color: var(--red); }
   .pct-hard { color: var(--amber); }
   .pct-regular { color: var(--accent2); }
@@ -241,6 +244,7 @@
     .summary-grid { grid-template-columns: repeat(2, 1fr); }
     .diag-actions { grid-template-columns: 1fr; }
     .diag-top { align-items: center; }
+    .pct-wrap { flex-direction: column; align-items: flex-end; }
   }
 
   /* SUPABASE AUTH */
@@ -393,7 +397,7 @@
   <div class="screen" id="diagnostic-screen" style="display:none;">
     <div class="diag-head">
       <div class="diag-title">Diagnóstico de estudo</div>
-      <div class="diag-sub">Ranking por publicação + assunto, priorizando cobertura do baralho: não estudados primeiro, depois erradas recorrentes, erradas e vencidas. Aproveitamento = acertos ÷ (acertos + erros). O ciclo inteligente intercala 3 não estudados + 1 errado e deixa os acertados para depois. Intervalo máximo de revisão: 30 dias.</div>
+      <div class="diag-sub">Ranking por publicação + assunto, ordenado pelo aproveitamento do menor para o maior. Aproveitamento = acertos ÷ (acertos + erros). Ao lado do aproveitamento do assunto, aparece também o aproveitamento geral da publicação. Assuntos sem acertos/erros aparecem no fim, com o status “Não estudado”. O ciclo inteligente intercala 3 não estudados + 1 errado e deixa os acertados para depois. Intervalo máximo de revisão: 30 dias.</div>
     </div>
     <div class="summary-grid" id="summary-grid"></div>
     <div class="diag-controls">
@@ -614,6 +618,11 @@ function slugify(text){
     .slice(0, 80);
 }
 
+function cleanLabel(value, fallback="Geral"){
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
 function inferTopic(card){
   const pub = card.src || card.cat || "Geral";
   const old = card.cat || "Geral";
@@ -646,11 +655,11 @@ function inferTopic(card){
 
 function normalizeCards(){
   CARDS.forEach((c, i) => {
-    const originalCat = c.cat || c.src || "Geral";
-    const publication = c.src || originalCat;
+    const originalCat = cleanLabel(c.cat || c.src || c.publicacao, "Geral");
+    const publication = cleanLabel(c.publicacao || c.src || originalCat, "Geral");
     c.originalCat = c.originalCat || originalCat;
-    c.publicacao = c.publicacao || publication;
-    c.assunto = c.assunto || c.topic || inferTopic(c);
+    c.publicacao = publication;
+    c.assunto = cleanLabel(c.assunto || c.topic || inferTopic(c), "Geral");
     c.topic = c.assunto;
     c.cat = c.publicacao; // filtro superior passa a ser por publicação/livro
     c.id = c.id || `${slugify(c.publicacao)}_${slugify(c.assunto)}_${String(i+1).padStart(3,'0')}`;
@@ -692,8 +701,8 @@ async function saveEvent(card, result){
   const event = {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now())+Math.random(),
     card_id: card.id,
-    publicacao: card.publicacao,
-    assunto: card.assunto,
+    publicacao: cleanLabel(card.publicacao, "Geral"),
+    assunto: cleanLabel(card.assunto, "Geral"),
     result,
     ts: new Date().toISOString()
   };
@@ -1054,21 +1063,66 @@ function statusFromPct(pct, answered){
   return {label:"Dominado", cls:"good", icon:"✅"};
 }
 
+function publicationStatsMap(){
+  const hist = getHistory();
+  const visible = visibleCards(CARDS);
+  const cardMap = new Map(visible.map(c => [c.id, c]));
+  const pubs = new Map();
+
+  visible.forEach(c => {
+    const pub = cleanLabel(c.publicacao, "Geral");
+    if(!pubs.has(pub)) pubs.set(pub, {publicacao: pub, cards: 0, events: []});
+    pubs.get(pub).cards++;
+  });
+
+  hist.forEach(e => {
+    const c = cardMap.get(e.card_id);
+    if(!c) return;
+    const pub = cleanLabel(c.publicacao || e.publicacao, "Geral");
+    if(!pubs.has(pub)) pubs.set(pub, {publicacao: pub, cards: 0, events: []});
+    pubs.get(pub).events.push({...e, publicacao: pub, assunto: cleanLabel(c.assunto || e.assunto, "Geral")});
+  });
+
+  const out = new Map();
+  pubs.forEach((value, pub) => {
+    const stats = calcStatsForEvents(value.events);
+    out.set(pub, {...value, ...stats});
+  });
+  return out;
+}
 function groupDashboardStats(){
   const hist = getHistory();
+  const visible = visibleCards(CARDS);
+  const cardMap = new Map(visible.map(c => [c.id, c]));
+  const publicationStats = publicationStatsMap();
   const groups = new Map();
-  visibleCards(CARDS).forEach(c => {
-    const key = c.publicacao + "|||" + c.assunto;
-    if(!groups.has(key)) groups.set(key, {publicacao:c.publicacao, assunto:c.assunto, cards:0, cardsList:[], events:[]});
+
+  visible.forEach(c => {
+    const pub = cleanLabel(c.publicacao, "Geral");
+    const assunto = cleanLabel(c.assunto, "Geral");
+    c.publicacao = pub;
+    c.assunto = assunto;
+    c.topic = assunto;
+    c.cat = pub;
+    const key = pub + "|||" + assunto;
+    if(!groups.has(key)) groups.set(key, {publicacao:pub, assunto, cards:0, cardsList:[], events:[]});
     groups.get(key).cards++;
     groups.get(key).cardsList.push(c);
   });
+
   hist.forEach(e => {
-    if(!e.publicacao || !e.assunto) return;
-    const key = e.publicacao + "|||" + e.assunto;
-    if(!groups.has(key)) groups.set(key, {publicacao:e.publicacao, assunto:e.assunto, cards:0, cardsList:[], events:[]});
-    groups.get(key).events.push(e);
+    // Conta o desempenho pelo card_id e pela identidade atual do card.
+    // Isso corrige publicações/assuntos sem assunto preenchido no Supabase,
+    // que antes ficavam como “—” e não somavam acertos/erros no Diagnóstico.
+    const c = cardMap.get(e.card_id);
+    if(!c) return;
+    const pub = cleanLabel(c.publicacao || e.publicacao, "Geral");
+    const assunto = cleanLabel(c.assunto || e.assunto, "Geral");
+    const key = pub + "|||" + assunto;
+    if(!groups.has(key)) groups.set(key, {publicacao:pub, assunto, cards:0, cardsList:[], events:[]});
+    groups.get(key).events.push({...e, publicacao:pub, assunto});
   });
+
   return Array.from(groups.values()).map(g => {
     const stats = calcStatsForEvents(g.events);
     const status = statusFromPct(stats.pct ?? 0, stats.answered);
@@ -1077,30 +1131,50 @@ function groupDashboardStats(){
     const studiedCards = Math.max(0, Number(g.cards || 0) - unstudiedCards);
     const coveragePct = g.cards ? Math.round((studiedCards / g.cards) * 100) : 0;
     const recurrentWrongCards = (g.cardsList || []).filter(c => isRecurrentWrongCard(c)).length;
-    return {...g, ...stats, status, dueCards, unstudiedCards, studiedCards, coveragePct, recurrentWrongCards};
+    const pubStats = publicationStats.get(g.publicacao) || {pct:null, right:0, wrong:0, answered:0};
+    return {
+      ...g,
+      ...stats,
+      status,
+      dueCards,
+      unstudiedCards,
+      studiedCards,
+      coveragePct,
+      recurrentWrongCards,
+      publicacaoPct: pubStats.pct,
+      publicacaoRight: pubStats.right,
+      publicacaoWrong: pubStats.wrong,
+      publicacaoAnswered: pubStats.answered
+    };
   }).sort((a,b) => {
-    // Ordem principal: cobrir o baralho inteiro antes de otimizar desempenho.
-    if(b.unstudiedCards !== a.unstudiedCards) return b.unstudiedCards - a.unstudiedCards;
+    // Ordem principal do Diagnóstico: aproveitamento do menor para o maior.
+    // Aproveitamento = acertos ÷ (acertos + erros).
+    // Assuntos sem acertos/erros ainda não têm percentual confiável, então ficam no fim.
+    const aNoPct = a.pct === null;
+    const bNoPct = b.pct === null;
+    if(aNoPct && !bNoPct) return 1;
+    if(bNoPct && !aNoPct) return -1;
+    if(!aNoPct && !bNoPct && a.pct !== b.pct) return a.pct - b.pct;
+
+    // Desempate: dentro do mesmo aproveitamento, prioriza onde há mais sinais de problema.
     if(b.recurrentWrongCards !== a.recurrentWrongCards) return b.recurrentWrongCards - a.recurrentWrongCards;
     if(b.wrong !== a.wrong) return b.wrong - a.wrong;
     if(b.dueCards !== a.dueCards) return b.dueCards - a.dueCards;
-    const ap = a.pct === null ? 101 : a.pct;
-    const bp = b.pct === null ? 101 : b.pct;
-    if(a.answered < MIN_SAMPLE && b.answered >= MIN_SAMPLE) return 1;
-    if(b.answered < MIN_SAMPLE && a.answered >= MIN_SAMPLE) return -1;
-    return ap - bp || b.answered - a.answered || a.publicacao.localeCompare(b.publicacao);
+    if(b.unstudiedCards !== a.unstudiedCards) return b.unstudiedCards - a.unstudiedCards;
+    return b.answered - a.answered || a.publicacao.localeCompare(b.publicacao) || a.assunto.localeCompare(b.assunto);
   });
 }
-
 function overallStats(){
   const hist = getHistory();
   const st = calcStatsForEvents(hist);
   const available = visibleCards(CARDS);
   const studiedCards = available.filter(c => hasCardBeenAnswered(c)).length;
   const unstudiedCards = available.filter(c => isNewCard(c)).length;
+  const rightCards = available.filter(c => isRightReviewCard(c)).length;
+  const wrongCards = available.filter(c => isWrongReviewCard(c)).length;
   const coveragePct = available.length ? Math.round((studiedCards / available.length) * 100) : 0;
   const recurrentWrongCards = available.filter(c => isRecurrentWrongCard(c)).length;
-  return {...st, totalCards:available.length, studiedCards, unstudiedCards, coveragePct, recurrentWrongCards, events:hist.length, ...reviewCounters()};
+  return {...st, totalCards:available.length, studiedCards, unstudiedCards, rightCards, wrongCards, coveragePct, recurrentWrongCards, events:hist.length, ...reviewCounters()};
 }
 
 function renderSummary(targetId){
@@ -1109,6 +1183,8 @@ function renderSummary(targetId){
   document.getElementById(targetId).innerHTML = `
     <div class="summary-card"><div class="summary-n">${st.totalCards}</div><div class="summary-l">Cards ativos</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--teal)">${st.unstudiedCards}</div><div class="summary-l">Não estudados</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--green)">${st.rightCards}</div><div class="summary-l">Cards acertados</div></div>
+    <div class="summary-card"><div class="summary-n" style="color:var(--red)">${st.wrongCards}</div><div class="summary-l">Cards errados</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--green)">${st.coveragePct}%</div><div class="summary-l">Cobertura</div></div>
     <div class="summary-card"><div class="summary-n" style="color:var(--accent2)">${pct}</div><div class="summary-l">Aproveitamento</div></div>
   `;
@@ -1134,6 +1210,7 @@ function buildDashboard(filter="all"){
 
   el.innerHTML = groups.map((g, index) => {
     const pctText = g.pct === null ? "—" : g.pct + "%";
+    const pubPctText = g.publicacaoPct === null ? "—" : g.publicacaoPct + "%";
     const cls = g.status.cls;
     const statusText = `${g.status.icon} ${g.status.label}`;
     return `
@@ -1144,7 +1221,10 @@ function buildDashboard(filter="all"){
             <div class="study-mode-badge">#${index+1} no ranking</div>
             <div class="study-mode-badge">Cobertura ${g.studiedCards}/${g.cards} (${g.coveragePct}%)</div>
           </div>
-          <div class="pct-badge pct-${cls}" title="Aproveitamento = acertos ÷ (acertos + erros)">${pctText}</div>
+          <div class="pct-wrap">
+            <div class="pct-badge pct-${cls}" title="Aproveitamento do assunto = acertos ÷ (acertos + erros)">${pctText}</div>
+            <div class="pct-badge pub-pct" title="Aproveitamento geral da publicação = acertos ÷ (acertos + erros)">Pub.<strong>${pubPctText}</strong></div>
+          </div>
         </div>
         <div class="diag-meta">
           <span class="meta-pill status-pill">${statusText}</span>
@@ -1877,10 +1957,10 @@ async function loadCardsFromSupabase(){
   CARDS.length = 0;
   (data || []).forEach(c => CARDS.push({
     id:c.id,
-    cat:c.publicacao,
-    publicacao:c.publicacao,
-    assunto:c.assunto,
-    topic:c.assunto,
+    cat:cleanLabel(c.publicacao || c.src, "Geral"),
+    publicacao:cleanLabel(c.publicacao || c.src, "Geral"),
+    assunto:cleanLabel(c.assunto, "Geral"),
+    topic:cleanLabel(c.assunto, "Geral"),
     icon:c.icon || "📘",
     diff:c.diff || "m",
     src:c.src || c.publicacao,
@@ -1891,6 +1971,7 @@ async function loadCardsFromSupabase(){
     image_a_url:c.image_a_url || "",
     image_caption:c.image_caption || ""
   }));
+  normalizeCards();
   CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
 }
 
@@ -1931,8 +2012,8 @@ async function loadResponsesFromSupabase(){
     return {
       id:String(r.id),
       card_id:r.card_id,
-      publicacao:c.publicacao,
-      assunto:c.assunto,
+      publicacao:cleanLabel(c.publicacao, "Geral"),
+      assunto:cleanLabel(c.assunto, "Geral"),
       result:r.resultado,
       ts:r.created_at
     };
