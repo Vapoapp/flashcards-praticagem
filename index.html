@@ -84,6 +84,23 @@
   .card-footer { padding: 10px 16px 14px; border-top: 1px solid var(--border); text-align: center; }
   .tap-hint { font-size: 11px; color: var(--muted); }
 
+
+
+  /* STATUS DINÂMICO DO FLASHCARD */
+  .status-badge {
+    font-size: 10px;
+    font-weight: 800;
+    padding: 4px 9px;
+    border-radius: 999px;
+    white-space: nowrap;
+    letter-spacing: .2px;
+  }
+  .status-new { background: rgba(124,140,248,0.18); color: var(--accent2); border: 1px solid rgba(124,140,248,0.40); }
+  .status-progress { background: rgba(61,184,176,0.16); color: var(--teal); border: 1px solid rgba(61,184,176,0.38); }
+  .status-attention { background: rgba(240,160,75,0.16); color: var(--amber); border: 1px solid rgba(240,160,75,0.40); }
+  .status-recurrent { background: rgba(224,92,92,0.18); color: var(--red); border: 1px solid rgba(224,92,92,0.45); }
+  .status-dominated { background: rgba(76,175,125,0.18); color: var(--green); border: 1px solid rgba(76,175,125,0.42); }
+
   /* BUTTONS */
   .btn-row { display: flex; gap: 10px; width: 100%; max-width: 420px; margin-top: 14px; }
   .btn { flex: 1; padding: 14px 8px; border-radius: 14px; border: 1px solid var(--border); font-size: 13px; font-weight: 700; cursor: pointer; transition: all 0.15s; display: flex; flex-direction: column; align-items: center; gap: 3px; }
@@ -293,6 +310,64 @@
     .q-img-modal-body img { min-width: 960px; }
   }
 
+
+  /* METAS DIÁRIAS E ESTATÍSTICAS */
+  .daily-goal-widget {
+    flex: 0 0 auto;
+    max-width: 520px;
+    width: calc(100% - 24px);
+    margin: 8px auto 0;
+    background: rgba(255,255,255,0.045);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 10px 12px;
+    cursor: pointer;
+    transition: transform .15s ease, border-color .15s ease, background .15s ease;
+  }
+  .daily-goal-widget:hover { border-color: rgba(124,140,248,.42); background: rgba(91,106,240,.08); }
+  .daily-goal-widget:active { transform: scale(.985); }
+  .goal-widget-top { display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom: 7px; }
+  .goal-widget-title { font-size: 12px; font-weight: 900; color: var(--text); display:flex; align-items:center; gap:6px; }
+  .goal-widget-count { font-size: 12px; font-weight: 900; color: var(--accent2); white-space: nowrap; }
+  .goal-progress-track { width:100%; height: 8px; border-radius: 999px; background: rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.06); }
+  .goal-progress-fill { height:100%; width:0%; border-radius:999px; background: linear-gradient(90deg, var(--accent), var(--teal)); transition: width .28s ease; }
+  .goal-widget-sub { margin-top: 7px; font-size: 11px; color: var(--muted); line-height: 1.35; display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap: wrap; }
+  .goal-page { max-width: 860px; margin: 0 auto; }
+  .goal-settings { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 14px; margin: 12px auto; }
+  .goal-settings-title { font-size: 14px; font-weight: 900; margin-bottom: 10px; color: var(--text); }
+  .goal-input-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; }
+  .goal-field { display:flex; flex-direction:column; gap:6px; }
+  .goal-field label { font-size: 11px; color: var(--muted); font-weight: 900; }
+  .goal-field input { width:100%; border:1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 12px; padding: 10px 11px; font-size: 14px; outline:none; }
+  .goal-stats-grid { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top: 12px; }
+  .goal-stat-card { background: var(--surface); border:1px solid var(--border); border-radius: 18px; padding: 14px; }
+  .goal-stat-title { font-size: 12px; font-weight: 900; color: var(--accent2); margin-bottom: 10px; }
+  .goal-stat-main { font-size: 26px; font-weight: 950; color: var(--text); line-height: 1; }
+  .goal-stat-sub { font-size: 11px; color: var(--muted); margin-top: 5px; line-height: 1.45; }
+  .goal-mini-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap:7px; margin-top: 12px; }
+  .goal-mini { border: 1px solid var(--border); background: rgba(255,255,255,.035); border-radius: 12px; padding: 8px; }
+  .goal-mini-n { font-size: 18px; font-weight: 900; }
+  .goal-mini-l { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.25; }
+  .goal-alert { background: rgba(240,160,75,.12); border: 1px solid rgba(240,160,75,.38); color: var(--amber); border-radius: 16px; padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-top: 12px; }
+  .goal-alert.good { background: rgba(76,175,125,.12); border-color: rgba(76,175,125,.34); color: var(--green); }
+  .week-calendar { display:grid; grid-template-columns: repeat(7, 1fr); gap:7px; margin-top: 10px; }
+  .day-box { background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 12px; padding: 8px 5px; text-align:center; min-height: 64px; }
+  .day-box.hit { border-color: rgba(76,175,125,.45); background: rgba(76,175,125,.10); }
+  .day-box.today { box-shadow: 0 0 0 1px rgba(124,140,248,.38) inset; }
+  .day-name { font-size: 10px; font-weight: 900; color: var(--muted); }
+  .day-count { font-size: 17px; font-weight: 950; margin-top: 4px; color: var(--text); }
+  .day-pct { font-size: 10px; color: var(--muted); margin-top: 2px; }
+  @media (max-width: 760px) {
+    .goal-stats-grid { grid-template-columns: 1fr; }
+    .goal-input-grid { grid-template-columns: 1fr; }
+  }
+  @media (max-width: 520px) {
+    .daily-goal-widget { width: calc(100% - 20px); padding: 9px 10px; margin-top: 6px; }
+    .goal-stat-main { font-size: 24px; }
+    .week-calendar { gap:5px; }
+    .day-box { padding: 7px 3px; min-height: 58px; }
+  }
+
   /* SUPABASE AUTH */
   .auth-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--bg); }
   .auth-card { width: 100%; max-width: 420px; background: var(--surface); border: 1px solid var(--border); border-radius: 22px; padding: 22px; box-shadow: 0 18px 60px rgba(0,0,0,0.22); }
@@ -497,6 +572,61 @@
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
     <button class="tab-btn" id="tab-arch" onclick="showTab('arch')">Arquivados</button>
   </div>
+
+  <!-- META DIÁRIA -->
+  <div id="daily-goal-widget" class="daily-goal-widget" onclick="openGoalsPage()" role="button" tabindex="0" aria-label="Abrir metas e estatísticas">
+    <div class="goal-widget-top">
+      <div class="goal-widget-title">🎯 Meta diária</div>
+      <div class="goal-widget-count" id="goal-daily-text">0 / 30 cards</div>
+    </div>
+    <div class="goal-progress-track"><div class="goal-progress-fill" id="goal-daily-fill"></div></div>
+    <div class="goal-widget-sub">
+      <span id="goal-daily-sub">Faltam 30 cards para bater a meta.</span>
+      <span id="goal-streak-mini">🔥 0 dias</span>
+    </div>
+  </div>
+
+  <!-- GOALS SCREEN -->
+  <div class="screen" id="goals-screen" style="display:none;">
+    <div class="goal-page">
+      <div class="diag-head">
+        <div class="diag-title">Metas e estatísticas</div>
+        <div class="diag-sub">A semana começa segunda-feira às 00:00 e termina domingo às 23:59. A meta diária aparece na tela inicial; aqui ficam os dados de hoje, semana, mês, sequência, projeção e calendário de consistência.</div>
+      </div>
+      <div class="diag-controls">
+        <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
+        <button class="mini-btn" onclick="renderGoalsPage()">Atualizar</button>
+      </div>
+      <div class="goal-settings">
+        <div class="goal-settings-title">Configurar metas</div>
+        <div class="goal-input-grid">
+          <div class="goal-field">
+            <label for="goal-daily-input">Meta diária</label>
+            <input id="goal-daily-input" type="number" min="1" step="1" inputmode="numeric">
+          </div>
+          <div class="goal-field">
+            <label for="goal-weekly-input">Meta semanal</label>
+            <input id="goal-weekly-input" type="number" min="1" step="1" inputmode="numeric">
+          </div>
+          <div class="goal-field">
+            <label for="goal-monthly-input">Meta mensal</label>
+            <input id="goal-monthly-input" type="number" min="1" step="1" inputmode="numeric">
+          </div>
+        </div>
+        <div class="db-actions">
+          <button class="mini-btn" onclick="saveGoalSettings()">Salvar metas</button>
+          <button class="mini-btn" onclick="resetGoalDefaults()">Padrão 30 / 210 / 900</button>
+        </div>
+      </div>
+      <div class="goal-stats-grid" id="goal-stats-grid"></div>
+      <div class="goal-settings">
+        <div class="goal-settings-title">Calendário da semana</div>
+        <div class="week-calendar" id="goal-week-calendar"></div>
+      </div>
+      <div id="goal-alert-box"></div>
+    </div>
+  </div>
+
 
   <!-- DIAGNOSTIC SCREEN -->
   <div class="screen" id="diagnostic-screen" style="display:none;">
@@ -753,6 +883,7 @@ CARDS.forEach(c => {
 // Adaptive Study Engine
 const DB_KEY = "flashpratico_history_v2";
 const SETTINGS_KEY = "flashpratico_settings_v2";
+const GOALS_KEY = "flashpratico_goals_v1";
 const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
 let supabaseClient = null;
@@ -1855,19 +1986,25 @@ function shuffleQuestionDeck(){
   for(let i=questionDeck.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [questionDeck[i],questionDeck[j]]=[questionDeck[j],questionDeck[i]]; }
   questionIdx=0; showQuestionCard();
 }
+\n\nfunction getGoalSettings(){\n  const defaults = { daily: 30, weekly: 210, monthly: 900 };\n  try {\n    const saved = JSON.parse(localStorage.getItem(GOALS_KEY) || "{}");\n    return {\n      daily: Math.max(1, Number(saved.daily || defaults.daily)),\n      weekly: Math.max(1, Number(saved.weekly || defaults.weekly)),\n      monthly: Math.max(1, Number(saved.monthly || defaults.monthly))\n    };\n  } catch(e){\n    return defaults;\n  }\n}\n\nfunction setGoalSettings(goals){\n  localStorage.setItem(GOALS_KEY, JSON.stringify(goals));\n}\n\nfunction resetGoalDefaults(){\n  setGoalSettings({ daily: 30, weekly: 210, monthly: 900 });\n  renderGoalsPage();\n  renderDailyGoalWidget();\n}\n\nfunction saveGoalSettings(){\n  const daily = Math.max(1, Number(document.getElementById("goal-daily-input")?.value || 30));\n  const weekly = Math.max(1, Number(document.getElementById("goal-weekly-input")?.value || daily * 7));\n  const monthly = Math.max(1, Number(document.getElementById("goal-monthly-input")?.value || daily * 30));\n  setGoalSettings({ daily, weekly, monthly });\n  renderGoalsPage();\n  renderDailyGoalWidget();\n}\n\nfunction startOfLocalDay(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);\n}\n\nfunction endOfLocalDay(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);\n}\n\nfunction startOfLocalWeek(date = new Date()){\n  const d = startOfLocalDay(date);\n  const day = d.getDay(); // 0 domingo, 1 segunda...\n  const diff = (day + 6) % 7; // segunda = 0\n  d.setDate(d.getDate() - diff);\n  return d;\n}\n\nfunction endOfLocalWeek(date = new Date()){\n  const d = startOfLocalWeek(date);\n  d.setDate(d.getDate() + 6);\n  d.setHours(23, 59, 59, 999);\n  return d;\n}\n\nfunction startOfLocalMonth(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);\n}\n\nfunction endOfLocalMonth(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);\n}\n\nfunction dateKeyLocal(date){\n  const d = new Date(date);\n  const y = d.getFullYear();\n  const m = String(d.getMonth() + 1).padStart(2, "0");\n  const day = String(d.getDate()).padStart(2, "0");\n  return `${y}-${m}-${day}`;\n}\n\nfunction isAnsweredResult(result){\n  return result === "right" || result === "wrong";\n}\n\nfunction eventsBetween(start, end){\n  const s = start.getTime();\n  const e = end.getTime();\n  return getHistory()\n    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)\n    .filter(ev => { const t = new Date(ev.ts).getTime(); return !isNaN(t) && t >= s && t <= e; })\n    .sort((a,b) => new Date(a.ts) - new Date(b.ts));\n}\n\nfunction calcPeriodStats(start, end){\n  const all = getHistory()\n    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)\n    .sort((a,b) => new Date(a.ts) - new Date(b.ts));\n  const startMs = start.getTime();\n  const endMs = end.getTime();\n  const seenBefore = new Set();\n  const wrongBefore = new Set();\n  all.forEach(ev => {\n    const t = new Date(ev.ts).getTime();\n    if(isNaN(t) || t >= startMs) return;\n    seenBefore.add(ev.card_id);\n    if(ev.result === "wrong") wrongBefore.add(ev.card_id);\n  });\n\n  let right = 0, wrong = 0, total = 0, novos = 0, revisoes = 0, errosRecuperados = 0;\n  const unique = new Set();\n  const daily = new Map();\n\n  all.forEach(ev => {\n    const t = new Date(ev.ts).getTime();\n    if(isNaN(t) || t < startMs || t > endMs) return;\n    total++;\n    if(ev.result === "right") right++;\n    if(ev.result === "wrong") wrong++;\n    unique.add(ev.card_id);\n\n    const key = dateKeyLocal(ev.ts);\n    if(!daily.has(key)) daily.set(key, { total:0, right:0, wrong:0 });\n    const d = daily.get(key);\n    d.total++;\n    if(ev.result === "right") d.right++;\n    if(ev.result === "wrong") d.wrong++;\n\n    if(seenBefore.has(ev.card_id)) revisoes++;\n    else novos++;\n\n    if(ev.result === "right" && wrongBefore.has(ev.card_id)) errosRecuperados++;\n\n    seenBefore.add(ev.card_id);\n    if(ev.result === "wrong") wrongBefore.add(ev.card_id);\n  });\n\n  const pct = total ? Math.round((right / total) * 100) : null;\n  return { right, wrong, total, pct, unique: unique.size, novos, revisoes, errosRecuperados, daily };\n}\n\nfunction todayStats(){\n  const now = new Date();\n  return calcPeriodStats(startOfLocalDay(now), endOfLocalDay(now));\n}\n\nfunction weekStats(){\n  const now = new Date();\n  return calcPeriodStats(startOfLocalWeek(now), endOfLocalWeek(now));\n}\n\nfunction monthStats(){\n  const now = new Date();\n  return calcPeriodStats(startOfLocalMonth(now), endOfLocalMonth(now));\n}\n\nfunction calcStreaks(){\n  const dayCounts = new Map();\n  getHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {\n    const key = dateKeyLocal(ev.ts);\n    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);\n  });\n  const today = startOfLocalDay(new Date());\n  let current = 0;\n  const cursor = new Date(today);\n  while(dayCounts.get(dateKeyLocal(cursor)) > 0){\n    current++;\n    cursor.setDate(cursor.getDate() - 1);\n  }\n\n  const keys = Array.from(dayCounts.keys()).sort();\n  let best = 0, run = 0, prev = null;\n  keys.forEach(key => {\n    const d = new Date(key + "T00:00:00");\n    if(prev){\n      const diffDays = Math.round((d - prev) / 86400000);\n      run = diffDays === 1 ? run + 1 : 1;\n    } else {\n      run = 1;\n    }\n    best = Math.max(best, run);\n    prev = d;\n  });\n  return { current, best, dayCounts };\n}\n\nfunction goalProgress(total, target){\n  const pct = target ? Math.min(100, Math.round((total / target) * 100)) : 0;\n  const rawPct = target ? Math.round((total / target) * 100) : 0;\n  const remaining = Math.max(0, target - total);\n  const extra = Math.max(0, total - target);\n  return { pct, rawPct, remaining, extra };\n}\n\nfunction renderDailyGoalWidget(){\n  const widget = document.getElementById("daily-goal-widget");\n  if(!widget) return;\n  const goals = getGoalSettings();\n  const st = todayStats();\n  const progress = goalProgress(st.total, goals.daily);\n  const streak = calcStreaks();\n  document.getElementById("goal-daily-text").textContent = `${st.total} / ${goals.daily} cards`;\n  document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;\n  document.getElementById("goal-daily-sub").textContent = progress.remaining > 0\n    ? `Faltam ${progress.remaining} cards para bater a meta.`\n    : `Meta batida: +${progress.extra} card${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;\n  document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dia${streak.current === 1 ? "" : "s"}`;\n}\n\nfunction periodCard(title, stats, target, kind){\n  const progress = goalProgress(stats.total, target);\n  const pctText = stats.pct === null ? "—" : `${stats.pct}%`;\n  return `\n    <div class="goal-stat-card">\n      <div class="goal-stat-title">${escapeHtml(title)}</div>\n      <div class="goal-stat-main">${stats.total} / ${target}</div>\n      <div class="goal-stat-sub">${progress.rawPct}% da meta ${kind}</div>\n      <div class="goal-progress-track" style="margin-top:10px;"><div class="goal-progress-fill" style="width:${progress.pct}%"></div></div>\n      <div class="goal-mini-grid">\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${stats.right}</div><div class="goal-mini-l">Acertos</div></div>\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--red)">${stats.wrong}</div><div class="goal-mini-l">Erros</div></div>\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${pctText}</div><div class="goal-mini-l">Aproveitamento</div></div>\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--teal)">${stats.unique}</div><div class="goal-mini-l">Cards únicos</div></div>\n        <div class="goal-mini"><div class="goal-mini-n">${stats.novos}</div><div class="goal-mini-l">Novos</div></div>\n        <div class="goal-mini"><div class="goal-mini-n">${stats.revisoes}</div><div class="goal-mini-l">Revisões</div></div>\n      </div>\n    </div>\n  `;\n}\n\nfunction renderWeekCalendar(goals){\n  const el = document.getElementById("goal-week-calendar");\n  if(!el) return;\n  const start = startOfLocalWeek(new Date());\n  const todayKey = dateKeyLocal(new Date());\n  const stats = calcPeriodStats(startOfLocalWeek(new Date()), endOfLocalWeek(new Date()));\n  const names = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];\n  const parts = [];\n  for(let i = 0; i < 7; i++){\n    const d = new Date(start);\n    d.setDate(start.getDate() + i);\n    const key = dateKeyLocal(d);\n    const day = stats.daily.get(key) || { total:0, right:0, wrong:0 };\n    const pct = day.total ? Math.round((day.right / day.total) * 100) : null;\n    const hit = day.total >= goals.daily;\n    parts.push(`\n      <div class="day-box ${hit ? "hit" : ""} ${key === todayKey ? "today" : ""}">\n        <div class="day-name">${names[i]}</div>\n        <div class="day-count">${day.total}</div>\n        <div class="day-pct">${pct === null ? "—" : pct + "%"}</div>\n      </div>\n    `);\n  }\n  el.innerHTML = parts.join("");\n}\n\nfunction renderGoalsPage(){\n  const goals = getGoalSettings();\n  const dailyInput = document.getElementById("goal-daily-input");\n  const weeklyInput = document.getElementById("goal-weekly-input");\n  const monthlyInput = document.getElementById("goal-monthly-input");\n  if(dailyInput) dailyInput.value = goals.daily;\n  if(weeklyInput) weeklyInput.value = goals.weekly;\n  if(monthlyInput) monthlyInput.value = goals.monthly;\n\n  const t = todayStats();\n  const w = weekStats();\n  const m = monthStats();\n  const streak = calcStreaks();\n\n  const now = new Date();\n  const dayIndex = (now.getDay() + 6) % 7;\n  const elapsedWeekDays = dayIndex + 1;\n  const remainingWeekDays = Math.max(1, 7 - dayIndex);\n  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();\n  const elapsedMonthDays = now.getDate();\n  const remainingMonthDays = Math.max(1, daysInMonth - now.getDate() + 1);\n  const weekProjection = Math.round((w.total / elapsedWeekDays) * 7);\n  const monthProjection = Math.round((m.total / elapsedMonthDays) * daysInMonth);\n  const weekNeeded = Math.max(0, goals.weekly - w.total);\n  const monthNeeded = Math.max(0, goals.monthly - m.total);\n  const weekPace = Math.ceil(weekNeeded / remainingWeekDays);\n  const monthPace = Math.ceil(monthNeeded / remainingMonthDays);\n\n  const grid = document.getElementById("goal-stats-grid");\n  if(grid){\n    grid.innerHTML = `\n      ${periodCard("Hoje", t, goals.daily, "diária")}\n      ${periodCard("Semana", w, goals.weekly, "semanal")}\n      ${periodCard("Mês", m, goals.monthly, "mensal")}\n      <div class="goal-stat-card">\n        <div class="goal-stat-title">Sequência</div>\n        <div class="goal-stat-main">🔥 ${streak.current}</div>\n        <div class="goal-stat-sub">Sequência atual de dias estudados.</div>\n        <div class="goal-mini-grid">\n          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${streak.best}</div><div class="goal-mini-l">Melhor sequência</div></div>\n          <div class="goal-mini"><div class="goal-mini-n">${t.total}</div><div class="goal-mini-l">Cards hoje</div></div>\n        </div>\n      </div>\n      <div class="goal-stat-card">\n        <div class="goal-stat-title">Projeção semanal</div>\n        <div class="goal-stat-main">${weekProjection}</div>\n        <div class="goal-stat-sub">No ritmo atual, projeção até domingo. Para bater a meta: ${weekPace} card${weekPace === 1 ? "" : "s"}/dia até domingo.</div>\n        <div class="goal-mini-grid">\n          <div class="goal-mini"><div class="goal-mini-n">${weekNeeded}</div><div class="goal-mini-l">Faltam na semana</div></div>\n          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${w.errosRecuperados}</div><div class="goal-mini-l">Erros recuperados</div></div>\n        </div>\n      </div>\n      <div class="goal-stat-card">\n        <div class="goal-stat-title">Projeção mensal</div>\n        <div class="goal-stat-main">${monthProjection}</div>\n        <div class="goal-stat-sub">No ritmo atual, projeção até o fim do mês. Para bater a meta: ${monthPace} card${monthPace === 1 ? "" : "s"}/dia até o fim do mês.</div>\n        <div class="goal-mini-grid">\n          <div class="goal-mini"><div class="goal-mini-n">${monthNeeded}</div><div class="goal-mini-l">Faltam no mês</div></div>\n          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${m.errosRecuperados}</div><div class="goal-mini-l">Erros recuperados</div></div>\n        </div>\n      </div>\n    `;\n  }\n  renderWeekCalendar(goals);\n\n  const alertBox = document.getElementById("goal-alert-box");\n  if(alertBox){\n    const dailyProgress = goalProgress(t.total, goals.daily);\n    const weekProgress = goalProgress(w.total, goals.weekly);\n    if(dailyProgress.remaining > 0){\n      alertBox.innerHTML = `<div class="goal-alert">Você ainda precisa fazer <strong>${dailyProgress.remaining}</strong> card${dailyProgress.remaining === 1 ? "" : "s"} hoje para bater a meta diária. Para a meta semanal, faltam <strong>${weekProgress.remaining}</strong> card${weekProgress.remaining === 1 ? "" : "s"}; ritmo necessário: <strong>${weekPace}</strong>/dia até domingo.</div>`;\n    } else if(weekProgress.remaining > 0){\n      alertBox.innerHTML = `<div class="goal-alert">Meta diária batida. Para a meta semanal, faltam <strong>${weekProgress.remaining}</strong> card${weekProgress.remaining === 1 ? "" : "s"}; ritmo necessário: <strong>${weekPace}</strong>/dia até domingo.</div>`;\n    } else {\n      alertBox.innerHTML = `<div class="goal-alert good">Meta diária e semanal em dia. Continue mantendo a sequência.</div>`;\n    }\n  }\n  renderDailyGoalWidget();\n}\n\nfunction openGoalsPage(){\n  renderGoalsPage();\n  showTab("goals");\n}\n
 
 function showTab(tab){
   activeTab = tab;
   ["study","diag","questions","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
   const studyDisplay = tab === "study";
+  const dailyGoal = document.getElementById("daily-goal-widget");
+  if(dailyGoal) dailyGoal.style.display = studyDisplay ? "block" : "none";
   document.querySelector(".prog-wrap").style.display = studyDisplay ? "block" : "none";
   document.getElementById("study-title").style.display = studyDisplay ? "block" : "none";
   document.getElementById("card-area").style.display = studyDisplay && !document.getElementById("complete").classList.contains("show") ? "flex" : "none";
   document.getElementById("complete").style.display = studyDisplay && document.getElementById("complete").classList.contains("show") ? "flex" : "none";
+  document.getElementById("goals-screen").style.display = tab === "goals" ? "block" : "none";
   document.getElementById("diagnostic-screen").style.display = tab === "diag" ? "block" : "none";
   document.getElementById("questions-screen").style.display = tab === "questions" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
   document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
+  if(tab === "study") renderDailyGoalWidget();
+  if(tab === "goals") renderGoalsPage();
   if(tab === "diag") buildDashboard("all");
   if(tab === "questions") showQuestionList();
   if(tab === "db") renderSummary("db-summary");
@@ -2194,9 +2331,45 @@ function frontSourceText(card){
   if(isFlagsCard(card)){
     // Na frente dos cards de bandeiras, nunca exibir nome/código da bandeira.
     // O assunto/legenda pode conter algo como “Bandeira Papa (P)”, então fixamos a fonte genérica.
-    return "FLAGS · Código Internacional de Sinais · " + nextReviewText(card);
+    return "FLAGS · Código Internacional de Sinais";
   }
-  return card.publicacao + (card.assunto ? " · " + card.assunto : "") + " · " + nextReviewText(card);
+  return card.publicacao + (card.assunto ? " · " + card.assunto : "");
+}
+
+function countConsecutiveRightFromHistory(card){
+  const events = studyEventsForCard(card).slice().reverse();
+  let count = 0;
+  for(const ev of events){
+    if(ev.result === "right") count++;
+    else break;
+  }
+  return count;
+}
+
+function cardPerformanceStatus(card){
+  const st = reviewStateFor(card) || {};
+  const histStats = cardStats(card.id);
+  const totalRight = Math.max(Number(st.total_acertos || 0), Number(histStats.right || 0));
+  const totalWrong = Math.max(Number(st.total_erros || 0), Number(histStats.wrong || 0));
+  const totalHard = Math.max(Number(st.total_dificeis || 0), Number(histStats.hard || 0));
+  const streak = Math.max(Number(st.acertos_seguidos || 0), countConsecutiveRightFromHistory(card));
+  const answered = totalRight + totalWrong + totalHard;
+  const last = lastStudyResult(card);
+
+  if(answered === 0) return { label: "Novo", cls: "status-new" };
+  if(streak >= 3) return { label: "Dominado", cls: "status-dominated" };
+  if(totalWrong >= 2) return { label: "Errada recorrente", cls: "status-recurrent" };
+  if(last === "wrong" || totalWrong === 1) return { label: "Atenção", cls: "status-attention" };
+  if(totalRight >= 3) return { label: "Dominado", cls: "status-dominated" };
+  return { label: "Em progresso", cls: "status-progress" };
+}
+
+function applyPerformanceBadge(elementId, card){
+  const el = document.getElementById(elementId);
+  if(!el) return;
+  const status = cardPerformanceStatus(card);
+  el.className = "diff-badge status-badge " + status.cls;
+  el.textContent = status.label;
 }
 
 function showCard(){
@@ -2210,12 +2383,8 @@ function showCard(){
   const col = getColor(c.publicacao);
   document.getElementById('front-cat').textContent = c.publicacao;
   document.getElementById('front-cat').style.cssText=`background:${col}22;color:${col};border:1px solid ${col}44;border-radius:12px;padding:3px 10px;font-size:10px;font-weight:700;`;
-  const diffMap = {f:['diff-f','Fácil'],m:['diff-m','Médio'],d:['diff-d','Difícil']};
-  const [dc, dl] = diffMap[c.diff]||['diff-m','Médio'];
-  document.getElementById('front-diff').className='diff-badge '+dc;
-  document.getElementById('front-diff').textContent=dl;
-  document.getElementById('back-diff').className='diff-badge '+dc;
-  document.getElementById('back-diff').textContent=dl;
+  applyPerformanceBadge('front-diff', c);
+  applyPerformanceBadge('back-diff', c);
   document.getElementById('q-icon').textContent = c.icon||'❓';
   // Frente: não mostrar legenda/nome da imagem. Para FLAGS, isso vale para TODAS as bandeiras.
   setCardImage("q", c.image_q_url || "", "");
@@ -2246,6 +2415,7 @@ async function answer(type){
   if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
   if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
   if(type==='hard') scoreHard++;
+  renderDailyGoalWidget();
   answered++;
   sessionDone++;
   // Remove da fila atual imediatamente. Assim, mesmo se o usuário embaralhar,
@@ -2636,6 +2806,7 @@ async function startAuthenticatedApp(){
     await loadResponsesFromSupabase();
     buildCatPills();
     renderArchivedCards();
+    renderDailyGoalWidget();
     initCatDrag();
     selectCat("Todas");
     showTab("study");
