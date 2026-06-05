@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v25: resumo geral com total de cards acertados e errados -->
+<!-- versão v26: aproveitamento corrigido por cards acertados ÷ (acertados + errados) -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -502,7 +502,7 @@
   <div class="screen" id="diagnostic-screen" style="display:none;">
     <div class="diag-head">
       <div class="diag-title">Diagnóstico de estudo</div>
-      <div class="diag-sub">Ranking por publicação + assunto, ordenado pelo aproveitamento do menor para o maior. Aproveitamento = acertos ÷ (acertos + erros). Ao lado do aproveitamento do assunto, aparece também o aproveitamento geral da publicação. Assuntos sem acertos/erros aparecem no fim, com o status “Não estudado”. O ciclo inteligente intercala 3 não estudados + 1 errado e deixa os acertados para depois. Intervalo máximo de revisão: 30 dias.</div>
+      <div class="diag-sub">Ranking por publicação + assunto, ordenado pelo aproveitamento do menor para o maior. Aproveitamento = cards acertados ÷ (cards acertados + cards errados). Ao lado do aproveitamento do assunto, aparece também o aproveitamento geral da publicação. Assuntos sem acertos/erros aparecem no fim, com o status “Não estudado”. O ciclo inteligente intercala 3 não estudados + 1 errado e deixa os acertados para depois. Intervalo máximo de revisão: 30 dias.</div>
     </div>
     <div class="summary-grid" id="summary-grid"></div>
     <div class="diag-controls">
@@ -519,7 +519,7 @@
   <div class="screen" id="database-screen" style="display:none;">
     <div class="db-panel">
       <h3>Banco de desempenho</h3>
-      <p>Histórico conectado ao Supabase. Seus acertos, erros e pulos ficam salvos na nuvem. O ciclo inteligente prioriza cards não estudados, intercala errados na proporção 3:1 e evita repetir cards acertados antes de completar o baralho.</p><p id="sync-status">Status: conectando...</p>
+      <p>Histórico conectado ao Supabase. Seus acertos, erros e pulos ficam salvos na nuvem. O ciclo inteligente prioriza cards não estudados, intercala errados na proporção 3:1 e evita repetir cards acertados antes de completar o baralho. O aproveitamento geral usa cards acertados ÷ (cards acertados + cards errados).</p><p id="sync-status">Status: conectando...</p>
       <div class="summary-grid" id="db-summary"></div>
       <div class="db-actions">
         <button class="mini-btn" onclick="smartStudy()">Estudar</button>
@@ -1231,6 +1231,19 @@ function calcStatsForEvents(events){
 
 function cardStats(cardId){ return calcStatsForEvents(getHistory().filter(e => e.card_id === cardId)); }
 
+// Aproveitamento visual do Diagnóstico: calcula por estado atual do card,
+// usando a mesma base dos cartões “Cards acertados” e “Cards errados”.
+// Fórmula: cards acertados ÷ (cards acertados + cards errados).
+function calcCardOutcomeStats(cards){
+  const list = Array.isArray(cards) ? cards : [];
+  const right = list.filter(isRightReviewCard).length;
+  const wrong = list.filter(isWrongReviewCard).length;
+  const hard = list.filter(isHardReviewCard).length;
+  const answered = right + wrong;
+  const pct = answered ? Math.round((right / answered) * 100) : null;
+  return { right, wrong, hard, answered, pct };
+}
+
 function isCardHard(card){
   const rs = reviewStateFor(card);
   if(rs && (rs.ultimo_resultado === "hard" || rs.ultimo_resultado === "wrong")) return true;
@@ -1263,25 +1276,39 @@ function publicationStatsMap(){
 
   visible.forEach(c => {
     const pub = cleanLabel(c.publicacao, "Geral");
-    if(!pubs.has(pub)) pubs.set(pub, {publicacao: pub, cards: 0, events: []});
+    if(!pubs.has(pub)) pubs.set(pub, {publicacao: pub, cards: 0, cardsList: [], events: []});
     pubs.get(pub).cards++;
+    pubs.get(pub).cardsList.push(c);
   });
 
   hist.forEach(e => {
     const c = cardMap.get(e.card_id);
     if(!c) return;
     const pub = cleanLabel(c.publicacao || e.publicacao, "Geral");
-    if(!pubs.has(pub)) pubs.set(pub, {publicacao: pub, cards: 0, events: []});
+    if(!pubs.has(pub)) pubs.set(pub, {publicacao: pub, cards: 0, cardsList: [], events: []});
     pubs.get(pub).events.push({...e, publicacao: pub, assunto: cleanLabel(c.assunto || e.assunto, "Geral")});
   });
 
   const out = new Map();
   pubs.forEach((value, pub) => {
-    const stats = calcStatsForEvents(value.events);
-    out.set(pub, {...value, ...stats});
+    const eventStats = calcStatsForEvents(value.events);
+    const cardOutcome = calcCardOutcomeStats(value.cardsList || []);
+    out.set(pub, {
+      ...value,
+      eventRight: eventStats.right,
+      eventWrong: eventStats.wrong,
+      eventAnswered: eventStats.answered,
+      eventPct: eventStats.pct,
+      right: cardOutcome.right,
+      wrong: cardOutcome.wrong,
+      hard: cardOutcome.hard,
+      answered: cardOutcome.answered,
+      pct: cardOutcome.pct
+    });
   });
   return out;
 }
+
 function groupDashboardStats(){
   const hist = getHistory();
   const visible = visibleCards(CARDS);
@@ -1316,8 +1343,9 @@ function groupDashboardStats(){
   });
 
   return Array.from(groups.values()).map(g => {
-    const stats = calcStatsForEvents(g.events);
-    const status = statusFromPct(stats.pct ?? 0, stats.answered);
+    const eventStats = calcStatsForEvents(g.events);
+    const cardOutcome = calcCardOutcomeStats(g.cardsList || []);
+    const status = statusFromPct(cardOutcome.pct ?? 0, cardOutcome.answered);
     const dueCards = (g.cardsList || []).filter(c => isDueCard(c)).length;
     const unstudiedCards = (g.cardsList || []).filter(c => isNewCard(c)).length;
     const studiedCards = Math.max(0, Number(g.cards || 0) - unstudiedCards);
@@ -1326,7 +1354,15 @@ function groupDashboardStats(){
     const pubStats = publicationStats.get(g.publicacao) || {pct:null, right:0, wrong:0, answered:0};
     return {
       ...g,
-      ...stats,
+      eventRight: eventStats.right,
+      eventWrong: eventStats.wrong,
+      eventAnswered: eventStats.answered,
+      eventPct: eventStats.pct,
+      right: cardOutcome.right,
+      wrong: cardOutcome.wrong,
+      hard: cardOutcome.hard,
+      answered: cardOutcome.answered,
+      pct: cardOutcome.pct,
       status,
       dueCards,
       unstudiedCards,
@@ -1362,12 +1398,26 @@ function overallStats(){
   const available = visibleCards(CARDS);
   const studiedCards = available.filter(c => hasCardBeenAnswered(c)).length;
   const unstudiedCards = available.filter(c => isNewCard(c)).length;
-  const rightCards = available.filter(c => isRightReviewCard(c)).length;
-  const wrongCards = available.filter(c => isWrongReviewCard(c)).length;
+  const cardOutcome = calcCardOutcomeStats(available);
+  const rightCards = cardOutcome.right;
+  const wrongCards = cardOutcome.wrong;
   const coveragePct = available.length ? Math.round((studiedCards / available.length) * 100) : 0;
   const recurrentWrongCards = available.filter(c => isRecurrentWrongCard(c)).length;
-  return {...st, totalCards:available.length, studiedCards, unstudiedCards, rightCards, wrongCards, coveragePct, recurrentWrongCards, events:hist.length, ...reviewCounters()};
+  return {
+    ...st,
+    pct: cardOutcome.pct,
+    totalCards: available.length,
+    studiedCards,
+    unstudiedCards,
+    rightCards,
+    wrongCards,
+    coveragePct,
+    recurrentWrongCards,
+    events: hist.length,
+    ...reviewCounters()
+  };
 }
+
 
 function renderSummary(targetId){
   const st = overallStats();
