@@ -129,6 +129,8 @@
   .stat-l { font-size: 11px; color: var(--muted); margin-top: 2px; }
   .btn-restart { background: var(--accent); border: none; color: #fff; padding: 16px 32px; border-radius: 14px; font-size: 15px; font-weight: 700; cursor: pointer; width: 100%; max-width: 300px; }
   .btn-restart:active { opacity: 0.85; transform: scale(0.97); }
+  .btn-review-wrong { background: rgba(224,92,92,0.16); border: 1px solid rgba(224,92,92,0.42); color: var(--red); padding: 14px 18px; border-radius: 14px; font-size: 14px; font-weight: 900; cursor: pointer; width: 100%; max-width: 300px; margin-top: 10px; }
+  .btn-review-wrong:active { opacity: 0.85; transform: scale(0.97); }
 
   /* BACK not shown initially */
   .card-back { display: flex; }
@@ -350,6 +352,17 @@
   .goal-mini-l { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.25; }
   .goal-alert { background: rgba(240,160,75,.12); border: 1px solid rgba(240,160,75,.38); color: var(--amber); border-radius: 16px; padding: 12px 14px; font-size: 13px; line-height: 1.5; margin-top: 12px; }
   .goal-alert.good { background: rgba(76,175,125,.12); border-color: rgba(76,175,125,.34); color: var(--green); }
+
+  .goal-history-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
+  .goal-history-list { display:grid; gap: 8px; }
+  .goal-history-row { display:grid; grid-template-columns: minmax(0, 1.35fr) .65fr .65fr .65fr .65fr; gap: 8px; align-items:center; border:1px solid var(--border); background: rgba(255,255,255,.035); border-radius: 13px; padding: 9px 10px; }
+  .goal-history-range { font-size: 11px; color: var(--text); font-weight: 900; line-height: 1.25; }
+  .goal-history-sub { display:block; color: var(--muted); font-size: 10px; font-weight: 700; margin-top: 2px; }
+  .goal-history-val { text-align:right; font-size: 12px; color: var(--muted); font-weight: 800; }
+  .goal-history-val strong { display:block; font-size: 14px; color: var(--text); line-height: 1.1; }
+  .goal-history-empty { color: var(--muted); font-size: 12px; line-height: 1.45; border:1px dashed var(--border2); border-radius: 13px; padding: 12px; }
+  .goal-history-row.hit { border-color: rgba(76,175,125,.35); background: rgba(76,175,125,.06); }
+  .goal-history-row.current { border-color: rgba(124,140,248,.45); }
   .week-calendar { display:grid; grid-template-columns: repeat(7, 1fr); gap:7px; margin-top: 10px; }
   .day-box { background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 12px; padding: 8px 5px; text-align:center; min-height: 64px; }
   .day-box.hit { border-color: rgba(76,175,125,.45); background: rgba(76,175,125,.10); }
@@ -413,7 +426,8 @@
   .btn-icon { font-size: 16px; }
   .nav-row { flex: 0 0 auto; max-width: 520px; margin-top: 6px; }
   .btn-nav { padding: 8px; border-radius: 10px; }
-  #diagnostic-screen, #database-screen, #archived-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 20px; }
+  #diagnostic-screen, #database-screen, #archived-screen, #goals-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 90px; }
+  #goals-screen .goal-page { padding-bottom: 120px; }
   .complete { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
   @media (max-height: 780px) {
     .header { padding: 6px 10px 5px; }
@@ -577,11 +591,11 @@
   <div id="daily-goal-widget" class="daily-goal-widget" onclick="openGoalsPage()" role="button" tabindex="0" aria-label="Abrir metas e estatísticas">
     <div class="goal-widget-top">
       <div class="goal-widget-title">🎯 Meta diária</div>
-      <div class="goal-widget-count" id="goal-daily-text">0 / 30 cards</div>
+      <div class="goal-widget-count" id="goal-daily-text">0 / 60 cards</div>
     </div>
     <div class="goal-progress-track"><div class="goal-progress-fill" id="goal-daily-fill"></div></div>
     <div class="goal-widget-sub">
-      <span id="goal-daily-sub">Faltam 30 cards para bater a meta.</span>
+      <span id="goal-daily-sub">Faltam 60 cards para bater a meta.</span>
       <span id="goal-streak-mini">🔥 0 dias</span>
     </div>
   </div>
@@ -596,6 +610,7 @@
       <div class="diag-controls">
         <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
         <button class="mini-btn" onclick="renderGoalsPage()">Atualizar</button>
+        <button class="mini-btn danger-btn" onclick="studyWrongToday()">Refazer erradas de hoje</button>
       </div>
       <div class="goal-settings">
         <div class="goal-settings-title">Configurar metas</div>
@@ -615,13 +630,23 @@
         </div>
         <div class="db-actions">
           <button class="mini-btn" onclick="saveGoalSettings()">Salvar metas</button>
-          <button class="mini-btn" onclick="resetGoalDefaults()">Padrão 30 / 210 / 900</button>
+          <button class="mini-btn" onclick="resetGoalDefaults()">Padrão 60 / 450 / 1900</button>
         </div>
       </div>
       <div class="goal-stats-grid" id="goal-stats-grid"></div>
       <div class="goal-settings">
         <div class="goal-settings-title">Calendário da semana</div>
         <div class="week-calendar" id="goal-week-calendar"></div>
+      </div>
+      <div class="goal-history-grid">
+        <div class="goal-settings">
+          <div class="goal-settings-title">Histórico semanal</div>
+          <div class="goal-history-list" id="goal-week-history"></div>
+        </div>
+        <div class="goal-settings">
+          <div class="goal-settings-title">Histórico mensal</div>
+          <div class="goal-history-list" id="goal-month-history"></div>
+        </div>
       </div>
       <div id="goal-alert-box"></div>
     </div>
@@ -807,6 +832,7 @@
       <div class="stat-box"><div class="stat-n" style="color:var(--accent2)" id="fin-pct">0%</div><div class="stat-l">Aproveit.</div></div>
     </div>
     <button class="btn-restart" onclick="restart()">Reiniciar baralho</button>
+    <button class="btn-review-wrong" id="btn-wrong-today" onclick="studyWrongToday()">Refazer erradas de hoje</button>
   </div>
 
   <!-- EDIT MODAL -->
@@ -1986,7 +2012,405 @@ function shuffleQuestionDeck(){
   for(let i=questionDeck.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [questionDeck[i],questionDeck[j]]=[questionDeck[j],questionDeck[i]]; }
   questionIdx=0; showQuestionCard();
 }
-\n\nfunction getGoalSettings(){\n  const defaults = { daily: 30, weekly: 210, monthly: 900 };\n  try {\n    const saved = JSON.parse(localStorage.getItem(GOALS_KEY) || "{}");\n    return {\n      daily: Math.max(1, Number(saved.daily || defaults.daily)),\n      weekly: Math.max(1, Number(saved.weekly || defaults.weekly)),\n      monthly: Math.max(1, Number(saved.monthly || defaults.monthly))\n    };\n  } catch(e){\n    return defaults;\n  }\n}\n\nfunction setGoalSettings(goals){\n  localStorage.setItem(GOALS_KEY, JSON.stringify(goals));\n}\n\nfunction resetGoalDefaults(){\n  setGoalSettings({ daily: 30, weekly: 210, monthly: 900 });\n  renderGoalsPage();\n  renderDailyGoalWidget();\n}\n\nfunction saveGoalSettings(){\n  const daily = Math.max(1, Number(document.getElementById("goal-daily-input")?.value || 30));\n  const weekly = Math.max(1, Number(document.getElementById("goal-weekly-input")?.value || daily * 7));\n  const monthly = Math.max(1, Number(document.getElementById("goal-monthly-input")?.value || daily * 30));\n  setGoalSettings({ daily, weekly, monthly });\n  renderGoalsPage();\n  renderDailyGoalWidget();\n}\n\nfunction startOfLocalDay(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);\n}\n\nfunction endOfLocalDay(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);\n}\n\nfunction startOfLocalWeek(date = new Date()){\n  const d = startOfLocalDay(date);\n  const day = d.getDay(); // 0 domingo, 1 segunda...\n  const diff = (day + 6) % 7; // segunda = 0\n  d.setDate(d.getDate() - diff);\n  return d;\n}\n\nfunction endOfLocalWeek(date = new Date()){\n  const d = startOfLocalWeek(date);\n  d.setDate(d.getDate() + 6);\n  d.setHours(23, 59, 59, 999);\n  return d;\n}\n\nfunction startOfLocalMonth(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);\n}\n\nfunction endOfLocalMonth(date = new Date()){\n  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);\n}\n\nfunction dateKeyLocal(date){\n  const d = new Date(date);\n  const y = d.getFullYear();\n  const m = String(d.getMonth() + 1).padStart(2, "0");\n  const day = String(d.getDate()).padStart(2, "0");\n  return `${y}-${m}-${day}`;\n}\n\nfunction isAnsweredResult(result){\n  return result === "right" || result === "wrong";\n}\n\nfunction eventsBetween(start, end){\n  const s = start.getTime();\n  const e = end.getTime();\n  return getHistory()\n    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)\n    .filter(ev => { const t = new Date(ev.ts).getTime(); return !isNaN(t) && t >= s && t <= e; })\n    .sort((a,b) => new Date(a.ts) - new Date(b.ts));\n}\n\nfunction calcPeriodStats(start, end){\n  const all = getHistory()\n    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)\n    .sort((a,b) => new Date(a.ts) - new Date(b.ts));\n  const startMs = start.getTime();\n  const endMs = end.getTime();\n  const seenBefore = new Set();\n  const wrongBefore = new Set();\n  all.forEach(ev => {\n    const t = new Date(ev.ts).getTime();\n    if(isNaN(t) || t >= startMs) return;\n    seenBefore.add(ev.card_id);\n    if(ev.result === "wrong") wrongBefore.add(ev.card_id);\n  });\n\n  let right = 0, wrong = 0, total = 0, novos = 0, revisoes = 0, errosRecuperados = 0;\n  const unique = new Set();\n  const daily = new Map();\n\n  all.forEach(ev => {\n    const t = new Date(ev.ts).getTime();\n    if(isNaN(t) || t < startMs || t > endMs) return;\n    total++;\n    if(ev.result === "right") right++;\n    if(ev.result === "wrong") wrong++;\n    unique.add(ev.card_id);\n\n    const key = dateKeyLocal(ev.ts);\n    if(!daily.has(key)) daily.set(key, { total:0, right:0, wrong:0 });\n    const d = daily.get(key);\n    d.total++;\n    if(ev.result === "right") d.right++;\n    if(ev.result === "wrong") d.wrong++;\n\n    if(seenBefore.has(ev.card_id)) revisoes++;\n    else novos++;\n\n    if(ev.result === "right" && wrongBefore.has(ev.card_id)) errosRecuperados++;\n\n    seenBefore.add(ev.card_id);\n    if(ev.result === "wrong") wrongBefore.add(ev.card_id);\n  });\n\n  const pct = total ? Math.round((right / total) * 100) : null;\n  return { right, wrong, total, pct, unique: unique.size, novos, revisoes, errosRecuperados, daily };\n}\n\nfunction todayStats(){\n  const now = new Date();\n  return calcPeriodStats(startOfLocalDay(now), endOfLocalDay(now));\n}\n\nfunction weekStats(){\n  const now = new Date();\n  return calcPeriodStats(startOfLocalWeek(now), endOfLocalWeek(now));\n}\n\nfunction monthStats(){\n  const now = new Date();\n  return calcPeriodStats(startOfLocalMonth(now), endOfLocalMonth(now));\n}\n\nfunction calcStreaks(){\n  const dayCounts = new Map();\n  getHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {\n    const key = dateKeyLocal(ev.ts);\n    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);\n  });\n  const today = startOfLocalDay(new Date());\n  let current = 0;\n  const cursor = new Date(today);\n  while(dayCounts.get(dateKeyLocal(cursor)) > 0){\n    current++;\n    cursor.setDate(cursor.getDate() - 1);\n  }\n\n  const keys = Array.from(dayCounts.keys()).sort();\n  let best = 0, run = 0, prev = null;\n  keys.forEach(key => {\n    const d = new Date(key + "T00:00:00");\n    if(prev){\n      const diffDays = Math.round((d - prev) / 86400000);\n      run = diffDays === 1 ? run + 1 : 1;\n    } else {\n      run = 1;\n    }\n    best = Math.max(best, run);\n    prev = d;\n  });\n  return { current, best, dayCounts };\n}\n\nfunction goalProgress(total, target){\n  const pct = target ? Math.min(100, Math.round((total / target) * 100)) : 0;\n  const rawPct = target ? Math.round((total / target) * 100) : 0;\n  const remaining = Math.max(0, target - total);\n  const extra = Math.max(0, total - target);\n  return { pct, rawPct, remaining, extra };\n}\n\nfunction renderDailyGoalWidget(){\n  const widget = document.getElementById("daily-goal-widget");\n  if(!widget) return;\n  const goals = getGoalSettings();\n  const st = todayStats();\n  const progress = goalProgress(st.total, goals.daily);\n  const streak = calcStreaks();\n  document.getElementById("goal-daily-text").textContent = `${st.total} / ${goals.daily} cards`;\n  document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;\n  document.getElementById("goal-daily-sub").textContent = progress.remaining > 0\n    ? `Faltam ${progress.remaining} cards para bater a meta.`\n    : `Meta batida: +${progress.extra} card${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;\n  document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dia${streak.current === 1 ? "" : "s"}`;\n}\n\nfunction periodCard(title, stats, target, kind){\n  const progress = goalProgress(stats.total, target);\n  const pctText = stats.pct === null ? "—" : `${stats.pct}%`;\n  return `\n    <div class="goal-stat-card">\n      <div class="goal-stat-title">${escapeHtml(title)}</div>\n      <div class="goal-stat-main">${stats.total} / ${target}</div>\n      <div class="goal-stat-sub">${progress.rawPct}% da meta ${kind}</div>\n      <div class="goal-progress-track" style="margin-top:10px;"><div class="goal-progress-fill" style="width:${progress.pct}%"></div></div>\n      <div class="goal-mini-grid">\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${stats.right}</div><div class="goal-mini-l">Acertos</div></div>\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--red)">${stats.wrong}</div><div class="goal-mini-l">Erros</div></div>\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${pctText}</div><div class="goal-mini-l">Aproveitamento</div></div>\n        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--teal)">${stats.unique}</div><div class="goal-mini-l">Cards únicos</div></div>\n        <div class="goal-mini"><div class="goal-mini-n">${stats.novos}</div><div class="goal-mini-l">Novos</div></div>\n        <div class="goal-mini"><div class="goal-mini-n">${stats.revisoes}</div><div class="goal-mini-l">Revisões</div></div>\n      </div>\n    </div>\n  `;\n}\n\nfunction renderWeekCalendar(goals){\n  const el = document.getElementById("goal-week-calendar");\n  if(!el) return;\n  const start = startOfLocalWeek(new Date());\n  const todayKey = dateKeyLocal(new Date());\n  const stats = calcPeriodStats(startOfLocalWeek(new Date()), endOfLocalWeek(new Date()));\n  const names = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];\n  const parts = [];\n  for(let i = 0; i < 7; i++){\n    const d = new Date(start);\n    d.setDate(start.getDate() + i);\n    const key = dateKeyLocal(d);\n    const day = stats.daily.get(key) || { total:0, right:0, wrong:0 };\n    const pct = day.total ? Math.round((day.right / day.total) * 100) : null;\n    const hit = day.total >= goals.daily;\n    parts.push(`\n      <div class="day-box ${hit ? "hit" : ""} ${key === todayKey ? "today" : ""}">\n        <div class="day-name">${names[i]}</div>\n        <div class="day-count">${day.total}</div>\n        <div class="day-pct">${pct === null ? "—" : pct + "%"}</div>\n      </div>\n    `);\n  }\n  el.innerHTML = parts.join("");\n}\n\nfunction renderGoalsPage(){\n  const goals = getGoalSettings();\n  const dailyInput = document.getElementById("goal-daily-input");\n  const weeklyInput = document.getElementById("goal-weekly-input");\n  const monthlyInput = document.getElementById("goal-monthly-input");\n  if(dailyInput) dailyInput.value = goals.daily;\n  if(weeklyInput) weeklyInput.value = goals.weekly;\n  if(monthlyInput) monthlyInput.value = goals.monthly;\n\n  const t = todayStats();\n  const w = weekStats();\n  const m = monthStats();\n  const streak = calcStreaks();\n\n  const now = new Date();\n  const dayIndex = (now.getDay() + 6) % 7;\n  const elapsedWeekDays = dayIndex + 1;\n  const remainingWeekDays = Math.max(1, 7 - dayIndex);\n  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();\n  const elapsedMonthDays = now.getDate();\n  const remainingMonthDays = Math.max(1, daysInMonth - now.getDate() + 1);\n  const weekProjection = Math.round((w.total / elapsedWeekDays) * 7);\n  const monthProjection = Math.round((m.total / elapsedMonthDays) * daysInMonth);\n  const weekNeeded = Math.max(0, goals.weekly - w.total);\n  const monthNeeded = Math.max(0, goals.monthly - m.total);\n  const weekPace = Math.ceil(weekNeeded / remainingWeekDays);\n  const monthPace = Math.ceil(monthNeeded / remainingMonthDays);\n\n  const grid = document.getElementById("goal-stats-grid");\n  if(grid){\n    grid.innerHTML = `\n      ${periodCard("Hoje", t, goals.daily, "diária")}\n      ${periodCard("Semana", w, goals.weekly, "semanal")}\n      ${periodCard("Mês", m, goals.monthly, "mensal")}\n      <div class="goal-stat-card">\n        <div class="goal-stat-title">Sequência</div>\n        <div class="goal-stat-main">🔥 ${streak.current}</div>\n        <div class="goal-stat-sub">Sequência atual de dias estudados.</div>\n        <div class="goal-mini-grid">\n          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${streak.best}</div><div class="goal-mini-l">Melhor sequência</div></div>\n          <div class="goal-mini"><div class="goal-mini-n">${t.total}</div><div class="goal-mini-l">Cards hoje</div></div>\n        </div>\n      </div>\n      <div class="goal-stat-card">\n        <div class="goal-stat-title">Projeção semanal</div>\n        <div class="goal-stat-main">${weekProjection}</div>\n        <div class="goal-stat-sub">No ritmo atual, projeção até domingo. Para bater a meta: ${weekPace} card${weekPace === 1 ? "" : "s"}/dia até domingo.</div>\n        <div class="goal-mini-grid">\n          <div class="goal-mini"><div class="goal-mini-n">${weekNeeded}</div><div class="goal-mini-l">Faltam na semana</div></div>\n          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${w.errosRecuperados}</div><div class="goal-mini-l">Erros recuperados</div></div>\n        </div>\n      </div>\n      <div class="goal-stat-card">\n        <div class="goal-stat-title">Projeção mensal</div>\n        <div class="goal-stat-main">${monthProjection}</div>\n        <div class="goal-stat-sub">No ritmo atual, projeção até o fim do mês. Para bater a meta: ${monthPace} card${monthPace === 1 ? "" : "s"}/dia até o fim do mês.</div>\n        <div class="goal-mini-grid">\n          <div class="goal-mini"><div class="goal-mini-n">${monthNeeded}</div><div class="goal-mini-l">Faltam no mês</div></div>\n          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${m.errosRecuperados}</div><div class="goal-mini-l">Erros recuperados</div></div>\n        </div>\n      </div>\n    `;\n  }\n  renderWeekCalendar(goals);\n\n  const alertBox = document.getElementById("goal-alert-box");\n  if(alertBox){\n    const dailyProgress = goalProgress(t.total, goals.daily);\n    const weekProgress = goalProgress(w.total, goals.weekly);\n    if(dailyProgress.remaining > 0){\n      alertBox.innerHTML = `<div class="goal-alert">Você ainda precisa fazer <strong>${dailyProgress.remaining}</strong> card${dailyProgress.remaining === 1 ? "" : "s"} hoje para bater a meta diária. Para a meta semanal, faltam <strong>${weekProgress.remaining}</strong> card${weekProgress.remaining === 1 ? "" : "s"}; ritmo necessário: <strong>${weekPace}</strong>/dia até domingo.</div>`;\n    } else if(weekProgress.remaining > 0){\n      alertBox.innerHTML = `<div class="goal-alert">Meta diária batida. Para a meta semanal, faltam <strong>${weekProgress.remaining}</strong> card${weekProgress.remaining === 1 ? "" : "s"}; ritmo necessário: <strong>${weekPace}</strong>/dia até domingo.</div>`;\n    } else {\n      alertBox.innerHTML = `<div class="goal-alert good">Meta diária e semanal em dia. Continue mantendo a sequência.</div>`;\n    }\n  }\n  renderDailyGoalWidget();\n}\n\nfunction openGoalsPage(){\n  renderGoalsPage();\n  showTab("goals");\n}\n
+
+
+function getGoalSettings(){
+  const defaults = { daily: 60, weekly: 450, monthly: 1900 };
+  try {
+    const saved = JSON.parse(localStorage.getItem(GOALS_KEY) || "{}");
+    return {
+      daily: Math.max(1, Number(saved.daily || defaults.daily)),
+      weekly: Math.max(1, Number(saved.weekly || defaults.weekly)),
+      monthly: Math.max(1, Number(saved.monthly || defaults.monthly))
+    };
+  } catch(e){
+    return defaults;
+  }
+}
+
+function setGoalSettings(goals){
+  localStorage.setItem(GOALS_KEY, JSON.stringify(goals));
+}
+
+function resetGoalDefaults(){
+  setGoalSettings({ daily: 60, weekly: 450, monthly: 1900 });
+  renderGoalsPage();
+  renderDailyGoalWidget();
+}
+
+function saveGoalSettings(){
+  const daily = Math.max(1, Number(document.getElementById("goal-daily-input")?.value || 60));
+  const weekly = Math.max(1, Number(document.getElementById("goal-weekly-input")?.value || 450));
+  const monthly = Math.max(1, Number(document.getElementById("goal-monthly-input")?.value || 1900));
+  setGoalSettings({ daily, weekly, monthly });
+  renderGoalsPage();
+  renderDailyGoalWidget();
+}
+
+function startOfLocalDay(date = new Date()){
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+}
+
+function endOfLocalDay(date = new Date()){
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
+}
+
+function startOfLocalWeek(date = new Date()){
+  const d = startOfLocalDay(date);
+  const day = d.getDay(); // 0 domingo, 1 segunda...
+  const diff = (day + 6) % 7; // segunda = 0
+  d.setDate(d.getDate() - diff);
+  return d;
+}
+
+function endOfLocalWeek(date = new Date()){
+  const d = startOfLocalWeek(date);
+  d.setDate(d.getDate() + 6);
+  d.setHours(23, 59, 59, 999);
+  return d;
+}
+
+function startOfLocalMonth(date = new Date()){
+  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
+}
+
+function endOfLocalMonth(date = new Date()){
+  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
+}
+
+function dateKeyLocal(date){
+  const d = new Date(date);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isAnsweredResult(result){
+  return result === "right" || result === "wrong";
+}
+
+function eventsBetween(start, end){
+  const s = start.getTime();
+  const e = end.getTime();
+  return getHistory()
+    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
+    .filter(ev => { const t = new Date(ev.ts).getTime(); return !isNaN(t) && t >= s && t <= e; })
+    .sort((a,b) => new Date(a.ts) - new Date(b.ts));
+}
+
+function calcPeriodStats(start, end){
+  const all = getHistory()
+    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
+    .sort((a,b) => new Date(a.ts) - new Date(b.ts));
+  const startMs = start.getTime();
+  const endMs = end.getTime();
+  const seenBefore = new Set();
+  const wrongBefore = new Set();
+  all.forEach(ev => {
+    const t = new Date(ev.ts).getTime();
+    if(isNaN(t) || t >= startMs) return;
+    seenBefore.add(ev.card_id);
+    if(ev.result === "wrong") wrongBefore.add(ev.card_id);
+  });
+
+  let right = 0, wrong = 0, total = 0, novos = 0, revisoes = 0, errosRecuperados = 0;
+  const unique = new Set();
+  const daily = new Map();
+
+  all.forEach(ev => {
+    const t = new Date(ev.ts).getTime();
+    if(isNaN(t) || t < startMs || t > endMs) return;
+    total++;
+    if(ev.result === "right") right++;
+    if(ev.result === "wrong") wrong++;
+    unique.add(ev.card_id);
+
+    const key = dateKeyLocal(ev.ts);
+    if(!daily.has(key)) daily.set(key, { total:0, right:0, wrong:0 });
+    const d = daily.get(key);
+    d.total++;
+    if(ev.result === "right") d.right++;
+    if(ev.result === "wrong") d.wrong++;
+
+    if(seenBefore.has(ev.card_id)) revisoes++;
+    else novos++;
+
+    if(ev.result === "right" && wrongBefore.has(ev.card_id)) errosRecuperados++;
+
+    seenBefore.add(ev.card_id);
+    if(ev.result === "wrong") wrongBefore.add(ev.card_id);
+  });
+
+  const pct = total ? Math.round((right / total) * 100) : null;
+  return { right, wrong, total, pct, unique: unique.size, novos, revisoes, errosRecuperados, daily };
+}
+
+function todayStats(){
+  const now = new Date();
+  return calcPeriodStats(startOfLocalDay(now), endOfLocalDay(now));
+}
+
+function weekStats(){
+  const now = new Date();
+  return calcPeriodStats(startOfLocalWeek(now), endOfLocalWeek(now));
+}
+
+function monthStats(){
+  const now = new Date();
+  return calcPeriodStats(startOfLocalMonth(now), endOfLocalMonth(now));
+}
+
+function calcStreaks(){
+  const dayCounts = new Map();
+  getHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
+    const key = dateKeyLocal(ev.ts);
+    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+  });
+  const today = startOfLocalDay(new Date());
+  let current = 0;
+  const cursor = new Date(today);
+  while(dayCounts.get(dateKeyLocal(cursor)) > 0){
+    current++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+
+  const keys = Array.from(dayCounts.keys()).sort();
+  let best = 0, run = 0, prev = null;
+  keys.forEach(key => {
+    const d = new Date(key + "T00:00:00");
+    if(prev){
+      const diffDays = Math.round((d - prev) / 86400000);
+      run = diffDays === 1 ? run + 1 : 1;
+    } else {
+      run = 1;
+    }
+    best = Math.max(best, run);
+    prev = d;
+  });
+  return { current, best, dayCounts };
+}
+
+function goalProgress(total, target){
+  const pct = target ? Math.min(100, Math.round((total / target) * 100)) : 0;
+  const rawPct = target ? Math.round((total / target) * 100) : 0;
+  const remaining = Math.max(0, target - total);
+  const extra = Math.max(0, total - target);
+  return { pct, rawPct, remaining, extra };
+}
+
+function renderDailyGoalWidget(){
+  const widget = document.getElementById("daily-goal-widget");
+  if(!widget) return;
+  const goals = getGoalSettings();
+  const st = todayStats();
+  const progress = goalProgress(st.total, goals.daily);
+  const streak = calcStreaks();
+  document.getElementById("goal-daily-text").textContent = `${st.total} / ${goals.daily} cards`;
+  document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;
+  document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
+    ? `Faltam ${progress.remaining} cards para bater a meta.`
+    : `Meta batida: +${progress.extra} card${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
+  document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dia${streak.current === 1 ? "" : "s"}`;
+}
+
+function periodCard(title, stats, target, kind){
+  const progress = goalProgress(stats.total, target);
+  const pctText = stats.pct === null ? "—" : `${stats.pct}%`;
+  return `
+    <div class="goal-stat-card">
+      <div class="goal-stat-title">${escapeHtml(title)}</div>
+      <div class="goal-stat-main">${stats.total} / ${target}</div>
+      <div class="goal-stat-sub">${progress.rawPct}% da meta ${kind}</div>
+      <div class="goal-progress-track" style="margin-top:10px;"><div class="goal-progress-fill" style="width:${progress.pct}%"></div></div>
+      <div class="goal-mini-grid">
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${stats.right}</div><div class="goal-mini-l">Acertos</div></div>
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--red)">${stats.wrong}</div><div class="goal-mini-l">Erros</div></div>
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${pctText}</div><div class="goal-mini-l">Aproveitamento</div></div>
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--teal)">${stats.unique}</div><div class="goal-mini-l">Cards únicos</div></div>
+        <div class="goal-mini"><div class="goal-mini-n">${stats.novos}</div><div class="goal-mini-l">Novos</div></div>
+        <div class="goal-mini"><div class="goal-mini-n">${stats.revisoes}</div><div class="goal-mini-l">Revisões</div></div>
+      </div>
+    </div>
+  `;
+}
+
+function renderWeekCalendar(goals){
+  const el = document.getElementById("goal-week-calendar");
+  if(!el) return;
+  const start = startOfLocalWeek(new Date());
+  const todayKey = dateKeyLocal(new Date());
+  const stats = calcPeriodStats(startOfLocalWeek(new Date()), endOfLocalWeek(new Date()));
+  const names = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
+  const parts = [];
+  for(let i = 0; i < 7; i++){
+    const d = new Date(start);
+    d.setDate(start.getDate() + i);
+    const key = dateKeyLocal(d);
+    const day = stats.daily.get(key) || { total:0, right:0, wrong:0 };
+    const pct = day.total ? Math.round((day.right / day.total) * 100) : null;
+    const hit = day.total >= goals.daily;
+    parts.push(`
+      <div class="day-box ${hit ? "hit" : ""} ${key === todayKey ? "today" : ""}">
+        <div class="day-name">${names[i]}</div>
+        <div class="day-count">${day.total}</div>
+        <div class="day-pct">${pct === null ? "—" : pct + "%"}</div>
+      </div>
+    `);
+  }
+  el.innerHTML = parts.join("");
+}
+
+function formatDateShortBR(date){
+  const d = new Date(date);
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  return `${dd}/${mm}`;
+}
+
+function formatMonthBR(date){
+  const d = new Date(date);
+  const names = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
+  return `${names[d.getMonth()]}/${d.getFullYear()}`;
+}
+
+function goalHistoryRow(label, sub, stats, target, current=false){
+  const pctText = stats.pct === null ? "—" : `${stats.pct}%`;
+  const progress = goalProgress(stats.total, target);
+  const hitClass = stats.total >= target && stats.total > 0 ? " hit" : "";
+  const currentClass = current ? " current" : "";
+  return `
+    <div class="goal-history-row${hitClass}${currentClass}">
+      <div class="goal-history-range">${escapeHtml(label)}<span class="goal-history-sub">${escapeHtml(sub)}</span></div>
+      <div class="goal-history-val"><strong>${stats.total}</strong>Total</div>
+      <div class="goal-history-val"><strong style="color:var(--green)">${stats.right}</strong>Acertos</div>
+      <div class="goal-history-val"><strong style="color:var(--red)">${stats.wrong}</strong>Erros</div>
+      <div class="goal-history-val"><strong style="color:var(--accent2)">${pctText}</strong>${progress.rawPct}% meta</div>
+    </div>
+  `;
+}
+
+function renderGoalHistory(goals){
+  const weekEl = document.getElementById("goal-week-history");
+  const monthEl = document.getElementById("goal-month-history");
+  const now = new Date();
+
+  if(weekEl){
+    const rows = [];
+    for(let i = 0; i < 8; i++){
+      const ref = new Date(now);
+      ref.setDate(ref.getDate() - i * 7);
+      const start = startOfLocalWeek(ref);
+      const end = endOfLocalWeek(ref);
+      const st = calcPeriodStats(start, end);
+      const label = i === 0 ? "Semana atual" : `${formatDateShortBR(start)} a ${formatDateShortBR(end)}`;
+      const sub = `${formatDateShortBR(start)} 00:00 até ${formatDateShortBR(end)} 23:59`;
+      if(st.total > 0 || i === 0) rows.push(goalHistoryRow(label, sub, st, goals.weekly, i === 0));
+    }
+    weekEl.innerHTML = rows.length ? rows.join("") : `<div class="goal-history-empty">Ainda não há semanas anteriores com cards respondidos.</div>`;
+  }
+
+  if(monthEl){
+    const rows = [];
+    for(let i = 0; i < 12; i++){
+      const ref = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const start = startOfLocalMonth(ref);
+      const end = endOfLocalMonth(ref);
+      const st = calcPeriodStats(start, end);
+      const label = i === 0 ? "Mês atual" : formatMonthBR(start);
+      const sub = `${formatDateShortBR(start)} a ${formatDateShortBR(end)}`;
+      if(st.total > 0 || i === 0) rows.push(goalHistoryRow(label, sub, st, goals.monthly, i === 0));
+    }
+    monthEl.innerHTML = rows.length ? rows.join("") : `<div class="goal-history-empty">Ainda não há meses anteriores com cards respondidos.</div>`;
+  }
+}
+
+function renderGoalsPage(){
+  const goals = getGoalSettings();
+  const dailyInput = document.getElementById("goal-daily-input");
+  const weeklyInput = document.getElementById("goal-weekly-input");
+  const monthlyInput = document.getElementById("goal-monthly-input");
+  if(dailyInput) dailyInput.value = goals.daily;
+  if(weeklyInput) weeklyInput.value = goals.weekly;
+  if(monthlyInput) monthlyInput.value = goals.monthly;
+
+  const t = todayStats();
+  const w = weekStats();
+  const m = monthStats();
+  const streak = calcStreaks();
+
+  const now = new Date();
+  const dayIndex = (now.getDay() + 6) % 7;
+  const elapsedWeekDays = dayIndex + 1;
+  const remainingWeekDays = Math.max(1, 7 - dayIndex);
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const elapsedMonthDays = now.getDate();
+  const remainingMonthDays = Math.max(1, daysInMonth - now.getDate() + 1);
+  const weekProjection = Math.round((w.total / elapsedWeekDays) * 7);
+  const monthProjection = Math.round((m.total / elapsedMonthDays) * daysInMonth);
+  const weekNeeded = Math.max(0, goals.weekly - w.total);
+  const monthNeeded = Math.max(0, goals.monthly - m.total);
+  const weekPace = Math.ceil(weekNeeded / remainingWeekDays);
+  const monthPace = Math.ceil(monthNeeded / remainingMonthDays);
+
+  const grid = document.getElementById("goal-stats-grid");
+  if(grid){
+    grid.innerHTML = `
+      ${periodCard("Hoje", t, goals.daily, "diária")}
+      ${periodCard("Semana", w, goals.weekly, "semanal")}
+      ${periodCard("Mês", m, goals.monthly, "mensal")}
+      <div class="goal-stat-card">
+        <div class="goal-stat-title">Sequência</div>
+        <div class="goal-stat-main">🔥 ${streak.current}</div>
+        <div class="goal-stat-sub">Sequência atual de dias estudados.</div>
+        <div class="goal-mini-grid">
+          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${streak.best}</div><div class="goal-mini-l">Melhor sequência</div></div>
+          <div class="goal-mini"><div class="goal-mini-n">${t.total}</div><div class="goal-mini-l">Cards hoje</div></div>
+        </div>
+      </div>
+      <div class="goal-stat-card">
+        <div class="goal-stat-title">Projeção semanal</div>
+        <div class="goal-stat-main">${weekProjection}</div>
+        <div class="goal-stat-sub">No ritmo atual, projeção até domingo. Para bater a meta: ${weekPace} card${weekPace === 1 ? "" : "s"}/dia até domingo.</div>
+        <div class="goal-mini-grid">
+          <div class="goal-mini"><div class="goal-mini-n">${weekNeeded}</div><div class="goal-mini-l">Faltam na semana</div></div>
+          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${w.errosRecuperados}</div><div class="goal-mini-l">Erros recuperados</div></div>
+        </div>
+      </div>
+      <div class="goal-stat-card">
+        <div class="goal-stat-title">Projeção mensal</div>
+        <div class="goal-stat-main">${monthProjection}</div>
+        <div class="goal-stat-sub">No ritmo atual, projeção até o fim do mês. Para bater a meta: ${monthPace} card${monthPace === 1 ? "" : "s"}/dia até o fim do mês.</div>
+        <div class="goal-mini-grid">
+          <div class="goal-mini"><div class="goal-mini-n">${monthNeeded}</div><div class="goal-mini-l">Faltam no mês</div></div>
+          <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${m.errosRecuperados}</div><div class="goal-mini-l">Erros recuperados</div></div>
+        </div>
+      </div>
+    `;
+  }
+  renderWeekCalendar(goals);
+  renderGoalHistory(goals);
+
+  const alertBox = document.getElementById("goal-alert-box");
+  if(alertBox){
+    const dailyProgress = goalProgress(t.total, goals.daily);
+    const weekProgress = goalProgress(w.total, goals.weekly);
+    if(dailyProgress.remaining > 0){
+      alertBox.innerHTML = `<div class="goal-alert">Você ainda precisa fazer <strong>${dailyProgress.remaining}</strong> card${dailyProgress.remaining === 1 ? "" : "s"} hoje para bater a meta diária. Para a meta semanal, faltam <strong>${weekProgress.remaining}</strong> card${weekProgress.remaining === 1 ? "" : "s"}; ritmo necessário: <strong>${weekPace}</strong>/dia até domingo.</div>`;
+    } else if(weekProgress.remaining > 0){
+      alertBox.innerHTML = `<div class="goal-alert">Meta diária batida. Para a meta semanal, faltam <strong>${weekProgress.remaining}</strong> card${weekProgress.remaining === 1 ? "" : "s"}; ritmo necessário: <strong>${weekPace}</strong>/dia até domingo.</div>`;
+    } else {
+      alertBox.innerHTML = `<div class="goal-alert good">Meta diária e semanal em dia. Continue mantendo a sequência.</div>`;
+    }
+  }
+  renderDailyGoalWidget();
+}
+
+function openGoalsPage(){
+  renderGoalsPage();
+  showTab("goals");
+}
+
 
 function showTab(tab){
   activeTab = tab;
@@ -2285,7 +2709,7 @@ function studyToday(){
 }
 
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = sessionTotal || deck.length;
@@ -2319,21 +2743,27 @@ function isFlagsCard(card){
   return String(card?.publicacao || card?.src || "").trim().toUpperCase() === "FLAGS";
 }
 
+function isGenericAssunto(card){
+  const assunto = String(card?.assunto || "").trim();
+  const pub = String(card?.publicacao || "").trim();
+  if(!assunto) return true;
+  if(assunto === pub) return true;
+  const low = assunto.toLowerCase();
+  return low === "geral" || low === "sem assunto" || low === "—" || low === "-";
+}
+
 function frontQuestionText(card){
   if(isFlagsCard(card)){
     return "De acordo com o Código Internacional de Sinais — Que bandeira é esta e qual o seu significado?";
   }
-  const topicPrefix = (card.assunto && card.assunto !== card.publicacao) ? card.assunto + " — " : "";
-  return "De acordo com " + (card.publicacao || "—") + ": " + topicPrefix + card.q;
+  const topicPrefix = isGenericAssunto(card) ? "" : card.assunto + " — ";
+  return topicPrefix + card.q;
 }
 
 function frontSourceText(card){
-  if(isFlagsCard(card)){
-    // Na frente dos cards de bandeiras, nunca exibir nome/código da bandeira.
-    // O assunto/legenda pode conter algo como “Bandeira Papa (P)”, então fixamos a fonte genérica.
-    return "FLAGS · Código Internacional de Sinais";
-  }
-  return card.publicacao + (card.assunto ? " · " + card.assunto : "");
+  // A publicação já aparece no badge superior.
+  // Mantemos a linha de fonte oculta para evitar repetição no flashcard.
+  return "";
 }
 
 function countConsecutiveRightFromHistory(card){
@@ -2392,7 +2822,12 @@ function showCard(){
   setCardImage("a", c.image_a_url || "", c.image_caption || "");
   document.getElementById('q-text').textContent = frontQuestionText(c);
   document.getElementById('q-hint').textContent = c.hint ? '💡 ' + c.hint : '';
-  document.getElementById('q-src').textContent = frontSourceText(c);
+  const srcEl = document.getElementById('q-src');
+  const srcText = frontSourceText(c);
+  if(srcEl){
+    srcEl.textContent = srcText;
+    srcEl.style.display = srcText ? 'inline-flex' : 'none';
+  }
   document.getElementById('a-text').innerHTML = c.a;
 
   updateProgress();
@@ -2446,6 +2881,46 @@ function updateProgress(){
   document.getElementById('prog-fill').style.width = pct+'%';
 }
 
+
+function getTodayWrongCards(){
+  const start = startOfLocalDay(new Date());
+  const end = endOfLocalDay(new Date());
+  const wrongIds = new Set(
+    eventsBetween(start, end)
+      .filter(ev => ev.result === "wrong")
+      .map(ev => ev.card_id)
+  );
+  let cards = visibleCards(CARDS).filter(c => wrongIds.has(c.id));
+  if(activeCat !== "Todas") cards = cards.filter(c => c.publicacao === activeCat);
+  return uniqueCards(cards);
+}
+
+function studyWrongToday(){
+  const cards = getTodayWrongCards();
+  if(!cards.length){
+    alert(activeCat === "Todas" ? "Não há cards errados hoje." : "Não há cards errados hoje nesta publicação.");
+    return;
+  }
+  deck = [...cards];
+  sessionTotal = deck.length;
+  idx = 0;
+  isFlipped = false;
+  resetSessionScore();
+  SESSION_CARD_ATTEMPTS = new Map();
+  currentStudy = {
+    type: "wrongToday",
+    publicacao: activeCat === "Todas" ? null : activeCat,
+    assunto: null,
+    mode: "wrongToday",
+    label: activeCat === "Todas" ? "Erradas de hoje" : `Erradas de hoje — ${activeCat}`
+  };
+  document.getElementById('complete').classList.remove('show');
+  document.getElementById('complete').style.display='none';
+  updateStudyTitle();
+  showTab('study');
+  showCard();
+}
+
 function showComplete(){
   document.getElementById('card-area').style.display='none';
   const comp = document.getElementById('complete');
@@ -2460,7 +2935,13 @@ function showComplete(){
   document.getElementById('fin-wrong').textContent = scoreWrong;
   document.getElementById('fin-hard').textContent = answered;
   document.getElementById('fin-pct').textContent = pct+'%';
+  const wrongTodayBtn = document.getElementById('btn-wrong-today');
+  if(wrongTodayBtn){
+    const n = getTodayWrongCards().length;
+    wrongTodayBtn.textContent = n ? `Refazer erradas de hoje (${n})` : 'Refazer erradas de hoje';
+  }
 }
+
 
 function restart(){
   document.getElementById('complete').classList.remove('show');
