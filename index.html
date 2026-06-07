@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem</title>
-<!-- versão v26: aproveitamento corrigido por cards acertados ÷ (acertados + errados) -->
+<!-- versão v27: imagem do verso abaixo do texto da resposta -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -207,6 +207,11 @@
   .card-img { max-width: min(82%, 360px); max-height: min(34vh, 260px); object-fit: contain; border-radius: 14px; background: #fff; border: 1px solid rgba(255,255,255,0.16); box-shadow: 0 8px 28px rgba(0,0,0,.25); }
   .card-img-caption { margin-top: 6px; font-size: 11px; color: var(--muted); text-align: center; }
   .archive-img { max-width: 220px; max-height: 150px; object-fit: contain; border-radius: 12px; background:#fff; border:1px solid var(--border2); margin: 8px 0 10px; display:block; }
+
+
+  /* ORDEM DO VERSO DO FLASHCARD: TEXTO PRIMEIRO, IMAGEM DEPOIS */
+  #a-text { order: 1; }
+  #a-img-wrap { order: 2; margin-top: 14px; margin-bottom: 0; }
 
   /* Imagens embutidas no texto da resposta, vindas do Supabase/SQL em HTML.
      Força adaptação ao tamanho do flashcard e evita rolagem horizontal. */
@@ -798,11 +803,11 @@
             <span class="diff-badge" id="back-diff">—</span>
           </div>
           <div class="card-body" style="overflow-y:auto; max-height: calc(var(--card-h) - 100px);">
+            <div id="a-text" class="answer-text">—</div>
             <div class="card-img-wrap" id="a-img-wrap" style="display:none;">
               <img id="a-img" class="card-img" alt="">
               <div id="a-img-caption" class="card-img-caption"></div>
             </div>
-            <div id="a-text" class="answer-text">—</div>
           </div>
           <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
         </div>
