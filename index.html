@@ -361,10 +361,16 @@
   .goal-history-grid { display:grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 12px; }
   .goal-history-list { display:grid; gap: 8px; }
   .goal-history-row { display:grid; grid-template-columns: minmax(0, 1.35fr) .65fr .65fr .65fr .65fr; gap: 8px; align-items:center; border:1px solid var(--border); background: rgba(255,255,255,.035); border-radius: 13px; padding: 9px 10px; }
+  .goal-history-actions { display:flex; flex-wrap:wrap; gap:6px; margin-top:7px; }
+  .goal-history-btn { border:1px solid var(--border2); background: rgba(255,255,255,.05); color: var(--text); border-radius: 10px; padding: 5px 7px; font-size: 10px; font-weight: 900; cursor:pointer; }
+  .goal-history-btn.danger { color: var(--red); border-color: rgba(224,92,92,.38); background: rgba(224,92,92,.12); }
+  .goal-history-btn.warn { color: var(--amber); border-color: rgba(240,160,75,.38); background: rgba(240,160,75,.12); }
+  .goal-history-btn:active { transform: scale(.97); }
   .goal-history-range { font-size: 11px; color: var(--text); font-weight: 900; line-height: 1.25; }
   .goal-history-sub { display:block; color: var(--muted); font-size: 10px; font-weight: 700; margin-top: 2px; }
   .goal-history-val { text-align:right; font-size: 12px; color: var(--muted); font-weight: 800; }
   .goal-history-val strong { display:block; font-size: 14px; color: var(--text); line-height: 1.1; }
+  .goal-history-micro { display:block; color: var(--muted); font-size: 9px; font-weight: 800; line-height: 1.15; margin-top: 2px; }
   .goal-history-empty { color: var(--muted); font-size: 12px; line-height: 1.45; border:1px dashed var(--border2); border-radius: 13px; padding: 12px; }
   .goal-history-row.hit { border-color: rgba(76,175,125,.35); background: rgba(76,175,125,.06); }
   .goal-history-row.current { border-color: rgba(124,140,248,.45); }
@@ -616,6 +622,9 @@
         <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
         <button class="mini-btn" onclick="renderGoalsPage()">Atualizar</button>
         <button class="mini-btn danger-btn" onclick="studyWrongToday()">Refazer erradas de hoje</button>
+        <button class="mini-btn danger-btn" onclick="studyWrongWeek()">Refazer erradas da semana</button>
+        <button class="mini-btn danger-btn" onclick="studyWrongMonth()">Refazer erradas do mês</button>
+        <button class="mini-btn" onclick="studyPendingWrongWeek()">Pendentes da semana</button>
       </div>
       <div class="goal-settings">
         <div class="goal-settings-title">Configurar metas</div>
@@ -933,6 +942,7 @@ let isOnlineMode = true;
 const MIN_SAMPLE = 5;
 let deck = [], idx = 0, isFlipped = false;
 let SESSION_CARD_ATTEMPTS = new Map();
+let SESSION_RESULTS = new Map();
 let scoreRight = 0, scoreWrong = 0, scoreHard = 0;
 let answered = 0, sessionDone = 0, sessionTotal = 0, activeCat = "Todas", activeTab = "study";
 let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", label:"Todas as publicações" };
@@ -2119,8 +2129,10 @@ function calcPeriodStats(start, end){
     if(ev.result === "wrong") wrongBefore.add(ev.card_id);
   });
 
-  let right = 0, wrong = 0, total = 0, novos = 0, revisoes = 0, errosRecuperados = 0;
+  let right = 0, wrong = 0, total = 0, novos = 0, revisoes = 0;
   const unique = new Set();
+  const wrongUniqueIds = new Set();
+  const lastByCard = new Map();
   const daily = new Map();
 
   all.forEach(ev => {
@@ -2130,6 +2142,8 @@ function calcPeriodStats(start, end){
     if(ev.result === "right") right++;
     if(ev.result === "wrong") wrong++;
     unique.add(ev.card_id);
+    if(ev.result === "wrong") wrongUniqueIds.add(ev.card_id);
+    lastByCard.set(ev.card_id, { result: ev.result, ts: t });
 
     const key = dateKeyLocal(ev.ts);
     if(!daily.has(key)) daily.set(key, { total:0, right:0, wrong:0 });
@@ -2141,14 +2155,36 @@ function calcPeriodStats(start, end){
     if(seenBefore.has(ev.card_id)) revisoes++;
     else novos++;
 
-    if(ev.result === "right" && wrongBefore.has(ev.card_id)) errosRecuperados++;
-
     seenBefore.add(ev.card_id);
     if(ev.result === "wrong") wrongBefore.add(ev.card_id);
   });
 
+  let uniqueRight = 0;
+  let uniqueWrong = 0;
+  lastByCard.forEach(last => {
+    if(last.result === "right") uniqueRight++;
+    if(last.result === "wrong") uniqueWrong++;
+  });
+  const pendingUnique = Array.from(wrongUniqueIds).filter(id => lastByCard.get(id)?.result === "wrong").length;
+  const errosRecuperados = Array.from(wrongUniqueIds).filter(id => lastByCard.get(id)?.result === "right").length;
   const pct = total ? Math.round((right / total) * 100) : null;
-  return { right, wrong, total, pct, unique: unique.size, novos, revisoes, errosRecuperados, daily };
+  const uniquePct = unique.size ? Math.round((uniqueRight / unique.size) * 100) : null;
+  return {
+    right,
+    wrong,
+    total,
+    pct,
+    unique: unique.size,
+    uniqueRight,
+    uniqueWrong,
+    uniquePct,
+    wrongUnique: wrongUniqueIds.size,
+    pendingUnique,
+    novos,
+    revisoes,
+    errosRecuperados,
+    daily
+  };
 }
 
 function todayStats(){
@@ -2222,6 +2258,7 @@ function renderDailyGoalWidget(){
 function periodCard(title, stats, target, kind){
   const progress = goalProgress(stats.total, target);
   const pctText = stats.pct === null ? "—" : `${stats.pct}%`;
+  const uniquePctText = stats.uniquePct === null ? "—" : `${stats.uniquePct}%`;
   return `
     <div class="goal-stat-card">
       <div class="goal-stat-title">${escapeHtml(title)}</div>
@@ -2231,8 +2268,11 @@ function periodCard(title, stats, target, kind){
       <div class="goal-mini-grid">
         <div class="goal-mini"><div class="goal-mini-n" style="color:var(--green)">${stats.right}</div><div class="goal-mini-l">Acertos</div></div>
         <div class="goal-mini"><div class="goal-mini-n" style="color:var(--red)">${stats.wrong}</div><div class="goal-mini-l">Erros</div></div>
-        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${pctText}</div><div class="goal-mini-l">Aproveitamento</div></div>
-        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--teal)">${stats.unique}</div><div class="goal-mini-l">Cards únicos</div></div>
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--accent2)">${pctText}</div><div class="goal-mini-l">Aprov. tentativas</div></div>
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--teal)">${uniquePctText}</div><div class="goal-mini-l">Aprov. cards</div></div>
+        <div class="goal-mini"><div class="goal-mini-n">${stats.unique}</div><div class="goal-mini-l">Cards únicos</div></div>
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--red)">${stats.wrongUnique}</div><div class="goal-mini-l">Cards c/ erro</div></div>
+        <div class="goal-mini"><div class="goal-mini-n" style="color:var(--amber)">${stats.pendingUnique}</div><div class="goal-mini-l">Pendentes</div></div>
         <div class="goal-mini"><div class="goal-mini-n">${stats.novos}</div><div class="goal-mini-l">Novos</div></div>
         <div class="goal-mini"><div class="goal-mini-n">${stats.revisoes}</div><div class="goal-mini-l">Revisões</div></div>
       </div>
@@ -2279,18 +2319,27 @@ function formatMonthBR(date){
   return `${names[d.getMonth()]}/${d.getFullYear()}`;
 }
 
-function goalHistoryRow(label, sub, stats, target, current=false){
+function goalHistoryRow(label, sub, stats, target, current=false, startMs=null, endMs=null){
   const pctText = stats.pct === null ? "—" : `${stats.pct}%`;
+  const uniquePctText = stats.uniquePct === null ? "—" : `${stats.uniquePct}%`;
   const progress = goalProgress(stats.total, target);
   const hitClass = stats.total >= target && stats.total > 0 ? " hit" : "";
   const currentClass = current ? " current" : "";
+  const rangeArgs = (startMs !== null && endMs !== null) ? `${startMs}, ${endMs}, ${JSON.stringify(label)}` : "";
+  const wrongBtn = stats.wrongUnique > 0 && rangeArgs
+    ? `<button class="goal-history-btn danger" type="button" onclick='studyWrongPeriod(${rangeArgs})'>Refazer ${stats.wrongUnique}</button>`
+    : "";
+  const pendingBtn = stats.pendingUnique > 0 && rangeArgs
+    ? `<button class="goal-history-btn warn" type="button" onclick='studyPendingWrongPeriod(${rangeArgs})'>Pendentes ${stats.pendingUnique}</button>`
+    : "";
+  const actions = (wrongBtn || pendingBtn) ? `<div class="goal-history-actions">${wrongBtn}${pendingBtn}</div>` : "";
   return `
     <div class="goal-history-row${hitClass}${currentClass}">
-      <div class="goal-history-range">${escapeHtml(label)}<span class="goal-history-sub">${escapeHtml(sub)}</span></div>
-      <div class="goal-history-val"><strong>${stats.total}</strong>Total</div>
-      <div class="goal-history-val"><strong style="color:var(--green)">${stats.right}</strong>Acertos</div>
-      <div class="goal-history-val"><strong style="color:var(--red)">${stats.wrong}</strong>Erros</div>
-      <div class="goal-history-val"><strong style="color:var(--accent2)">${pctText}</strong>${progress.rawPct}% meta</div>
+      <div class="goal-history-range">${escapeHtml(label)}<span class="goal-history-sub">${escapeHtml(sub)}</span>${actions}</div>
+      <div class="goal-history-val"><strong>${stats.total}</strong>Total<span class="goal-history-micro">${stats.unique} cards únicos</span></div>
+      <div class="goal-history-val"><strong style="color:var(--green)">${stats.right}</strong>Acertos<span class="goal-history-micro">${stats.uniqueRight} cards</span></div>
+      <div class="goal-history-val"><strong style="color:var(--red)">${stats.wrong}</strong>Erros<span class="goal-history-micro">${stats.wrongUnique} cards únicos</span></div>
+      <div class="goal-history-val"><strong style="color:var(--accent2)">${pctText}</strong>Tentativas<span class="goal-history-micro">${uniquePctText} por cards · ${progress.rawPct}% meta</span></div>
     </div>
   `;
 }
@@ -2310,7 +2359,7 @@ function renderGoalHistory(goals){
       const st = calcPeriodStats(start, end);
       const label = i === 0 ? "Semana atual" : `${formatDateShortBR(start)} a ${formatDateShortBR(end)}`;
       const sub = `${formatDateShortBR(start)} 00:00 até ${formatDateShortBR(end)} 23:59`;
-      if(st.total > 0 || i === 0) rows.push(goalHistoryRow(label, sub, st, goals.weekly, i === 0));
+      if(st.total > 0 || i === 0) rows.push(goalHistoryRow(label, sub, st, goals.weekly, i === 0, start.getTime(), end.getTime()));
     }
     weekEl.innerHTML = rows.length ? rows.join("") : `<div class="goal-history-empty">Ainda não há semanas anteriores com cards respondidos.</div>`;
   }
@@ -2324,7 +2373,7 @@ function renderGoalHistory(goals){
       const st = calcPeriodStats(start, end);
       const label = i === 0 ? "Mês atual" : formatMonthBR(start);
       const sub = `${formatDateShortBR(start)} a ${formatDateShortBR(end)}`;
-      if(st.total > 0 || i === 0) rows.push(goalHistoryRow(label, sub, st, goals.monthly, i === 0));
+      if(st.total > 0 || i === 0) rows.push(goalHistoryRow(label, sub, st, goals.monthly, i === 0, start.getTime(), end.getTime()));
     }
     monthEl.innerHTML = rows.length ? rows.join("") : `<div class="goal-history-empty">Ainda não há meses anteriores com cards respondidos.</div>`;
   }
@@ -2600,6 +2649,7 @@ function renderArchivedCards(){
 
 function resetSessionScore(){
   SESSION_CARD_ATTEMPTS = new Map();
+  SESSION_RESULTS = new Map();
   scoreRight=0; scoreWrong=0; scoreHard=0; answered=0; sessionDone=0;
   document.getElementById('score-right').textContent='0';
   document.getElementById('score-wrong').textContent='0';
@@ -2714,7 +2764,7 @@ function studyToday(){
 }
 
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", wrongWeek:"Erradas da semana", wrongMonth:"Erradas do mês", wrongPeriod:"Erradas do período", pendingPeriod:"Pendentes do período", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = sessionTotal || deck.length;
@@ -2851,6 +2901,7 @@ async function answer(type){
   const c = deck[idx];
   if(!c) return;
   noteSessionAttempt(c);
+  SESSION_RESULTS.set(c.id, type);
   await saveEvent(c, type);
   if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
   if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
@@ -2887,23 +2938,53 @@ function updateProgress(){
 }
 
 
-function getTodayWrongCards(){
-  const start = startOfLocalDay(new Date());
-  const end = endOfLocalDay(new Date());
-  const wrongIds = new Set(
-    eventsBetween(start, end)
-      .filter(ev => ev.result === "wrong")
-      .map(ev => ev.card_id)
-  );
-  let cards = visibleCards(CARDS).filter(c => wrongIds.has(c.id));
-  if(activeCat !== "Todas") cards = cards.filter(c => c.publicacao === activeCat);
-  return uniqueCards(cards);
+
+function periodCardInfo(start, end){
+  const info = new Map();
+  eventsBetween(start, end).forEach(ev => {
+    if(!info.has(ev.card_id)){
+      info.set(ev.card_id, { card_id: ev.card_id, total:0, right:0, wrong:0, lastTs:0, lastResult:null, lastWrongTs:0 });
+    }
+    const item = info.get(ev.card_id);
+    const t = new Date(ev.ts).getTime();
+    item.total++;
+    if(ev.result === "right") item.right++;
+    if(ev.result === "wrong"){
+      item.wrong++;
+      item.lastWrongTs = Math.max(item.lastWrongTs, isNaN(t) ? 0 : t);
+    }
+    if(!isNaN(t) && t >= item.lastTs){
+      item.lastTs = t;
+      item.lastResult = ev.result;
+    }
+  });
+  return info;
 }
 
-function studyWrongToday(){
-  const cards = getTodayWrongCards();
+function getWrongCardsForPeriod(start, end, pendingOnly=false){
+  const info = periodCardInfo(start, end);
+  const ids = new Set();
+  info.forEach((item, id) => {
+    if(item.wrong <= 0) return;
+    if(pendingOnly && item.lastResult !== "wrong") return;
+    ids.add(id);
+  });
+  let cards = visibleCards(CARDS).filter(c => ids.has(c.id));
+  if(activeCat !== "Todas") cards = cards.filter(c => c.publicacao === activeCat);
+  return uniqueCards(cards).sort((a,b) => {
+    const ia = info.get(a.id) || { wrong:0, lastWrongTs:0, lastResult:null };
+    const ib = info.get(b.id) || { wrong:0, lastWrongTs:0, lastResult:null };
+    const pendingA = ia.lastResult === "wrong" ? 1 : 0;
+    const pendingB = ib.lastResult === "wrong" ? 1 : 0;
+    if(pendingB !== pendingA) return pendingB - pendingA;
+    if(ib.wrong !== ia.wrong) return ib.wrong - ia.wrong;
+    return ib.lastWrongTs - ia.lastWrongTs;
+  });
+}
+
+function startWrongPeriodStudy(cards, mode, label, startMs=null, endMs=null, pendingOnly=false){
   if(!cards.length){
-    alert(activeCat === "Todas" ? "Não há cards errados hoje." : "Não há cards errados hoje nesta publicação.");
+    alert(activeCat === "Todas" ? "Não há cards para esse filtro." : "Não há cards para esse filtro nesta publicação.");
     return;
   }
   deck = [...cards];
@@ -2911,19 +2992,73 @@ function studyWrongToday(){
   idx = 0;
   isFlipped = false;
   resetSessionScore();
-  SESSION_CARD_ATTEMPTS = new Map();
   currentStudy = {
-    type: "wrongToday",
+    type: "wrongPeriod",
     publicacao: activeCat === "Todas" ? null : activeCat,
     assunto: null,
-    mode: "wrongToday",
-    label: activeCat === "Todas" ? "Erradas de hoje" : `Erradas de hoje — ${activeCat}`
+    mode,
+    label,
+    startMs,
+    endMs,
+    pendingOnly
   };
   document.getElementById('complete').classList.remove('show');
   document.getElementById('complete').style.display='none';
   updateStudyTitle();
   showTab('study');
   showCard();
+}
+
+function studyWrongPeriod(startMs, endMs, label="período"){
+  const start = new Date(Number(startMs));
+  const end = new Date(Number(endMs));
+  const cards = getWrongCardsForPeriod(start, end, false);
+  const suffix = activeCat === "Todas" ? "" : ` — ${activeCat}`;
+  startWrongPeriodStudy(cards, "wrongPeriod", `Erradas de ${label}${suffix}`, start.getTime(), end.getTime(), false);
+}
+
+function studyPendingWrongPeriod(startMs, endMs, label="período"){
+  const start = new Date(Number(startMs));
+  const end = new Date(Number(endMs));
+  const cards = getWrongCardsForPeriod(start, end, true);
+  const suffix = activeCat === "Todas" ? "" : ` — ${activeCat}`;
+  startWrongPeriodStudy(cards, "pendingPeriod", `Pendentes de ${label}${suffix}`, start.getTime(), end.getTime(), true);
+}
+
+function studyWrongWeek(){
+  const start = startOfLocalWeek(new Date());
+  const end = endOfLocalWeek(new Date());
+  studyWrongPeriod(start.getTime(), end.getTime(), "semana");
+}
+
+function studyWrongMonth(){
+  const start = startOfLocalMonth(new Date());
+  const end = endOfLocalMonth(new Date());
+  studyWrongPeriod(start.getTime(), end.getTime(), "mês");
+}
+
+function studyPendingWrongWeek(){
+  const start = startOfLocalWeek(new Date());
+  const end = endOfLocalWeek(new Date());
+  studyPendingWrongPeriod(start.getTime(), end.getTime(), "semana");
+}
+
+function getTodayWrongCards(){
+  const start = startOfLocalDay(new Date());
+  const end = endOfLocalDay(new Date());
+  return getWrongCardsForPeriod(start, end, false);
+}
+
+function studyWrongToday(){
+  const start = startOfLocalDay(new Date());
+  const end = endOfLocalDay(new Date());
+  const cards = getWrongCardsForPeriod(start, end, false);
+  if(!cards.length){
+    alert(activeCat === "Todas" ? "Não há cards errados hoje." : "Não há cards errados hoje nesta publicação.");
+    return;
+  }
+  const suffix = activeCat === "Todas" ? "" : ` — ${activeCat}`;
+  startWrongPeriodStudy(cards, "wrongToday", `Erradas de hoje${suffix}`, start.getTime(), end.getTime(), false);
 }
 
 function showComplete(){
@@ -2933,7 +3068,15 @@ function showComplete(){
   comp.style.display='flex';
   comp.querySelector('.complete-emoji').textContent = '🎉';
   comp.querySelector('h2').textContent = 'Baralho concluído!';
-  comp.querySelector('p').textContent = 'Você completou todos os flashcards da categoria selecionada.';
+  const isWrongReview = ["wrongToday", "wrongWeek", "wrongMonth", "wrongPeriod", "pendingPeriod"].includes(currentStudy.mode);
+  if(isWrongReview){
+    const uniqueReviewed = SESSION_RESULTS.size;
+    const recovered = Array.from(SESSION_RESULTS.values()).filter(r => r === "right").length;
+    const stillWrong = Array.from(SESSION_RESULTS.values()).filter(r => r === "wrong").length;
+    comp.querySelector('p').textContent = `Revisão concluída: ${uniqueReviewed} card${uniqueReviewed === 1 ? "" : "s"} único${uniqueReviewed === 1 ? "" : "s"} revisado${uniqueReviewed === 1 ? "" : "s"}. Recuperados: ${recovered}. Continuam errados: ${stillWrong}.`;
+  } else {
+    comp.querySelector('p').textContent = 'Você completou todos os flashcards da categoria selecionada.';
+  }
   const total = answered;
   const pct = total ? Math.round((scoreRight/total)*100) : 0;
   document.getElementById('fin-right').textContent = scoreRight;
@@ -2953,6 +3096,12 @@ function restart(){
   document.getElementById('complete').style.display='none';
   if(currentStudy.type === "smart") smartStudy();
   else if(currentStudy.type === "topic") studyGroup(currentStudy.publicacao, currentStudy.assunto, currentStudy.mode);
+  else if(currentStudy.type === "wrongPeriod" && currentStudy.startMs !== null && currentStudy.endMs !== null){
+    const start = new Date(Number(currentStudy.startMs));
+    const end = new Date(Number(currentStudy.endMs));
+    const cards = getWrongCardsForPeriod(start, end, !!currentStudy.pendingOnly);
+    startWrongPeriodStudy(cards, currentStudy.mode || (currentStudy.pendingOnly ? "pendingPeriod" : "wrongPeriod"), currentStudy.label || "Erradas do período", currentStudy.startMs, currentStudy.endMs, !!currentStudy.pendingOnly);
+  }
   else selectCat(activeCat);
 }
 
