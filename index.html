@@ -957,55 +957,12 @@ const EMBEDDED_QUESTION_BANK = [{"id":"compilacao_praticagem_squat_interaction_m
 let QUESTION_SOURCE = "supabase"; // "supabase" ou "html"
 const QUESTION_LOCAL_KEY = "flashpratico_questoes_embutidas_respostas_v1";
 
-function normalizeQuestionAttempt(ev){
-  if(!ev) return null;
-  const questionId = ev.question_id || ev.questao_id || ev.card_id || ev.id_questao;
-  const result = ev.result || ev.resultado;
-  const ts = ev.ts || ev.created_at || new Date().toISOString();
-  if(!questionId || !["right", "wrong"].includes(result)) return null;
-  return {
-    id: String(ev.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random())),
-    question_id: String(questionId),
-    publicacao: ev.publicacao || "Compilação Praticagem",
-    assunto: ev.assunto || "Geral",
-    numero: ev.numero || null,
-    resposta: ev.resposta || ev.selected || "",
-    result,
-    ts
-  };
-}
-function questionAttemptStableKey(ev){
-  const d = new Date(ev.ts);
-  const minute = isNaN(d.getTime()) ? String(ev.ts || "") : d.toISOString().slice(0,16);
-  return [ev.question_id, ev.resposta, ev.result, minute].join("|");
-}
-function readLocalQuestionResponses(){
-  try {
-    return (JSON.parse(localStorage.getItem(QUESTION_LOCAL_KEY) || "[]") || [])
-      .map(normalizeQuestionAttempt)
-      .filter(Boolean);
-  } catch(e) { return []; }
-}
-function mergeQuestionAttempts(...lists){
-  const byId = new Map();
-  const byStable = new Map();
-  lists.flat().map(normalizeQuestionAttempt).filter(Boolean).forEach(ev => {
-    if(byId.has(ev.id)) return;
-    const stable = questionAttemptStableKey(ev);
-    if(byStable.has(stable)) return;
-    byId.set(ev.id, ev);
-    byStable.set(stable, ev.id);
-  });
-  return Array.from(byId.values()).sort((a,b) => new Date(a.ts) - new Date(b.ts));
-}
 function loadEmbeddedQuestionResponses(){
-  QUESTION_ATTEMPTS = readLocalQuestionResponses();
+  try { QUESTION_ATTEMPTS = JSON.parse(localStorage.getItem(QUESTION_LOCAL_KEY) || "[]"); }
+  catch(e) { QUESTION_ATTEMPTS = []; }
 }
 function saveEmbeddedQuestionResponses(){
-  try {
-    const clean = mergeQuestionAttempts(QUESTION_ATTEMPTS).slice(-20000);
-    localStorage.setItem(QUESTION_LOCAL_KEY, JSON.stringify(clean));
-  }
+  try { localStorage.setItem(QUESTION_LOCAL_KEY, JSON.stringify(QUESTION_ATTEMPTS.slice(-20000))); }
   catch(e) { console.warn("Não foi possível salvar respostas locais das questões:", e); }
 }
 function useEmbeddedQuestions(reason){
@@ -1014,39 +971,6 @@ function useEmbeddedQuestions(reason){
   QUESTION_BANK = EMBEDDED_QUESTION_BANK.map(q => ({...q, alternativas: {...(q.alternativas || {})} }));
   loadEmbeddedQuestionResponses();
   if(reason) console.warn("Usando questões embutidas no HTML:", reason);
-}
-function questionPayloadForSupabase(ev){
-  const q = QUESTION_BANK.find(item => String(item.id) === String(ev.question_id));
-  return {
-    id: ev.id,
-    user_id: currentUser.id,
-    questao_id: ev.question_id,
-    publicacao: ev.publicacao || q?.publicacao || "Compilação Praticagem",
-    assunto: ev.assunto || q?.assunto || "Geral",
-    numero: ev.numero || q?.numero || null,
-    resposta: ev.resposta,
-    resultado: ev.result,
-    created_at: ev.ts
-  };
-}
-async function syncLocalQuestionResponsesToSupabase(remoteAttempts = []){
-  if(!currentUser?.id || !supabaseClient || QUESTION_SOURCE !== "supabase") return;
-  const local = readLocalQuestionResponses();
-  if(!local.length) return;
-  const remoteIds = new Set(remoteAttempts.map(e => String(e.id)));
-  const remoteStable = new Set(remoteAttempts.map(questionAttemptStableKey));
-  const pending = local.filter(ev => !remoteIds.has(String(ev.id)) && !remoteStable.has(questionAttemptStableKey(ev)));
-  if(!pending.length) return;
-  const payload = pending.map(questionPayloadForSupabase);
-  const { error } = await supabaseClient
-    .from("questoes_respostas")
-    .upsert(payload, { onConflict: "id", ignoreDuplicates: true });
-  if(error){
-    console.warn("Não consegui sincronizar respostas locais pendentes das questões:", error);
-    setSyncStatus("questões pendentes salvas localmente; erro ao sincronizar: " + error.message);
-    return;
-  }
-  setSyncStatus(`${pending.length} resposta${pending.length === 1 ? "" : "s"} pendente${pending.length === 1 ? "" : "s"} de questões sincronizada${pending.length === 1 ? "" : "s"}.`);
 }
 
 
@@ -1136,25 +1060,6 @@ function getHistory(){
 function setHistory(hist){
   if(isOnlineMode) { ONLINE_HISTORY = hist; return; }
   localStorage.setItem(DB_KEY, JSON.stringify(hist));
-}
-function getQuestionGoalEvents(){
-  return (QUESTION_ATTEMPTS || [])
-    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
-    .map(ev => ({
-      id: `q:${ev.id}`,
-      card_id: `q:${ev.question_id}`,
-      publicacao: ev.publicacao || "Questões",
-      assunto: ev.assunto || "Geral",
-      result: ev.result,
-      ts: ev.ts,
-      kind: "question"
-    }));
-}
-function getGoalHistory(){
-  return [
-    ...getHistory().map(ev => ({...ev, kind: ev.kind || "card"})),
-    ...getQuestionGoalEvents()
-  ];
 }
 async function saveEvent(card, result){
   const event = {
@@ -1815,23 +1720,19 @@ async function loadQuestionResponsesFromSupabase(){
   if(!currentUser?.id) return;
   const { data, error } = await supabaseClient
     .from("questoes_respostas")
-    .select("id,user_id,questao_id,publicacao,assunto,numero,resposta,resultado,created_at")
+    .select("id,user_id,questao_id,assunto,numero,resposta,resultado,created_at")
     .eq("user_id", currentUser.id)
     .order("created_at", { ascending:true });
   if(error) throw error;
-  const remoteAttempts = (data || []).map(r => normalizeQuestionAttempt({
+  QUESTION_ATTEMPTS = (data || []).map(r => ({
     id:String(r.id),
     question_id:r.questao_id,
-    publicacao:r.publicacao,
     assunto:r.assunto,
     numero:r.numero,
     resposta:r.resposta,
     result:r.resultado,
     ts:r.created_at
-  })).filter(Boolean);
-  QUESTION_ATTEMPTS = mergeQuestionAttempts(remoteAttempts, readLocalQuestionResponses());
-  saveEmbeddedQuestionResponses();
-  await syncLocalQuestionResponsesToSupabase(remoteAttempts);
+  }));
 }
 function qEventsFor(questionId){ return QUESTION_ATTEMPTS.filter(e => e.question_id === questionId && (e.result === "right" || e.result === "wrong")); }
 function qLastResult(questionId){ const ev = qEventsFor(questionId); return ev.length ? ev[ev.length-1].result : null; }
@@ -2038,29 +1939,38 @@ if(!window.__questionImageZoomKeyHandler){
 async function saveQuestionEvent(q, selected, result){
   const event = {
     id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(),
-    question_id: String(q.id),
-    publicacao: q.publicacao || "Compilação Praticagem",
+    question_id: q.id,
     assunto: q.assunto,
     numero: q.numero,
     resposta: selected,
     result,
     ts: new Date().toISOString()
   };
-  QUESTION_ATTEMPTS = mergeQuestionAttempts(QUESTION_ATTEMPTS, [event]);
-  saveEmbeddedQuestionResponses(); // backup imediato no aparelho antes de tentar nuvem
-  renderDailyGoalWidget();
-  if(QUESTION_SOURCE === "html" || !currentUser?.id) return;
-  const { error } = await supabaseClient
-    .from("questoes_respostas")
-    .upsert(questionPayloadForSupabase(event), { onConflict: "id", ignoreDuplicates: true });
-  if(error){
-    console.error("Erro ao salvar questão:", error);
-    const feedback = document.getElementById("q-feedback");
-    feedback.style.display = "block";
-    feedback.className = "q-feedback bad";
-    feedback.innerHTML += `<small>Não consegui salvar no Supabase. Salvei localmente neste aparelho: ${escapeHtml(error.message)}</small>`;
-  } else {
-    setSyncStatus("Resposta de questão salva no Supabase.");
+  QUESTION_ATTEMPTS.push(event);
+  if(QUESTION_SOURCE === "html" || !currentUser?.id){
+    saveEmbeddedQuestionResponses();
+    return;
+  }
+  if(currentUser?.id){
+    const { error } = await supabaseClient
+      .from("questoes_respostas")
+      .insert({
+        user_id: currentUser.id,
+        questao_id: q.id,
+        publicacao: q.publicacao || "Compilação Praticagem",
+        assunto: q.assunto,
+        numero: q.numero,
+        resposta: selected,
+        resultado: result
+      });
+    if(error){
+      console.error("Erro ao salvar questão:", error);
+      saveEmbeddedQuestionResponses();
+      const feedback = document.getElementById("q-feedback");
+      feedback.style.display = "block";
+      feedback.className = "q-feedback bad";
+      feedback.innerHTML += `<small>Não consegui salvar no Supabase. Salvei localmente neste aparelho: ${escapeHtml(error.message)}</small>`;
+    }
   }
 }
 async function selectQuestionOption(event, letter){
@@ -2096,7 +2006,6 @@ async function selectQuestionOption(event, letter){
     <span class="meta-pill">${st.faltam} faltam</span>
   `;
   document.getElementById("q-study-progress").textContent = `${Math.min(questionSessionDone, questionSessionTotal)} / ${questionSessionTotal}`;
-  if(activeTab === "goals") renderGoalsPage();
 }
 function nextQuestionCard(){
   if(!questionDeck.length) return;
@@ -2120,68 +2029,35 @@ function shuffleQuestionDeck(){
 }
 
 
-function defaultGoalSettings(){ return { daily: 60, weekly: 450, monthly: 1900 }; }
-function sanitizeGoalSettings(goals){
-  const defaults = defaultGoalSettings();
-  const g = goals || {};
-  return {
-    daily: Math.max(1, Number(g.daily || defaults.daily)),
-    weekly: Math.max(1, Number(g.weekly || defaults.weekly)),
-    monthly: Math.max(1, Number(g.monthly || defaults.monthly))
-  };
-}
 function getGoalSettings(){
+  const defaults = { daily: 60, weekly: 450, monthly: 1900 };
   try {
-    const cloud = currentUser?.user_metadata?.flashpratico_goals;
-    if(cloud) return sanitizeGoalSettings(cloud);
     const saved = JSON.parse(localStorage.getItem(GOALS_KEY) || "{}");
-    return sanitizeGoalSettings(saved);
+    return {
+      daily: Math.max(1, Number(saved.daily || defaults.daily)),
+      weekly: Math.max(1, Number(saved.weekly || defaults.weekly)),
+      monthly: Math.max(1, Number(saved.monthly || defaults.monthly))
+    };
   } catch(e){
-    return defaultGoalSettings();
+    return defaults;
   }
 }
 
-async function loadGoalSettingsFromSupabase(){
-  if(!supabaseClient || !currentUser?.id) return;
-  try{
-    const { data, error } = await supabaseClient.auth.getUser();
-    if(error) throw error;
-    if(data?.user) currentUser = data.user;
-    const goals = currentUser?.user_metadata?.flashpratico_goals;
-    if(goals) localStorage.setItem(GOALS_KEY, JSON.stringify(sanitizeGoalSettings(goals)));
-  }catch(e){
-    console.warn("Não consegui carregar metas sincronizadas:", e);
-  }
+function setGoalSettings(goals){
+  localStorage.setItem(GOALS_KEY, JSON.stringify(goals));
 }
 
-async function setGoalSettings(goals){
-  const clean = sanitizeGoalSettings(goals);
-  localStorage.setItem(GOALS_KEY, JSON.stringify(clean));
-  if(supabaseClient && currentUser?.id){
-    try{
-      const { data, error } = await supabaseClient.auth.updateUser({ data: { flashpratico_goals: clean } });
-      if(error) throw error;
-      if(data?.user) currentUser = data.user;
-      setSyncStatus("Metas sincronizadas no usuário.");
-    }catch(e){
-      console.warn("Não consegui sincronizar metas no Supabase Auth:", e);
-      setSyncStatus("Metas salvas neste aparelho; erro ao sincronizar: " + e.message);
-    }
-  }
-  return clean;
-}
-
-async function resetGoalDefaults(){
-  await setGoalSettings(defaultGoalSettings());
+function resetGoalDefaults(){
+  setGoalSettings({ daily: 60, weekly: 450, monthly: 1900 });
   renderGoalsPage();
   renderDailyGoalWidget();
 }
 
-async function saveGoalSettings(){
+function saveGoalSettings(){
   const daily = Math.max(1, Number(document.getElementById("goal-daily-input")?.value || 60));
   const weekly = Math.max(1, Number(document.getElementById("goal-weekly-input")?.value || 450));
   const monthly = Math.max(1, Number(document.getElementById("goal-monthly-input")?.value || 1900));
-  await setGoalSettings({ daily, weekly, monthly });
+  setGoalSettings({ daily, weekly, monthly });
   renderGoalsPage();
   renderDailyGoalWidget();
 }
@@ -2232,14 +2108,14 @@ function isAnsweredResult(result){
 function eventsBetween(start, end){
   const s = start.getTime();
   const e = end.getTime();
-  return getGoalHistory()
+  return getHistory()
     .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
     .filter(ev => { const t = new Date(ev.ts).getTime(); return !isNaN(t) && t >= s && t <= e; })
     .sort((a,b) => new Date(a.ts) - new Date(b.ts));
 }
 
 function calcPeriodStats(start, end){
-  const all = getGoalHistory()
+  const all = getHistory()
     .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
     .sort((a,b) => new Date(a.ts) - new Date(b.ts));
   const startMs = start.getTime();
@@ -2328,7 +2204,7 @@ function monthStats(){
 
 function calcStreaks(){
   const dayCounts = new Map();
-  getGoalHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
+  getHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
     const key = dateKeyLocal(ev.ts);
     dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
   });
@@ -2371,11 +2247,11 @@ function renderDailyGoalWidget(){
   const st = todayStats();
   const progress = goalProgress(st.total, goals.daily);
   const streak = calcStreaks();
-  document.getElementById("goal-daily-text").textContent = `${st.total} / ${goals.daily} questões/cards`;
+  document.getElementById("goal-daily-text").textContent = `${st.total} / ${goals.daily} cards`;
   document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;
   document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
-    ? `Faltam ${progress.remaining} questões/cards para bater a meta.`
-    : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
+    ? `Faltam ${progress.remaining} cards para bater a meta.`
+    : `Meta batida: +${progress.extra} card${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
   document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dia${streak.current === 1 ? "" : "s"}`;
 }
 
@@ -3563,7 +3439,6 @@ async function startAuthenticatedApp(){
     await loadArchivedFromSupabase();
     await loadReviewStateFromSupabase();
     await loadResponsesFromSupabase();
-    await loadGoalSettingsFromSupabase();
     buildCatPills();
     renderArchivedCards();
     renderDailyGoalWidget();
