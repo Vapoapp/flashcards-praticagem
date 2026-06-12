@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem</title>
-<!-- versão v43: contagem de questões corrigida + carregamento mais rápido -->
+<title>Flashcards — Praticagem v53</title>
+<!-- versão v53: confirmação mobile, sync sem duplicidade, órfãos filtrados e cache robusto -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -407,7 +407,7 @@
   .sync-state-pill.ok { color: var(--green); border-color: rgba(76,175,125,.42); background: rgba(76,175,125,.12); }
   .sync-state-pill.warn { color: var(--amber); border-color: rgba(240,160,75,.42); background: rgba(240,160,75,.12); }
   .sync-state-pill.bad { color: var(--red); border-color: rgba(224,92,92,.42); background: rgba(224,92,92,.12); }
-  .sync-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:9px; }
+  .sync-grid { display:grid; grid-template-columns: repeat(5, 1fr); gap:9px; }
   .sync-card { border:1px solid var(--border); background: rgba(255,255,255,.035); border-radius:14px; padding:10px; }
   .sync-n { font-size:22px; line-height:1; font-weight:950; color: var(--text); }
   .sync-l { font-size:10px; color: var(--muted); line-height:1.25; margin-top:4px; }
@@ -772,11 +772,14 @@
           <div class="sync-card"><div class="sync-n" id="sync-pending-total">0</div><div class="sync-l">pendentes de envio</div></div>
           <div class="sync-card"><div class="sync-n" id="sync-card-pending">0</div><div class="sync-l">flashcards pendentes</div></div>
           <div class="sync-card"><div class="sync-n" id="sync-question-pending">0</div><div class="sync-l">questões pendentes</div></div>
+          <div class="sync-card"><div class="sync-n" id="sync-card-orphan">0</div><div class="sync-l">locais não sincronizáveis</div></div>
           <div class="sync-card"><div class="sync-n" id="sync-local-total">0</div><div class="sync-l">eventos locais</div></div>
         </div>
         <div class="db-actions">
           <button class="mini-btn sync-now-btn" id="sync-now-btn" onclick="forceSyncNow()">Sincronizar agora</button>
           <button class="mini-btn" onclick="renderSyncPanel()">Atualizar painel</button>
+          <button class="mini-btn" onclick="showOrphanCardEvents()">Ver órfãos</button>
+          <button class="mini-btn danger-btn" onclick="clearOrphanCardSync()">Limpar órfãos</button>
         </div>
         <div class="sync-msg" id="sync-panel-msg">Aguardando leitura do histórico local.</div>
       </div>
@@ -1091,9 +1094,14 @@ const DB_KEY = "flashpratico_history_v2";
 const SETTINGS_KEY = "flashpratico_settings_v2";
 const GOALS_KEY = "flashpratico_goals_v1";
 const CARD_PENDING_SYNC_KEY = "flashpratico_card_pending_sync_v1";
+const CARD_ORPHAN_SYNC_KEY = "flashpratico_card_orphan_sync_v1";
 let LAST_SYNC_AT = null;
 let SYNC_BUSY = false;
 let REMOTE_CARD_RESPONSE_IDS = new Set();
+let REMOTE_CARD_RESPONSE_KEYS = new Set();
+let REMOTE_QUESTION_RESPONSE_IDS = new Set();
+let SYNC_SUMMARY_CACHE = null;
+let SYNC_SUMMARY_CACHE_AT = 0;
 const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
 let supabaseClient = null;
@@ -1125,6 +1133,93 @@ const QUIZ_KEY = "flashpratico_quiz_attempts_v1";
 let QUIZ_ATTEMPTS = [];
 let QUIZ_TABLE_READY = false; // sem SQL obrigatório: histórico do Quiz fica local neste aparelho
 let quizDeck = [], quizIdx = 0, quizSessionDone = 0, quizSessionTotal = 0, activeQuizGroup = null, quizAnsweredLocked = false;
+
+
+
+function showToast(message, type="info", duration=3600){
+  const text = String(message || "");
+  if(!text) return;
+  let wrap = document.getElementById("app-toast-wrap");
+  if(!wrap){
+    wrap = document.createElement("div");
+    wrap.id = "app-toast-wrap";
+    wrap.style.cssText = "position:fixed;left:50%;bottom:18px;transform:translateX(-50%);z-index:20000;display:flex;flex-direction:column;gap:8px;align-items:center;pointer-events:none;width:min(92vw,520px);";
+    document.body.appendChild(wrap);
+  }
+  const el = document.createElement("div");
+  const border = type === "error" ? "rgba(224,92,92,.55)" : type === "success" ? "rgba(76,175,125,.50)" : type === "warn" ? "rgba(240,160,75,.55)" : "rgba(124,140,248,.45)";
+  el.style.cssText = `pointer-events:auto;width:100%;background:rgba(26,29,39,.96);border:1px solid ${border};color:var(--text);border-radius:14px;padding:11px 13px;box-shadow:0 14px 44px rgba(0,0,0,.45);font-size:13px;line-height:1.45;font-weight:800;`;
+  el.textContent = text;
+  wrap.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = "opacity .22s ease, transform .22s ease";
+    el.style.opacity = "0";
+    el.style.transform = "translateY(8px)";
+    setTimeout(() => el.remove(), 260);
+  }, duration);
+}
+
+function showConfirmToast(message, onConfirm, options={}){
+  const text = String(message || "");
+  if(!text) return;
+  const confirmText = options.confirmText || "Confirmar";
+  const cancelText = options.cancelText || "Cancelar";
+  const tone = options.tone || "warn";
+  let wrap = document.getElementById("app-confirm-wrap");
+  if(!wrap){
+    wrap = document.createElement("div");
+    wrap.id = "app-confirm-wrap";
+    wrap.style.cssText = "position:fixed;inset:0;z-index:21000;display:flex;align-items:flex-end;justify-content:center;padding:18px;background:rgba(0,0,0,.34);pointer-events:auto;";
+    document.body.appendChild(wrap);
+  }
+  wrap.innerHTML = "";
+  const box = document.createElement("div");
+  const border = tone === "danger" ? "rgba(224,92,92,.62)" : tone === "success" ? "rgba(76,175,125,.55)" : "rgba(240,160,75,.58)";
+  box.style.cssText = `width:min(92vw,560px);background:rgba(26,29,39,.98);border:1px solid ${border};color:var(--text);border-radius:18px;padding:14px;box-shadow:0 22px 80px rgba(0,0,0,.62);font-size:13px;line-height:1.5;`;
+  const msg = document.createElement("div");
+  msg.style.cssText = "font-weight:850;white-space:pre-wrap;margin-bottom:12px;";
+  msg.textContent = text;
+  const actions = document.createElement("div");
+  actions.style.cssText = "display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;";
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.textContent = cancelText;
+  cancel.className = "mini-btn";
+  cancel.style.cssText = "min-width:104px;";
+  const ok = document.createElement("button");
+  ok.type = "button";
+  ok.textContent = confirmText;
+  ok.className = "mini-btn";
+  ok.style.cssText = tone === "danger"
+    ? "min-width:104px;color:var(--red);border-color:rgba(224,92,92,.45);background:rgba(224,92,92,.14);"
+    : "min-width:104px;color:var(--green);border-color:rgba(76,175,125,.45);background:rgba(76,175,125,.14);";
+  const close = () => { wrap.remove(); };
+  cancel.onclick = close;
+  wrap.onclick = (ev) => { if(ev.target === wrap) close(); };
+  ok.onclick = async () => {
+    ok.disabled = true;
+    cancel.disabled = true;
+    try { if(typeof onConfirm === "function") await onConfirm(); }
+    catch(err){ console.error(err); showToast("Erro: " + (err.message || err), "error", 6000); }
+    finally { close(); }
+  };
+  actions.append(cancel, ok);
+  box.append(msg, actions);
+  wrap.appendChild(box);
+}
+
+async function fetchSupabasePages(makeQuery, pageSize=1000, maxRows=50000){
+  const rows = [];
+  for(let from=0; from<maxRows; from += pageSize){
+    const to = Math.min(from + pageSize - 1, maxRows - 1);
+    const { data, error } = await makeQuery(from, to);
+    if(error) throw error;
+    const page = data || [];
+    rows.push(...page);
+    if(page.length < pageSize) break;
+  }
+  return rows;
+}
 
 // Banco de questões embutido no HTML para evitar limite do SQL Editor.
 // Quando a tabela SQL não existir ou estiver vazia, o app usa estes dados locais.
@@ -1217,6 +1312,9 @@ async function syncLocalQuestionResponsesToSupabase(remoteAttempts = []){
   // Usamos apenas o ID único do evento. Se a mesma questão foi respondida 20 vezes,
   // devem subir 20 linhas diferentes para o Supabase.
   const remoteIds = new Set((remoteAttempts || []).map(e => String(e.id)));
+  if(REMOTE_QUESTION_RESPONSE_IDS && REMOTE_QUESTION_RESPONSE_IDS.size){
+    REMOTE_QUESTION_RESPONSE_IDS.forEach(id => remoteIds.add(String(id)));
+  }
   const pending = local.filter(ev => ev?.id && !remoteIds.has(String(ev.id)));
   if(!pending.length) return;
 
@@ -1233,6 +1331,7 @@ async function syncLocalQuestionResponsesToSupabase(remoteAttempts = []){
       return;
     }
     synced += payload.length;
+    payload.forEach(row => REMOTE_QUESTION_RESPONSE_IDS.add(String(row.id)));
   }
   setSyncStatus(`${synced} resposta${synced === 1 ? "" : "s"} pendente${synced === 1 ? "" : "s"} de questões sincronizada${synced === 1 ? "" : "s"}.`);
 }
@@ -1325,6 +1424,160 @@ function makeClientId(){
   }
   return String(Date.now()) + "-" + Math.random().toString(16).slice(2);
 }
+function cardResponseKeyFromParts(cardId, result, ts, userId){
+  return [String(userId || currentUser?.id || ""), String(cardId || ""), String(result || ""), String(ts || "")].join("|");
+}
+function cardResponseKeyFromEvent(ev){
+  if(!ev) return "";
+  return cardResponseKeyFromParts(ev.card_id || ev.cardId, ev.result || ev.resultado, ev.ts || ev.created_at || ev.updated_at, ev.user_id);
+}
+function cardResponseKeyFromRemoteRow(row){
+  if(!row) return "";
+  return cardResponseKeyFromParts(row.card_id, row.resultado || row.result, row.created_at || row.ts, row.user_id);
+}
+function loadedCardIdSet(){
+  return new Set((CARDS || []).map(c => String(c.id)));
+}
+function isCardEventSyncable(ev){
+  if(!ev || !ev.card_id) return false;
+  const ids = loadedCardIdSet();
+  // Antes dos cards carregarem, não marca nada como órfão.
+  if(!ids.size) return true;
+  return ids.has(String(ev.card_id));
+}
+function invalidateSyncSummaryCache(){
+  SYNC_SUMMARY_CACHE = null;
+  SYNC_SUMMARY_CACHE_AT = 0;
+}
+function readOrphanCardSync(){
+  try { return (JSON.parse(localStorage.getItem(CARD_ORPHAN_SYNC_KEY) || "[]") || []).filter(ev => ev && ev.id && ev.card_id); }
+  catch(e){ return []; }
+}
+function writeOrphanCardSync(list){
+  const map = new Map();
+  (list || []).forEach(ev => {
+    if(ev && ev.id) map.set(String(ev.id), ev);
+    else if(ev && ev.card_id && ev.ts) map.set(cardResponseKeyFromEvent(ev), ev);
+  });
+  const clean = Array.from(map.values()).slice(-5000);
+  try { localStorage.setItem(CARD_ORPHAN_SYNC_KEY, JSON.stringify(clean)); }
+  catch(e){ console.warn("Não consegui salvar lista de flashcards locais não sincronizáveis:", e); }
+  invalidateSyncSummaryCache();
+  return clean;
+}
+function markOrphanCardEvents(list){
+  const arr = (list || []).filter(Boolean);
+  if(!arr.length) return readOrphanCardSync();
+  const marked = arr.map(ev => ({...ev, orphan_reason: ev.orphan_reason || "card_id ausente na tabela cards do Supabase", orphan_at: new Date().toISOString()}));
+  return writeOrphanCardSync([...readOrphanCardSync(), ...marked]);
+}
+function orphanCardSyncCount(){
+  const explicit = readOrphanCardSync();
+  const explicitKeys = new Set(explicit.map(ev => String(ev.id || cardResponseKeyFromEvent(ev))));
+  const pendingInvalid = readPendingCardSync().filter(ev => !isCardEventSyncable(ev));
+  const localInvalid = readRawLocalCardHistoryForSync().filter(ev => !isCardEventSyncable(ev));
+  const map = new Map();
+  explicit.forEach(ev => map.set(String(ev.id || cardResponseKeyFromEvent(ev)), ev));
+  [...pendingInvalid, ...localInvalid].forEach(ev => map.set(String(ev.id || cardResponseKeyFromEvent(ev)), ev));
+  return map.size;
+}
+function isCardForeignKeyError(error){
+  const msg = String(error?.message || error?.details || error || "").toLowerCase();
+  return msg.includes("respostas_card_id_fkey") || (msg.includes("foreign key") && msg.includes("card"));
+}
+async function fetchRemoteCardResponseKeysForEvents(events){
+  if(!currentUser?.id || !supabaseClient) return new Set();
+  const clean = (events || []).filter(ev => ev && ev.card_id && ev.result && ev.ts);
+  const found = new Set();
+  if(!clean.length) return found;
+  const chunkSize = 120;
+  for(let i = 0; i < clean.length; i += chunkSize){
+    const chunk = clean.slice(i, i + chunkSize);
+    const cardIds = [...new Set(chunk.map(ev => String(ev.card_id)).filter(Boolean))];
+    const times = [...new Set(chunk.map(ev => String(ev.ts)).filter(Boolean))];
+    if(!cardIds.length || !times.length) continue;
+    const { data, error } = await supabaseClient
+      .from("respostas")
+      .select("user_id,card_id,resultado,created_at")
+      .eq("user_id", currentUser.id)
+      .in("card_id", cardIds)
+      .in("created_at", times);
+    if(error){
+      console.warn("Não consegui conferir duplicidades remotas antes do sync:", error);
+      continue;
+    }
+    (data || []).forEach(row => {
+      const key = cardResponseKeyFromRemoteRow(row);
+      if(key){
+        found.add(key);
+        REMOTE_CARD_RESPONSE_KEYS.add(key);
+      }
+    });
+  }
+  return found;
+}
+async function insertCardResponseEvents(events){
+  const cleanEvents = (events || []).filter(Boolean);
+  const completedIds = [];
+  const orphanIds = [];
+  if(!cleanEvents.length) return { synced:0, orphaned:0, duplicated:0, completedIds, orphanIds };
+
+  // Antes de inserir, confere no Supabase se algum evento já chegou em tentativa anterior.
+  // Isso evita duplicar quando a conexão cai depois do banco salvar, mas antes do app limpar a fila local.
+  await fetchRemoteCardResponseKeysForEvents(cleanEvents);
+  const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
+  const toInsert = cleanEvents.filter(ev => {
+    const already = remoteKeys.has(cardResponseKeyFromEvent(ev));
+    if(already && ev.id) completedIds.push(String(ev.id));
+    return !already;
+  });
+  if(!toInsert.length){
+    return { synced:0, orphaned:0, duplicated:cleanEvents.length, completedIds, orphanIds };
+  }
+
+  const payload = toInsert.map(ev => ({
+    user_id: currentUser.id,
+    card_id: ev.card_id,
+    resultado: ev.result,
+    created_at: ev.ts
+  }));
+  const { error } = await supabaseClient.from("respostas").insert(payload);
+  if(!error){
+    toInsert.forEach(ev => {
+      REMOTE_CARD_RESPONSE_KEYS.add(cardResponseKeyFromEvent(ev));
+      if(ev.id) completedIds.push(String(ev.id));
+    });
+    return { synced: toInsert.length, orphaned:0, duplicated:cleanEvents.length - toInsert.length, completedIds, orphanIds };
+  }
+  if(!isCardForeignKeyError(error)) throw error;
+  // Se um card_id antigo não existir mais na tabela cards, o lote inteiro falha.
+  // Antes do fallback um a um, faz uma única conferência remota para evitar N consultas.
+  await fetchRemoteCardResponseKeysForEvents(toInsert);
+  // Faz fallback um a um para salvar os válidos e separar os órfãos.
+  let synced = 0, orphaned = 0, duplicated = cleanEvents.length - toInsert.length;
+  for(const ev of toInsert){
+    if(REMOTE_CARD_RESPONSE_KEYS.has(cardResponseKeyFromEvent(ev))){
+      if(ev.id) completedIds.push(String(ev.id));
+      duplicated++;
+      continue;
+    }
+    const one = { user_id: currentUser.id, card_id: ev.card_id, resultado: ev.result, created_at: ev.ts };
+    const { error: oneError } = await supabaseClient.from("respostas").insert(one);
+    if(oneError){
+      if(isCardForeignKeyError(oneError)){
+        markOrphanCardEvents([{...ev, orphan_reason:"card_id não existe mais na tabela cards"}]);
+        if(ev.id) orphanIds.push(String(ev.id));
+        orphaned++;
+        continue;
+      }
+      throw oneError;
+    }
+    REMOTE_CARD_RESPONSE_KEYS.add(cardResponseKeyFromEvent(ev));
+    if(ev.id) completedIds.push(String(ev.id));
+    synced++;
+  }
+  return { synced, orphaned, duplicated, completedIds, orphanIds };
+}
 function readPendingCardSync(){
   try { return (JSON.parse(localStorage.getItem(CARD_PENDING_SYNC_KEY) || "[]") || []).filter(ev => ev && ev.id && ev.card_id && ev.result && ev.ts); }
   catch(e){ return []; }
@@ -1335,6 +1588,7 @@ function writePendingCardSync(list){
   const clean = Array.from(map.values()).slice(-5000);
   try { localStorage.setItem(CARD_PENDING_SYNC_KEY, JSON.stringify(clean)); }
   catch(e){ console.warn("Não consegui salvar fila pendente dos flashcards:", e); }
+  invalidateSyncSummaryCache();
   return clean;
 }
 function enqueuePendingCardSync(event){
@@ -1368,22 +1622,45 @@ function localQuestionPendingCount(){
 }
 function localCardMissingRemoteCount(){
   if(!currentUser?.id || !supabaseClient) return 0;
-  const queueIds = new Set(readPendingCardSync().map(ev => String(ev.id)));
-  const remoteIds = REMOTE_CARD_RESPONSE_IDS || new Set();
+  const queuedKeys = new Set(readPendingCardSync().filter(isCardEventSyncable).map(cardResponseKeyFromEvent).filter(Boolean));
+  const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
   return readRawLocalCardHistoryForSync()
-    .filter(ev => ev?.id && !remoteIds.has(String(ev.id)) && !queueIds.has(String(ev.id)))
+    .filter(isCardEventSyncable)
+    .filter(ev => ev?.id && !remoteKeys.has(cardResponseKeyFromEvent(ev)) && !queuedKeys.has(cardResponseKeyFromEvent(ev)))
     .length;
 }
 function syncSummary(){
-  const queuedCardPending = readPendingCardSync().length;
+  const now = Date.now();
+  if(SYNC_SUMMARY_CACHE && now - SYNC_SUMMARY_CACHE_AT < 2500) return SYNC_SUMMARY_CACHE;
+  const queuedCardPending = readPendingCardSync().filter(isCardEventSyncable).length;
   const missingCardPending = localCardMissingRemoteCount();
+  const orphanCardPending = orphanCardSyncCount();
   const cardPending = queuedCardPending + missingCardPending;
   const questionPending = localQuestionPendingCount();
   const quizLocal = currentQuizAttempts ? currentQuizAttempts().length : 0;
   const localCards = readLocalCardHistory().length;
   const localQuestions = readLocalQuestionResponses().length;
   const totalPending = cardPending + questionPending;
-  return { cardPending, queuedCardPending, missingCardPending, questionPending, totalPending, localCards, localQuestions, quizLocal, localTotal: localCards + localQuestions + quizLocal };
+  const result = { cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, totalPending, localCards, localQuestions, quizLocal, localTotal: localCards + localQuestions + quizLocal };
+  SYNC_SUMMARY_CACHE = result;
+  SYNC_SUMMARY_CACHE_AT = now;
+  return result;
+}
+function showOrphanCardEvents(){
+  const orphan = readOrphanCardSync();
+  if(!orphan.length){ showToast("Não há eventos órfãos salvos neste aparelho.", "success"); return; }
+  const sample = orphan.slice(-12).map(ev => `• card_id ${ev.card_id} — ${ev.result || ev.resultado || "?"} — ${new Date(ev.ts || ev.created_at || Date.now()).toLocaleString("pt-BR")}`).join("\n");
+  showToast(`${orphan.length} evento(s) órfão(s) local(is). Amostra:\n${sample}`, "warn", 9000);
+}
+function clearOrphanCardSync(){
+  const count = readOrphanCardSync().length;
+  if(!count){ showToast("Não há órfãos para limpar.", "success"); return; }
+  showConfirmToast(`Limpar ${count} evento(s) órfão(s) deste aparelho?\n\nEles continuarão no histórico local normal se ainda estiverem em backup, mas sairão da lista de não sincronizáveis.`, () => {
+    writeOrphanCardSync([]);
+    invalidateSyncSummaryCache();
+    renderSyncPanel();
+    showToast("Lista de órfãos limpa neste aparelho.", "success");
+  }, {confirmText:"Limpar", tone:"danger"});
 }
 function renderSyncPanel(){
   const byId = id => document.getElementById(id);
@@ -1391,6 +1668,7 @@ function renderSyncPanel(){
   if(byId("sync-pending-total")) byId("sync-pending-total").textContent = summary.totalPending;
   if(byId("sync-card-pending")) byId("sync-card-pending").textContent = summary.cardPending;
   if(byId("sync-question-pending")) byId("sync-question-pending").textContent = summary.questionPending;
+  if(byId("sync-card-orphan")) byId("sync-card-orphan").textContent = summary.orphanCardPending;
   if(byId("sync-local-total")) byId("sync-local-total").textContent = summary.localTotal;
   const pill = byId("sync-state-pill");
   if(pill){
@@ -1401,67 +1679,76 @@ function renderSyncPanel(){
   if(msg){
     const last = LAST_SYNC_AT ? ` Última sincronização: ${LAST_SYNC_AT.toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit", second:"2-digit"})}.` : "";
     const details = summary.missingCardPending ? ` ${summary.missingCardPending} flashcard(s) antigo(s) salvo(s) localmente ainda não constam no Supabase.` : "";
+    const orphan = summary.orphanCardPending ? ` ${summary.orphanCardPending} evento(s) local(is) referem-se a cards que não existem mais na tabela cards; eles continuam contando na meta local, mas não podem subir para a tabela respostas por causa da chave estrangeira.` : "";
     msg.textContent = summary.totalPending
-      ? `Há respostas salvas neste aparelho aguardando envio.${details}${last}`
-      : `Nenhuma pendência local detectada.${last}`;
+      ? `Há respostas salvas neste aparelho aguardando envio.${details}${orphan}${last}`
+      : `Nenhuma pendência local detectada.${orphan}${last}`;
   }
 }
 async function syncPendingCardResponsesToSupabase(){
   if(!currentUser?.id || !supabaseClient) return { synced:0, skipped:readPendingCardSync().length };
-  const pending = readPendingCardSync();
-  if(!pending.length) return { synced:0, skipped:0 };
-  let synced = 0;
+  const pendingAll = readPendingCardSync();
+  if(!pendingAll.length) return { synced:0, skipped:0 };
+  const invalid = pendingAll.filter(ev => !isCardEventSyncable(ev));
+  if(invalid.length){
+    markOrphanCardEvents(invalid);
+    const invalidIds = new Set(invalid.map(ev => String(ev.id)));
+    writePendingCardSync(readPendingCardSync().filter(ev => !invalidIds.has(String(ev.id))));
+  }
+  const pendingValid = readPendingCardSync().filter(isCardEventSyncable);
+  const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
+  const alreadyRemoteIds = new Set(pendingValid
+    .filter(ev => remoteKeys.has(cardResponseKeyFromEvent(ev)))
+    .map(ev => String(ev.id)));
+  if(alreadyRemoteIds.size){
+    writePendingCardSync(readPendingCardSync().filter(ev => !alreadyRemoteIds.has(String(ev.id))));
+  }
+  const pending = readPendingCardSync().filter(isCardEventSyncable).filter(ev => !remoteKeys.has(cardResponseKeyFromEvent(ev)));
+  if(!pending.length){
+    renderSyncPanel();
+    return { synced:0, skipped:alreadyRemoteIds.size + invalid.length };
+  }
+  let synced = 0, orphaned = 0;
   const chunkSize = 500;
   for(let i = 0; i < pending.length; i += chunkSize){
     const chunk = pending.slice(i, i + chunkSize);
-    const payload = chunk.map(ev => ({
-      id: ev.id,
-      user_id: currentUser.id,
-      card_id: ev.card_id,
-      resultado: ev.result,
-      created_at: ev.ts
-    }));
-    const { error } = await supabaseClient
-      .from("respostas")
-      .upsert(payload, { onConflict:"id", ignoreDuplicates:true });
-    if(error) throw error;
-    synced += chunk.length;
-    payload.forEach(ev => REMOTE_CARD_RESPONSE_IDS.add(String(ev.id)));
-    const ids = new Set(chunk.map(ev => String(ev.id)));
-    writePendingCardSync(readPendingCardSync().filter(ev => !ids.has(String(ev.id))));
+    const result = await insertCardResponseEvents(chunk);
+    synced += result.synced;
+    orphaned += result.orphaned;
+    const doneIds = new Set([...(result.completedIds || []), ...(result.orphanIds || [])]);
+    if(doneIds.size){
+      writePendingCardSync(readPendingCardSync().filter(ev => !doneIds.has(String(ev.id))));
+    }
   }
   LAST_SYNC_AT = new Date();
   renderSyncPanel();
-  return { synced, skipped:0 };
+  return { synced, skipped:alreadyRemoteIds.size + invalid.length + orphaned };
 }
 async function syncMissingLocalCardHistoryToSupabase(){
   if(!currentUser?.id || !supabaseClient) return { synced:0, skipped:readRawLocalCardHistoryForSync().length };
-  const remoteIds = REMOTE_CARD_RESPONSE_IDS || new Set();
-  const queuedIds = new Set(readPendingCardSync().map(ev => String(ev.id)));
-  const missing = readRawLocalCardHistoryForSync()
-    .filter(ev => ev?.id && !remoteIds.has(String(ev.id)) && !queuedIds.has(String(ev.id)));
-  if(!missing.length) return { synced:0, skipped:0 };
-  let synced = 0;
+  const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
+  const queuedKeys = new Set(readPendingCardSync().filter(isCardEventSyncable).map(cardResponseKeyFromEvent).filter(Boolean));
+  const allLocal = readRawLocalCardHistoryForSync();
+  const invalid = allLocal.filter(ev => !isCardEventSyncable(ev));
+  if(invalid.length) markOrphanCardEvents(invalid);
+  const missing = allLocal
+    .filter(isCardEventSyncable)
+    .filter(ev => ev?.id && !remoteKeys.has(cardResponseKeyFromEvent(ev)) && !queuedKeys.has(cardResponseKeyFromEvent(ev)));
+  if(!missing.length){
+    renderSyncPanel();
+    return { synced:0, skipped:invalid.length };
+  }
+  let synced = 0, orphaned = 0;
   const chunkSize = 500;
   for(let i = 0; i < missing.length; i += chunkSize){
     const chunk = missing.slice(i, i + chunkSize);
-    const payload = chunk.map(ev => ({
-      id: ev.id,
-      user_id: currentUser.id,
-      card_id: ev.card_id,
-      resultado: ev.result,
-      created_at: ev.ts
-    }));
-    const { error } = await supabaseClient
-      .from("respostas")
-      .upsert(payload, { onConflict:"id", ignoreDuplicates:true });
-    if(error) throw error;
-    synced += chunk.length;
-    payload.forEach(ev => REMOTE_CARD_RESPONSE_IDS.add(String(ev.id)));
+    const result = await insertCardResponseEvents(chunk);
+    synced += result.synced;
+    orphaned += result.orphaned;
   }
   LAST_SYNC_AT = new Date();
   renderSyncPanel();
-  return { synced, skipped:0 };
+  return { synced, skipped:invalid.length + orphaned };
 }
 async function refreshRemoteQuestionIds(){
   if(!currentUser?.id || !supabaseClient || QUESTION_SOURCE !== "supabase") return;
@@ -1475,17 +1762,33 @@ async function refreshRemoteQuestionIds(){
 }
 async function forceSyncNow(){
   if(SYNC_BUSY) return;
-  if(!currentUser?.id || !supabaseClient){ alert("Você precisa estar logado para sincronizar com o Supabase."); return; }
+  if(!currentUser?.id || !supabaseClient){ showToast("Você precisa estar logado para sincronizar com o Supabase.", "warn"); return; }
   const btn = document.getElementById("sync-now-btn");
   SYNC_BUSY = true;
+  let safetyTimer = null;
+  const releaseSyncButton = () => {
+    SYNC_BUSY = false;
+    if(btn){ btn.disabled = false; btn.textContent = "Sincronizar agora"; }
+  };
+  safetyTimer = setTimeout(() => {
+    console.warn("Timeout de segurança liberou o botão de sincronização.");
+    releaseSyncButton();
+    showToast("A sincronização demorou demais. O botão foi liberado; tente novamente se ainda houver pendências.", "warn", 5200);
+    renderSyncPanel();
+  }, 30000);
   if(btn){ btn.disabled = true; btn.textContent = "Sincronizando..."; }
   setSyncStatus("sincronizando pendências locais...");
   try{
     const cardResult = await syncPendingCardResponsesToSupabase();
-    const missingCardResult = await syncMissingLocalCardHistoryToSupabase();
+    let missingCardResult = { synced:0, skipped:0 };
+    if(REMOTE_CARD_RESPONSE_KEYS && REMOTE_CARD_RESPONSE_KEYS.size){
+      missingCardResult = await syncMissingLocalCardHistoryToSupabase();
+    } else {
+      console.warn("Assinaturas remotas de flashcards não carregadas; pulando recuperação por comparação para evitar duplicidade.");
+    }
     if(QUESTION_SOURCE === "supabase"){
       await refreshRemoteQuestionIds();
-      await syncLocalQuestionResponsesToSupabase(QUESTION_ATTEMPTS.filter(ev => REMOTE_QUESTION_RESPONSE_IDS.has(String(ev.id))));
+      await syncLocalQuestionResponsesToSupabase();
       await refreshRemoteQuestionIds();
     }
     await loadResponsesFromSupabase();
@@ -1497,14 +1800,15 @@ async function forceSyncNow(){
     const after = syncSummary();
     const sent = cardResult.synced + missingCardResult.synced;
     setSyncStatus(`sincronização concluída. Enviados: ${sent} flashcard(s). Pendentes restantes: ${after.totalPending}.`);
-    if(!after.totalPending) alert("Sincronização concluída. Não há pendências locais detectadas.");
+    if(!after.totalPending) showToast("Sincronização concluída. Não há pendências locais detectadas.", "success");
   }catch(error){
     console.error("Erro ao sincronizar agora:", error);
     setSyncStatus("falha ao sincronizar: " + (error.message || "erro desconhecido"));
+    showToast("Falha ao sincronizar: " + (error.message || "erro desconhecido"), "error", 5200);
     renderSyncPanel();
   }finally{
-    SYNC_BUSY = false;
-    if(btn){ btn.disabled = false; btn.textContent = "Sincronizar agora"; }
+    clearTimeout(safetyTimer);
+    releaseSyncButton();
   }
 }
 
@@ -1539,7 +1843,9 @@ function readLocalCardHistory(){
 function mergeHistoryEvents(...lists){
   const map = new Map();
   lists.flat().map(normalizeCardHistoryEvent).filter(Boolean).forEach(ev => {
-    const key = ev.id ? String(ev.id) : `${ev.card_id}|${ev.result}|${ev.ts}`;
+    // A tabela respostas usa id bigint no Supabase, enquanto o backup local usa id UUID.
+    // Portanto, a deduplicação oficial é pela assinatura do evento, não pelo id.
+    const key = cardResponseKeyFromEvent(ev) || String(ev.id);
     if(!map.has(key)) map.set(key, ev);
   });
   return Array.from(map.values()).sort((a,b) => new Date(a.ts) - new Date(b.ts)).slice(-20000);
@@ -1549,6 +1855,7 @@ function writeLocalCardHistory(hist){
   LOCAL_HISTORY_CACHE = clean;
   try { localStorage.setItem(DB_KEY, JSON.stringify(clean)); }
   catch(e){ console.warn("Não consegui salvar backup local dos flashcards:", e); }
+  invalidateSyncSummaryCache();
   return clean;
 }
 function rememberLocalCardEvent(event){
@@ -1556,14 +1863,23 @@ function rememberLocalCardEvent(event){
   if(isOnlineMode) ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, [event]);
   return merged;
 }
-function getHistory(){
+function getHistory(options={}){
   // A meta diária usa sempre a união do Supabase com o backup local.
   // Assim, uma falha de sincronização ou troca de versão não zera o progresso do dia.
-  return mergeHistoryEvents(isOnlineMode ? ONLINE_HISTORY : [], readLocalCardHistory());
+  const all = mergeHistoryEvents(isOnlineMode ? ONLINE_HISTORY : [], readLocalCardHistory());
+  if(options && options.includeOrphans === false){
+    const ids = loadedCardIdSet();
+    if(ids.size) return all.filter(ev => ids.has(String(ev.card_id)));
+  }
+  return all;
+}
+function getActiveCardHistory(){
+  return getHistory({includeOrphans:false});
 }
 window.addEventListener("storage", (ev) => {
-  if(ev.key === DB_KEY || ev.key === CARD_PENDING_SYNC_KEY || ev.key === QUESTION_LOCAL_KEY){
+  if(ev.key === DB_KEY || ev.key === CARD_PENDING_SYNC_KEY || ev.key === QUESTION_LOCAL_KEY || ev.key === CARD_ORPHAN_SYNC_KEY){
     LOCAL_HISTORY_CACHE = null;
+    invalidateSyncSummaryCache();
     renderSyncPanel();
     renderDailyGoalWidget();
   }
@@ -1587,12 +1903,13 @@ function getQuestionGoalEvents(){
 }
 function getGoalHistory(){
   return [
-    ...getHistory().map(ev => ({...ev, kind: ev.kind || "card"})),
+    ...getHistory({includeOrphans:true}).map(ev => ({...ev, kind: ev.kind || "card"})),
     ...getQuestionGoalEvents(),
     ...getQuizGoalEvents()
   ];
 }
 async function saveEvent(card, result){
+  invalidateSyncSummaryCache();
   const event = {
     id: makeClientId(),
     user_id: currentUser?.id || null,
@@ -1609,17 +1926,22 @@ async function saveEvent(card, result){
   if(isOnlineMode && currentUser){
     ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, [event]);
     await updateReviewState(card, result);
-    const { error } = await supabaseClient
-      .from("respostas")
-      .upsert({ id: event.id, user_id: currentUser.id, card_id: card.id, resultado: result, created_at: event.ts }, { onConflict:"id", ignoreDuplicates:true });
-    if(error){
+    try {
+      const syncResult = await insertCardResponseEvents([event]);
+      const eventId = String(event.id);
+      if(syncResult.completedIds.includes(eventId)){
+        removePendingCardSync(event.id);
+        LAST_SYNC_AT = new Date();
+        setSyncStatus(syncResult.duplicated ? "Resposta já constava no Supabase; fila local limpa." : "Resposta salva no Supabase.");
+      } else if(syncResult.orphanIds.includes(eventId)){
+        removePendingCardSync(event.id);
+        setSyncStatus("Resposta mantida localmente, mas não sincronizável: o card não existe mais na tabela cards.");
+      } else {
+        setSyncStatus("Resposta salva localmente; pendente de sincronização.");
+      }
+    } catch(error) {
       console.error("Erro ao salvar no Supabase:", error);
-      setSyncStatus("Resposta salva localmente; pendente de sincronização: " + error.message);
-    } else {
-      removePendingCardSync(event.id);
-      REMOTE_CARD_RESPONSE_IDS.add(String(event.id));
-      LAST_SYNC_AT = new Date();
-      setSyncStatus("Resposta salva no Supabase.");
+      setSyncStatus("Resposta salva localmente; pendente de sincronização: " + (error.message || error));
     }
     return;
   }
@@ -1978,7 +2300,7 @@ function statusFromPct(pct, answered){
 }
 
 function publicationStatsMap(){
-  const hist = getHistory();
+  const hist = getActiveCardHistory();
   const visible = visibleCards(CARDS);
   const cardMap = new Map(visible.map(c => [c.id, c]));
   const pubs = new Map();
@@ -2019,7 +2341,7 @@ function publicationStatsMap(){
 }
 
 function groupDashboardStats(){
-  const hist = getHistory();
+  const hist = getActiveCardHistory();
   const visible = visibleCards(CARDS);
   const cardMap = new Map(visible.map(c => [c.id, c]));
   const publicationStats = publicationStatsMap();
@@ -2102,7 +2424,7 @@ function groupDashboardStats(){
   });
 }
 function overallStats(){
-  const hist = getHistory();
+  const hist = getActiveCardHistory();
   const st = calcStatsForEvents(hist);
   const available = visibleCards(CARDS);
   const studiedCards = available.filter(c => hasCardBeenAnswered(c)).length;
@@ -2800,9 +3122,11 @@ function startQuizWrongPeriod(period="today"){
   showQuizCard();
 }
 function resetBadQuizCards(){
-  if(!QUIZ_BAD_CARDS.size){ alert("Não há cards marcados como alternativa ruim."); return; }
-  if(!confirm(`Liberar ${QUIZ_BAD_CARDS.size} card(s) marcados como alternativa ruim?`)) return;
-  QUIZ_BAD_CARDS.clear(); saveBadQuizCards(); showQuizList();
+  if(!QUIZ_BAD_CARDS.size){ showToast("Não há cards marcados como alternativa ruim.", "success"); return; }
+  showConfirmToast(`Liberar ${QUIZ_BAD_CARDS.size} card(s) marcados como alternativa ruim?`, () => {
+    QUIZ_BAD_CARDS.clear(); saveBadQuizCards(); showQuizList();
+    showToast("Cards liberados para o Quiz.", "success");
+  }, {confirmText:"Liberar", tone:"success"});
 }
 function showQuizCard(){
   if(!quizDeck.length || quizIdx >= quizDeck.length){ finishQuizSession(); return; }
@@ -2965,13 +3289,13 @@ async function loadQuestionsFromSupabase(){
   QUESTION_ATTEMPTS = [];
   try{
     if(!supabaseClient) throw new Error("Supabase JS não carregado");
-    const { data, error } = await supabaseClient
+    const data = await fetchSupabasePages((from, to) => supabaseClient
       .from("questoes")
       .select("id,publicacao,assunto,numero,pergunta,alternativa_a,alternativa_b,alternativa_c,alternativa_d,alternativa_e,gabarito,resposta_texto,fonte,tem_figura,imagem_questao,ativo")
       .eq("ativo", true)
       .order("assunto", { ascending:true })
-      .order("numero", { ascending:true });
-    if(error) throw error;
+      .order("numero", { ascending:true })
+      .range(from, to), 1000, 50000);
     if(!data || !data.length) throw new Error("Tabela questoes vazia");
     QUESTION_BANK = (data || []).map(mapQuestionRow);
     QUESTION_SOURCE = "supabase";
@@ -2984,12 +3308,13 @@ async function loadQuestionsFromSupabase(){
 }
 async function loadQuestionResponsesFromSupabase(){
   if(!currentUser?.id) return;
-  const { data, error } = await supabaseClient
+  const data = await fetchSupabasePages((from, to) => supabaseClient
     .from("questoes_respostas")
     .select("id,user_id,questao_id,publicacao,assunto,numero,resposta,resultado,created_at")
     .eq("user_id", currentUser.id)
-    .order("created_at", { ascending:true });
-  if(error) throw error;
+    .order("created_at", { ascending:true })
+    .range(from, to), 1000, 50000);
+  REMOTE_QUESTION_RESPONSE_IDS = new Set((data || []).map(r => String(r.id)));
   const remoteAttempts = (data || []).map(r => normalizeQuestionAttempt({
     id:String(r.id),
     question_id:r.questao_id,
@@ -3893,7 +4218,7 @@ async function archiveCard(card){
     if(error){
       ARCHIVED_CARDS.delete(card.id);
       console.error("Erro ao arquivar card:", error);
-      alert("Erro ao arquivar card. Verifique se a migração de Arquivados foi rodada no Supabase. " + error.message);
+      showToast("Erro ao arquivar card. Verifique se a migração de Arquivados foi rodada no Supabase. " + error.message, "error", 7000);
       return false;
     }
   }
@@ -3904,15 +4229,16 @@ async function archiveCurrentCard(event){
   if(event){ event.preventDefault(); event.stopPropagation(); }
   const c = deck[idx];
   if(!c) return;
-  if(!confirm("Arquivar este flashcard? Ele não aparecerá mais no baralho, mas ficará disponível na pasta Arquivados.")) return;
-  const ok = await archiveCard(c);
-  if(!ok) return;
-  deck = deck.filter(card => card.id !== c.id);
-  if(idx >= deck.length) idx = Math.max(0, deck.length);
-  buildCatPills();
-  setSyncStatus("Card arquivado.");
-  if(deck.length === 0){ showComplete(); return; }
-  showCard();
+  showConfirmToast("Arquivar este flashcard? Ele não aparecerá mais no baralho, mas ficará disponível na pasta Arquivados.", async () => {
+    const ok = await archiveCard(c);
+    if(!ok) return;
+    deck = deck.filter(card => card.id !== c.id);
+    if(idx >= deck.length) idx = Math.max(0, deck.length);
+    buildCatPills();
+    setSyncStatus("Card arquivado.");
+    if(deck.length === 0){ showComplete(); return; }
+    showCard();
+  }, {confirmText:"Arquivar", tone:"danger"});
 }
 
 async function restoreArchivedCard(cardId){
@@ -4630,30 +4956,32 @@ async function saveCardEdit(){
 }
 
 async function resetHistory(){
-  if(!confirm("Tem certeza que deseja apagar todo o histórico de desempenho desta conta?")) return;
-  if(isOnlineMode && currentUser){
-    const { error } = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
-    if(error){ alert("Erro ao apagar histórico: " + error.message); return; }
-    await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
-    ONLINE_HISTORY = [];
-    REVIEW_STATE = new Map();
-    setSyncStatus("Histórico e revisão espaçada apagados no Supabase.");
-  } else {
-    localStorage.removeItem(DB_KEY);
-  }
-  buildDashboard("all");
-  renderSummary("db-summary");
-  alert("Histórico apagado.");
+  showConfirmToast("Tem certeza que deseja apagar todo o histórico de desempenho desta conta?", async () => {
+    if(isOnlineMode && currentUser){
+      const { error } = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
+      if(error){ showToast("Erro ao apagar histórico: " + error.message, "error", 6000); return; }
+      await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
+      ONLINE_HISTORY = [];
+      REMOTE_CARD_RESPONSE_IDS = new Set();
+      REMOTE_CARD_RESPONSE_KEYS = new Set();
+      REVIEW_STATE = new Map();
+      setSyncStatus("Histórico e revisão espaçada apagados no Supabase.");
+    } else {
+      localStorage.removeItem(DB_KEY);
+    }
+    invalidateSyncSummaryCache();
+    buildDashboard("all");
+    renderSummary("db-summary");
+    showToast("Histórico apagado.", "success");
+  }, {confirmText:"Apagar", tone:"danger"});
 }
 
 
 async function resetTopicHistory(publicacao, assunto){
   const cards = visibleCards(CARDS).filter(c => c.publicacao === publicacao && c.assunto === assunto);
   const cardIds = cards.map(c => c.id);
-  if(!cardIds.length){ alert("Não encontrei cards nesse assunto."); return; }
-  const ok = confirm(`Zerar o desempenho de ${publicacao} — ${assunto}?\n\nIsso apaga acertos, erros, revisões e estatísticas somente deste assunto. Os flashcards não serão apagados.`);
-  if(!ok) return;
-
+  if(!cardIds.length){ showToast("Não encontrei cards nesse assunto.", "warn"); return; }
+  showConfirmToast(`Zerar o desempenho de ${publicacao} — ${assunto}?\n\nIsso apaga acertos, erros, revisões e estatísticas somente deste assunto. Os flashcards não serão apagados.`, async () => {
   try{
     if(isOnlineMode && currentUser){
       const resp = await supabaseClient
@@ -4681,11 +5009,12 @@ async function resetTopicHistory(publicacao, assunto){
     if(activeTab === "diag") buildDashboard("all");
     if(activeTab === "db") renderSummary("db-summary");
     setSyncStatus(`Desempenho zerado para ${publicacao} — ${assunto}.`);
-    alert("Desempenho deste assunto zerado. Os cards voltam como Não Estudados.");
+    showToast("Desempenho deste assunto zerado. Os cards voltam como Não Estudados.", "success");
   }catch(err){
     console.error(err);
-    alert("Erro ao zerar desempenho do assunto: " + (err.message || err));
+    showToast("Erro ao zerar desempenho do assunto: " + (err.message || err), "error", 7000);
   }
+  }, {confirmText:"Zerar", tone:"danger"});
 }
 
 function exportHistory(){
@@ -4718,10 +5047,15 @@ function importHistory(event){
       if(!Array.isArray(incoming)) throw new Error("Formato inválido");
       const clean = incoming.filter(e => e && e.card_id && e.result && e.ts);
       if(isOnlineMode && currentUser){
-        const rows = clean.map(e => ({ card_id:e.card_id, resultado:e.result, created_at:e.ts }));
-        if(rows.length){
-          const { error } = await supabaseClient.from("respostas").insert(rows);
-          if(error) throw error;
+        if(!REMOTE_CARD_RESPONSE_KEYS || !REMOTE_CARD_RESPONSE_KEYS.size){
+          try { await loadResponsesFromSupabase(); } catch(e){ console.warn("Não consegui carregar histórico remoto antes da importação:", e); }
+        }
+        const normalized = clean.map(normalizeCardHistoryEvent).filter(Boolean);
+        const pendingImport = normalized
+          .filter(e => !REMOTE_CARD_RESPONSE_KEYS.has(cardResponseKeyFromEvent(e)));
+        if(pendingImport.length){
+          const result = await insertCardResponseEvents(pendingImport);
+          if(result.orphaned) showToast(`${result.orphaned} evento(s) importado(s) referem-se a cards que não existem mais e ficaram como órfãos locais.`, "warn", 6500);
         }
         await loadResponsesFromSupabase();
         setSyncStatus("Histórico importado para o Supabase.");
@@ -4731,8 +5065,8 @@ function importHistory(event){
         setHistory(Array.from(unique.values()));
       }
       renderSummary("db-summary");
-      alert("Histórico importado com sucesso.");
-    }catch(err){ console.error(err); alert("Não consegui importar esse arquivo JSON: " + (err.message || "erro desconhecido")); }
+      showToast("Histórico importado com sucesso.", "success");
+    }catch(err){ console.error(err); showToast("Não consegui importar esse arquivo JSON: " + (err.message || "erro desconhecido"), "error", 6000); }
   };
   reader.readAsText(file);
   event.target.value = "";
@@ -4779,28 +5113,28 @@ async function loadCardsFromSupabase(){
   let data = null;
   let error = null;
 
-  // Primeiro tenta carregar também os campos de imagem. Se a migração de imagens
-  // ainda não tiver sido rodada, volta automaticamente para a consulta antiga.
-  let resp = await supabaseClient
-    .from("cards")
-    .select("id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption")
-    .eq("ativo", true)
-    .order("publicacao", { ascending:true })
-    .order("assunto", { ascending:true });
+  const fieldsWithImages = "id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption";
+  const fieldsBasic = "id,publicacao,assunto,icon,diff,src,q,a,ativo";
 
-  data = resp.data;
-  error = resp.error;
-
-  if(error){
-    console.warn("Consulta com imagens falhou; tentando consulta básica:", error);
-    resp = await supabaseClient
+  try{
+    data = await fetchSupabasePages((from, to) => supabaseClient
       .from("cards")
-      .select("id,publicacao,assunto,icon,diff,src,q,a,ativo")
+      .select(fieldsWithImages)
       .eq("ativo", true)
       .order("publicacao", { ascending:true })
-      .order("assunto", { ascending:true });
-    data = resp.data;
-    error = resp.error;
+      .order("assunto", { ascending:true })
+      .range(from, to), 1000, 50000);
+  }catch(err){
+    error = err;
+    console.warn("Consulta com imagens falhou; tentando consulta básica:", err);
+    data = await fetchSupabasePages((from, to) => supabaseClient
+      .from("cards")
+      .select(fieldsBasic)
+      .eq("ativo", true)
+      .order("publicacao", { ascending:true })
+      .order("assunto", { ascending:true })
+      .range(from, to), 1000, 50000);
+    error = null;
   }
 
   if(error) throw error;
@@ -4848,14 +5182,17 @@ async function loadReviewStateFromSupabase(){
 
 async function loadResponsesFromSupabase(){
   setSyncStatus("carregando histórico...");
-  let query = supabaseClient
-    .from("respostas")
-    .select("id,user_id,card_id,resultado,created_at")
-    .order("created_at", { ascending:true });
-  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
-  const { data, error } = await query;
-  if(error) throw error;
+  const data = await fetchSupabasePages((from, to) => {
+    let query = supabaseClient
+      .from("respostas")
+      .select("id,user_id,card_id,resultado,created_at")
+      .order("created_at", { ascending:true })
+      .range(from, to);
+    if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+    return query;
+  }, 1000, 50000);
   REMOTE_CARD_RESPONSE_IDS = new Set((data || []).map(r => String(r.id)));
+  REMOTE_CARD_RESPONSE_KEYS = new Set((data || []).map(cardResponseKeyFromRemoteRow).filter(Boolean));
   const cardMap = new Map(CARDS.map(c => [c.id, c]));
   const remoteHistory = (data || [])
     .filter(r => !currentUser?.id || !r.user_id || r.user_id === currentUser.id)
@@ -4880,23 +5217,7 @@ async function startAuthenticatedApp(){
   document.getElementById("app").style.display = "flex";
   try{
     await loadCardsFromSupabase();
-    // v43: carregar questões em segundo plano. Isso evita travar a abertura do app.
     loadEmbeddedQuestionResponses();
-    await loadQuizResponsesFromSupabase();
-    await syncLocalQuizAttemptsToSupabase();
-    setTimeout(() => ensureQuestionsLoaded(false), 80);
-    await loadArchivedFromSupabase();
-    await loadReviewStateFromSupabase();
-    await loadResponsesFromSupabase();
-    try {
-      const autoCardSync = await syncPendingCardResponsesToSupabase();
-      const autoMissingSync = await syncMissingLocalCardHistoryToSupabase();
-      if(autoCardSync.synced || autoMissingSync.synced) await loadResponsesFromSupabase();
-    } catch(syncError){
-      console.warn("Não foi possível sincronizar pendências de flashcards na inicialização:", syncError);
-      setSyncStatus("há pendências locais; use Sincronizar agora quando a conexão estiver estável.");
-    }
-    await loadGoalSettingsFromSupabase();
     buildCatPills();
     renderArchivedCards();
     renderDailyGoalWidget();
@@ -4904,10 +5225,53 @@ async function startAuthenticatedApp(){
     initCatDrag();
     selectCat("Todas");
     showTab("study");
-    setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${archivedCards().length} arquivados.`);
+    setSyncStatus(`cards carregados (${visibleCards(CARDS).length}). Sincronizando histórico em segundo plano...`);
+
+    setTimeout(() => ensureQuestionsLoaded(false), 80);
+
+    (async () => {
+      let responsesLoaded = false;
+      try{
+        const backgroundTasks = [
+          loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
+          loadReviewStateFromSupabase().catch(err => { console.warn("Revisão não carregou:", err); }),
+          loadGoalSettingsFromSupabase().catch(err => { console.warn("Metas não carregaram:", err); }),
+          (async () => { await loadQuizResponsesFromSupabase(); await syncLocalQuizAttemptsToSupabase(); })().catch(err => { console.warn("Quiz não sincronizou:", err); }),
+          loadResponsesFromSupabase().then(() => { responsesLoaded = true; }).catch(err => { console.warn("Histórico remoto não carregou:", err); })
+        ];
+        await Promise.allSettled(backgroundTasks);
+
+        try {
+          const autoCardSync = await syncPendingCardResponsesToSupabase();
+          let autoMissingSync = { synced:0, skipped:0 };
+          if(responsesLoaded && REMOTE_CARD_RESPONSE_KEYS && REMOTE_CARD_RESPONSE_KEYS.size){
+            autoMissingSync = await syncMissingLocalCardHistoryToSupabase();
+          } else if(!responsesLoaded){
+            console.warn("Pulando recuperação por comparação: histórico remoto não carregou.");
+          }
+          if(autoCardSync.synced || autoMissingSync.synced) await loadResponsesFromSupabase();
+        } catch(syncError){
+          console.warn("Não foi possível sincronizar pendências de flashcards na inicialização:", syncError);
+          setSyncStatus("há pendências locais; use Sincronizar agora quando a conexão estiver estável.");
+        }
+
+        buildCatPills();
+        renderArchivedCards();
+        renderDailyGoalWidget();
+        renderSyncPanel();
+        if(activeTab === "diag") buildDashboard("all");
+        if(activeTab === "db") renderSummary("db-summary");
+        if(activeTab === "goals") renderGoalsPage();
+        setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${archivedCards().length} arquivados.`);
+      }catch(bgError){
+        console.error("Erro no carregamento em segundo plano:", bgError);
+        setSyncStatus("app aberto, mas houve erro ao sincronizar em segundo plano: " + (bgError.message || "erro desconhecido"));
+        showToast("App abriu, mas houve falha na sincronização em segundo plano.", "warn", 5200);
+      }
+    })();
   }catch(error){
     console.error(error);
-    alert("Erro ao iniciar com Supabase: " + error.message);
+    showToast("Erro ao iniciar com Supabase: " + error.message, "error", 6200);
     setSyncStatus("erro: " + error.message);
   }
 }
