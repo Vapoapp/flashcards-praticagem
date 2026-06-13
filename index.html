@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v54</title>
-<!-- versão v54: aba automática de múltipla escolha removida para reduzir peso e melhorar desempenho -->
+<title>Flashcards — Praticagem v55</title>
+<!-- versão v55: meta diária corrigida para não duplicar questões após sincronização -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -569,6 +569,7 @@
   .q-alt-btn:disabled { cursor: default; opacity: 1; }
   .q-alt-btn.correct { border-color: rgba(76,175,125,.65); background: rgba(76,175,125,.18); }
   .q-alt-btn.wrong { border-color: rgba(224,92,92,.65); background: rgba(224,92,92,.16); }
+  .q-alt-btn.quiz-selected { border-color: rgba(124,140,248,.65); background: rgba(91,106,240,.16); }
     .q-feedback { margin-top: 12px; border-radius: 14px; padding: 12px 14px; font-size: 14px; font-weight: 800; line-height: 1.45; }
   .q-feedback.ok { color: var(--green); border: 1px solid rgba(76,175,125,.35); background: rgba(76,175,125,.12); }
   .q-feedback.bad { color: var(--red); border: 1px solid rgba(224,92,92,.35); background: rgba(224,92,92,.12); }
@@ -1018,6 +1019,7 @@ let SYNC_BUSY = false;
 let REMOTE_CARD_RESPONSE_IDS = new Set();
 let REMOTE_CARD_RESPONSE_KEYS = new Set();
 let REMOTE_QUESTION_RESPONSE_IDS = new Set();
+let REMOTE_QUESTION_RESPONSE_KEYS = new Set();
 let SYNC_SUMMARY_CACHE = null;
 let SYNC_SUMMARY_CACHE_AT = 0;
 const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
@@ -1160,9 +1162,13 @@ function normalizeQuestionAttempt(ev){
   };
 }
 function questionAttemptStableKey(ev){
-  const d = new Date(ev.ts);
-  const minute = isNaN(d.getTime()) ? String(ev.ts || "") : d.toISOString().slice(0,16);
-  return [ev.question_id, ev.resposta, ev.result, minute].join("|");
+  if(!ev) return "";
+  const questionId = String(ev.question_id || ev.questao_id || ev.card_id || "");
+  const resposta = String(ev.resposta || ev.selected || "");
+  const result = String(ev.result || ev.resultado || "");
+  const d = new Date(ev.ts || ev.created_at || "");
+  const exactTs = isNaN(d.getTime()) ? String(ev.ts || ev.created_at || "") : d.toISOString();
+  return [questionId, resposta, result, exactTs].join("|");
 }
 function readLocalQuestionResponses(){
   try {
@@ -1172,14 +1178,22 @@ function readLocalQuestionResponses(){
   } catch(e) { return []; }
 }
 function mergeQuestionAttempts(...lists){
-  // v43: não deduplicar por pergunta/minuto.
-  // O usuário pode responder a mesma questão várias vezes na mesma sessão; cada clique válido conta como tentativa.
-  // Deduplicamos apenas pelo ID único do evento, para evitar perder histórico legítimo.
+  // Cada clique válido continua contando como tentativa real.
+  // Porém, quando uma mesma resposta existe no backup local e no Supabase com IDs diferentes,
+  // ela não pode entrar duas vezes na meta diária.
+  // Por isso deduplicamos por ID e também pela assinatura exata do evento
+  // (questão + alternativa + resultado + horário exato). Não usamos minuto, para não apagar
+  // tentativas legítimas feitas na mesma questão dentro do mesmo minuto.
   const byId = new Map();
+  const byStableKey = new Map();
   lists.flat().map(normalizeQuestionAttempt).filter(Boolean).forEach(ev => {
     if(!ev.id) ev.id = crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
-    if(byId.has(String(ev.id))) return;
-    byId.set(String(ev.id), ev);
+    const idKey = String(ev.id);
+    const stableKey = questionAttemptStableKey(ev);
+    if(byId.has(idKey)) return;
+    if(stableKey && byStableKey.has(stableKey)) return;
+    byId.set(idKey, ev);
+    if(stableKey) byStableKey.set(stableKey, ev);
   });
   return Array.from(byId.values()).sort((a,b) => new Date(a.ts) - new Date(b.ts));
 }
@@ -1225,10 +1239,19 @@ async function syncLocalQuestionResponsesToSupabase(remoteAttempts = []){
   // Usamos apenas o ID único do evento. Se a mesma questão foi respondida 20 vezes,
   // devem subir 20 linhas diferentes para o Supabase.
   const remoteIds = new Set((remoteAttempts || []).map(e => String(e.id)));
+  const remoteKeys = new Set((remoteAttempts || []).map(questionAttemptStableKey).filter(Boolean));
   if(REMOTE_QUESTION_RESPONSE_IDS && REMOTE_QUESTION_RESPONSE_IDS.size){
     REMOTE_QUESTION_RESPONSE_IDS.forEach(id => remoteIds.add(String(id)));
   }
-  const pending = local.filter(ev => ev?.id && !remoteIds.has(String(ev.id)));
+  if(REMOTE_QUESTION_RESPONSE_KEYS && REMOTE_QUESTION_RESPONSE_KEYS.size){
+    REMOTE_QUESTION_RESPONSE_KEYS.forEach(key => remoteKeys.add(String(key)));
+  }
+  const pending = local.filter(ev => {
+    if(!ev?.id) return false;
+    const idKnown = remoteIds.has(String(ev.id));
+    const keyKnown = remoteKeys.has(questionAttemptStableKey(ev));
+    return !idKnown && !keyKnown;
+  });
   if(!pending.length) return;
 
   const chunkSize = 500;
@@ -1244,7 +1267,15 @@ async function syncLocalQuestionResponsesToSupabase(remoteAttempts = []){
       return;
     }
     synced += payload.length;
-    payload.forEach(row => REMOTE_QUESTION_RESPONSE_IDS.add(String(row.id)));
+    payload.forEach(row => {
+      REMOTE_QUESTION_RESPONSE_IDS.add(String(row.id));
+      REMOTE_QUESTION_RESPONSE_KEYS.add(questionAttemptStableKey({
+        question_id: row.questao_id,
+        resposta: row.resposta,
+        result: row.resultado,
+        ts: row.created_at
+      }));
+    });
   }
   setSyncStatus(`${synced} resposta${synced === 1 ? "" : "s"} pendente${synced === 1 ? "" : "s"} de questões sincronizada${synced === 1 ? "" : "s"}.`);
 }
@@ -1528,10 +1559,17 @@ function readRawLocalCardHistoryForSync(){
 function localQuestionPendingCount(){
   const local = readLocalQuestionResponses();
   if(QUESTION_SOURCE !== "supabase") return 0;
-  if(!REMOTE_QUESTION_RESPONSE_IDS || !REMOTE_QUESTION_RESPONSE_IDS.size){
+  const hasRemoteIds = REMOTE_QUESTION_RESPONSE_IDS && REMOTE_QUESTION_RESPONSE_IDS.size;
+  const hasRemoteKeys = REMOTE_QUESTION_RESPONSE_KEYS && REMOTE_QUESTION_RESPONSE_KEYS.size;
+  if(!hasRemoteIds && !hasRemoteKeys){
     return local.length ? local.length : 0;
   }
-  return local.filter(ev => ev?.id && !REMOTE_QUESTION_RESPONSE_IDS.has(String(ev.id))).length;
+  return local.filter(ev => {
+    if(!ev?.id) return false;
+    const idKnown = hasRemoteIds && REMOTE_QUESTION_RESPONSE_IDS.has(String(ev.id));
+    const keyKnown = hasRemoteKeys && REMOTE_QUESTION_RESPONSE_KEYS.has(questionAttemptStableKey(ev));
+    return !idKnown && !keyKnown;
+  }).length;
 }
 function localCardMissingRemoteCount(){
   if(!currentUser?.id || !supabaseClient) return 0;
@@ -1664,13 +1702,18 @@ async function syncMissingLocalCardHistoryToSupabase(){
 }
 async function refreshRemoteQuestionIds(){
   if(!currentUser?.id || !supabaseClient || QUESTION_SOURCE !== "supabase") return;
-  const { data, error } = await supabaseClient
+  const data = await fetchSupabasePages((from, to) => supabaseClient
     .from("questoes_respostas")
-    .select("id")
+    .select("id,questao_id,resposta,resultado,created_at")
     .eq("user_id", currentUser.id)
-    .limit(50000);
-  if(error) throw error;
+    .range(from, to), 1000, 50000);
   REMOTE_QUESTION_RESPONSE_IDS = new Set((data || []).map(r => String(r.id)));
+  REMOTE_QUESTION_RESPONSE_KEYS = new Set((data || []).map(r => questionAttemptStableKey({
+    question_id: r.questao_id,
+    resposta: r.resposta,
+    result: r.resultado,
+    ts: r.created_at
+  })).filter(Boolean));
 }
 async function forceSyncNow(){
   if(SYNC_BUSY) return;
@@ -2507,6 +2550,7 @@ async function loadQuestionResponsesFromSupabase(){
     result:r.resultado,
     ts:r.created_at
   })).filter(Boolean);
+  REMOTE_QUESTION_RESPONSE_KEYS = new Set(remoteAttempts.map(questionAttemptStableKey).filter(Boolean));
   QUESTION_ATTEMPTS = mergeQuestionAttempts(remoteAttempts, readLocalQuestionResponses());
   saveEmbeddedQuestionResponses();
   await syncLocalQuestionResponsesToSupabase(remoteAttempts);
@@ -4416,6 +4460,7 @@ async function startAuthenticatedApp(){
           loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
           loadReviewStateFromSupabase().catch(err => { console.warn("Revisão não carregou:", err); }),
           loadGoalSettingsFromSupabase().catch(err => { console.warn("Metas não carregaram:", err); }),
+          (async () => { await loadQuizResponsesFromSupabase(); await syncLocalQuizAttemptsToSupabase(); })().catch(err => { console.warn("Quiz não sincronizou:", err); }),
           loadResponsesFromSupabase().then(() => { responsesLoaded = true; }).catch(err => { console.warn("Histórico remoto não carregou:", err); })
         ];
         await Promise.allSettled(backgroundTasks);
