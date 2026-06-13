@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v53</title>
-<!-- versão v53: confirmação mobile, sync sem duplicidade, órfãos filtrados e cache robusto -->
+<title>Flashcards — Praticagem v54</title>
+<!-- versão v54: aba automática de múltipla escolha removida para reduzir peso e melhorar desempenho -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -536,8 +536,8 @@
 
 
   /* QUESTÕES - banco separado dos flashcards */
-  .tabbar { grid-template-columns: repeat(6, 1fr); }
-  #questions-screen, #quiz-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
+  .tabbar { grid-template-columns: repeat(5, 1fr); }
+  #questions-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
   .question-top-note { max-width: 760px; margin: 10px auto 0; color: var(--muted); font-size: 12px; line-height: 1.55; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; }
   .question-subject-grid { max-width: 860px; margin: 14px auto 0; display: grid; gap: 10px; }
   .question-subject-card { background: var(--surface); border: 1px solid var(--border); border-radius: 18px; padding: 14px; }
@@ -550,29 +550,6 @@
   .question-action-btn.primary { background: rgba(91,106,240,0.22); color: var(--accent2); border-color: rgba(91,106,240,0.45); }
   .question-action-btn.warn { background: rgba(224,92,92,0.14); color: var(--red); border-color: rgba(224,92,92,0.35); }
   .question-action-btn.good { background: rgba(76,175,125,0.14); color: var(--green); border-color: rgba(76,175,125,0.35); }
-  .quiz-top-note { max-width: 760px; margin: 10px auto 0; color: var(--muted); font-size: 12px; line-height: 1.55; background: rgba(91,106,240,0.08); border: 1px solid rgba(91,106,240,0.28); border-radius: 14px; padding: 10px 12px; }
-  .quiz-source-pill { color: var(--teal); border-color: rgba(61,184,176,.35); background: rgba(61,184,176,.10); }
-  .question-subject-card.quiz-clickable { cursor: pointer; transition: border-color .15s ease, background .15s ease, transform .12s ease; }
-  .question-subject-card.quiz-clickable:hover { border-color: rgba(124,140,248,.42); background: rgba(91,106,240,.055); }
-  .question-subject-card.quiz-clickable:active { transform: scale(.992); }
-  .quiz-correct-answer { margin-top: 10px; font-size: 13px; line-height: 1.5; color: var(--text); background: rgba(255,255,255,.045); border: 1px solid var(--border); border-radius: 12px; padding: 10px; }
-  .quiz-compact-note { display:inline-block; margin-left:6px; color: var(--amber); font-size: 10px; font-weight: 900; }
-  .quiz-mode-bar { max-width: 760px; margin: 10px auto 0; }
-  .quiz-mode-bar .mini-btn { flex: 1 1 auto; }
-  .quiz-type-pill { display:inline-flex; align-items:center; gap:4px; color: var(--amber); border:1px solid rgba(240,160,75,.38); background: rgba(240,160,75,.12); border-radius:999px; padding:3px 8px; font-size:10px; font-weight:900; margin-left:6px; }
-  .quiz-exam-banner { margin-top:10px; border:1px solid rgba(240,160,75,.38); background:rgba(240,160,75,.10); color:var(--amber); border-radius:14px; padding:10px 12px; font-size:12px; line-height:1.45; font-weight:800; }
-  .quiz-bad-btn { margin-top:10px; border:1px solid rgba(240,160,75,.38); background:rgba(240,160,75,.12); color:var(--amber); border-radius:12px; padding:8px 10px; font-size:12px; font-weight:900; cursor:pointer; }
-  .quiz-final-box { background: var(--surface); border:1px solid var(--border); border-radius:18px; padding:16px; margin:12px auto; max-width:760px; }
-  .quiz-final-title { font-size:18px; font-weight:950; margin-bottom:8px; }
-  .quiz-final-grid { display:grid; grid-template-columns: repeat(4,1fr); gap:8px; margin:12px 0; }
-  .quiz-final-stat { background:rgba(255,255,255,.045); border:1px solid var(--border); border-radius:14px; padding:10px; text-align:center; }
-  .quiz-final-n { font-size:22px; font-weight:950; color:var(--text); }
-  .quiz-final-l { font-size:10px; color:var(--muted); margin-top:2px; }
-  .quiz-review-list { display:grid; gap:8px; margin-top:10px; max-height:260px; overflow:auto; }
-  .quiz-review-item { border:1px solid var(--border); background:rgba(255,255,255,.035); border-radius:12px; padding:10px; font-size:12px; line-height:1.45; }
-  .quiz-review-item strong { color:var(--accent2); }
-  @media (max-width:620px){ .quiz-final-grid { grid-template-columns: repeat(2,1fr); } }
-
   .question-study-wrap { max-width: 760px; margin: 0 auto; }
   .question-study-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; margin-bottom: 10px; }
   .question-study-title { font-size: 16px; font-weight: 900; color: var(--accent2); line-height: 1.35; }
@@ -592,7 +569,6 @@
   .q-alt-btn:disabled { cursor: default; opacity: 1; }
   .q-alt-btn.correct { border-color: rgba(76,175,125,.65); background: rgba(76,175,125,.18); }
   .q-alt-btn.wrong { border-color: rgba(224,92,92,.65); background: rgba(224,92,92,.16); }
-  .q-alt-btn.quiz-selected { border-color: rgba(124,140,248,.65); background: rgba(91,106,240,.16); }
     .q-feedback { margin-top: 12px; border-radius: 14px; padding: 12px 14px; font-size: 14px; font-weight: 800; line-height: 1.45; }
   .q-feedback.ok { color: var(--green); border: 1px solid rgba(76,175,125,.35); background: rgba(76,175,125,.12); }
   .q-feedback.bad { color: var(--red); border: 1px solid rgba(224,92,92,.35); background: rgba(224,92,92,.12); }
@@ -612,7 +588,7 @@
     .question-actions { grid-template-columns: 1fr; }
     .question-subject-head, .question-study-head { align-items:center; }
     .q-btn-row { flex-direction: row; }
-    .tabbar { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    .tabbar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
     .tab-btn { font-size: 10px; padding-left: 2px; padding-right: 2px; }
   }
 
@@ -664,7 +640,6 @@
     <button class="tab-btn active" id="tab-study" onclick="smartStudy()">Estudar</button>
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-questions" onclick="showTab('questions')">Questões</button>
-    <button class="tab-btn" id="tab-quiz" onclick="showTab('quiz')">Quiz</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
     <button class="tab-btn" id="tab-arch" onclick="showTab('arch')">Arquivados</button>
   </div>
@@ -874,63 +849,6 @@
   </div>
 
 
-  <!-- QUIZ SCREEN - gerado automaticamente a partir dos flashcards -->
-  <div class="screen" id="quiz-screen" style="display:none;">
-    <div id="quiz-list-view">
-      <div class="diag-head">
-        <div class="diag-title">Quiz</div>
-        <div class="diag-sub">Questões de múltipla escolha geradas automaticamente a partir dos seus flashcards. A pergunta do card vira o enunciado; a resposta correta entra como uma alternativa; as outras quatro alternativas são versões parecidas da resposta correta, com pequenas alterações de detalhe.</div>
-      </div>
-      <div class="quiz-top-note" id="quiz-top-note"></div>
-      <div class="diag-controls quiz-mode-bar" id="quiz-mode-bar">
-        <button class="mini-btn" onclick="startQuizRandomSmart()">🎲 Aleatório inteligente</button>
-        <button class="mini-btn" onclick="startQuiz(null, null, {mode:'practice'})">Quiz geral</button>
-        <button class="mini-btn" onclick="startQuiz(null, null, {mode:'exam'})">Modo prova</button>
-        <button class="mini-btn danger-btn" onclick="startQuizWrongPeriod('today')">Erradas hoje</button>
-        <button class="mini-btn danger-btn" onclick="startQuizWrongPeriod('week')">Erradas semana</button>
-        <button class="mini-btn danger-btn" onclick="startQuizWrongPeriod('month')">Erradas mês</button>
-        <button class="mini-btn" onclick="resetBadQuizCards()">Liberar cards marcados ruins</button>
-      </div>
-      <div class="question-subject-grid" id="quiz-subjects"></div>
-    </div>
-    <div id="quiz-study-view" style="display:none;">
-      <div class="question-study-wrap">
-        <div class="question-study-head">
-          <div>
-            <div class="question-study-title" id="quiz-study-title">—</div>
-            <div class="question-meta" id="quiz-study-stats"></div>
-          </div>
-          <div class="question-progress" id="quiz-study-progress">0 / 0</div>
-        </div>
-        <button class="mini-btn" onclick="showQuizList()">← Voltar ao Quiz</button>
-        <div class="q-card-box">
-          <div class="q-card" id="quiz-card">
-            <div class="q-face q-front">
-              <div class="q-face-head">
-                <span class="q-badge" id="quiz-front-subject">—</span>
-                <span class="q-badge" id="quiz-front-number">—</span>
-              </div>
-              <div class="q-face-body">
-                <div class="q-stem" id="quiz-stem">—</div>
-                <div class="card-img-wrap" id="quiz-img-wrap" style="display:none; margin-bottom:14px;">
-                  <img id="quiz-img" class="card-img" alt="">
-                </div>
-                <div class="q-alt-list" id="quiz-alt-list"></div>
-              </div>
-              <div class="card-footer"><span class="tap-hint">Clique diretamente em uma alternativa</span></div>
-            </div>
-          </div>
-        </div>
-        <div class="q-feedback" id="quiz-feedback" style="display:none;"></div>
-        <div class="q-nav-row">
-          <button class="btn-nav" onclick="skipQuizCard()">Pular</button>
-          <button class="btn-nav btn-shuffle" onclick="shuffleQuizDeck()">🔀 Embaralhar</button>
-          <button class="btn-nav" onclick="nextQuizCard()">Próxima →</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- PROGRESS -->
   <div class="prog-wrap">
     <div class="prog-row">
@@ -1128,11 +1046,6 @@ let QUESTION_BANK = [];
 let QUESTION_ATTEMPTS = [];
 let QUESTION_TABLE_READY = true;
 let questionDeck = [], questionIdx = 0, questionSessionDone = 0, questionSessionTotal = 0, activeQuestionSubject = null, questionAnsweredLocked = false;
-
-const QUIZ_KEY = "flashpratico_quiz_attempts_v1";
-let QUIZ_ATTEMPTS = [];
-let QUIZ_TABLE_READY = false; // sem SQL obrigatório: histórico do Quiz fica local neste aparelho
-let quizDeck = [], quizIdx = 0, quizSessionDone = 0, quizSessionTotal = 0, activeQuizGroup = null, quizAnsweredLocked = false;
 
 
 
@@ -1637,11 +1550,10 @@ function syncSummary(){
   const orphanCardPending = orphanCardSyncCount();
   const cardPending = queuedCardPending + missingCardPending;
   const questionPending = localQuestionPendingCount();
-  const quizLocal = currentQuizAttempts ? currentQuizAttempts().length : 0;
   const localCards = readLocalCardHistory().length;
   const localQuestions = readLocalQuestionResponses().length;
   const totalPending = cardPending + questionPending;
-  const result = { cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, totalPending, localCards, localQuestions, quizLocal, localTotal: localCards + localQuestions + quizLocal };
+  const result = { cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, totalPending, localCards, localQuestions, localTotal: localCards + localQuestions };
   SYNC_SUMMARY_CACHE = result;
   SYNC_SUMMARY_CACHE_AT = now;
   return result;
@@ -1904,8 +1816,7 @@ function getQuestionGoalEvents(){
 function getGoalHistory(){
   return [
     ...getHistory({includeOrphans:true}).map(ev => ({...ev, kind: ev.kind || "card"})),
-    ...getQuestionGoalEvents(),
-    ...getQuizGoalEvents()
+    ...getQuestionGoalEvents()
   ];
 }
 async function saveEvent(card, result){
@@ -2527,735 +2438,6 @@ function escapeHtml(str){
 }
 
 
-
-// ================= QUIZ - gerado automaticamente a partir dos flashcards =================
-const QUIZ_BAD_KEY = "flashpratico_quiz_bad_cards_v1";
-let QUIZ_BAD_CARDS = new Set();
-let QUIZ_LAST_RESULTS = [];
-
-function loadBadQuizCards(){
-  try { QUIZ_BAD_CARDS = new Set(JSON.parse(localStorage.getItem(QUIZ_BAD_KEY) || "[]")); }
-  catch(e){ QUIZ_BAD_CARDS = new Set(); }
-}
-function saveBadQuizCards(){
-  try { localStorage.setItem(QUIZ_BAD_KEY, JSON.stringify(Array.from(QUIZ_BAD_CARDS))); }
-  catch(e){ console.warn("Não consegui salvar cards ruins do quiz:", e); }
-}
-loadBadQuizCards();
-
-function stripHtmlForQuiz(html){
-  const tmp = document.createElement("div");
-  tmp.innerHTML = String(html || "");
-  return tmp.textContent || tmp.innerText || "";
-}
-function normalizeQuizText(text){
-  return String(text || "")
-    .replace(/\)(?=[A-Za-zÀ-ÿ])/g, ") ")
-    .replace(/\s+/g, " ")
-    .replace(/\s+([,.;:!?])/g, "$1")
-    .trim();
-}
-function quizFullAnswerText(card){ return normalizeQuizText(stripHtmlForQuiz(card?.a || "")); }
-function quizQuestionText(card){ return normalizeQuizText(stripHtmlForQuiz(frontQuestionText(card) || card?.q || "")); }
-function quizSimpleKey(text){
-  return normalizeQuizText(String(text || ""))
-    .toLowerCase()
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-function quizEscapeRegExp(str){ return String(str).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
-function quizPreserveCase(source, replacement){
-  const s = String(source || ""); const r = String(replacement || "");
-  if(!s) return r;
-  if(s === s.toUpperCase()) return r.toUpperCase();
-  if(s[0] === s[0].toUpperCase()) return r.charAt(0).toUpperCase() + r.slice(1);
-  return r;
-}
-function quizDetectLang(text){
-  const t = String(text || "").toLowerCase();
-  const ptHits = (t.match(/\b(que|não|para|com|por|quando|deverá|poderá|embarcação|navio|autoridade|água|águas|porto|deve|pode|somente|apenas|calado|boca|proa|popa|boreste|bombordo)\b/g) || []).length;
-  const enHits = (t.match(/\b(the|and|or|only|after|before|should|must|may|can|ship|vessel|pilot|master|when|where|with|without|shall|will|water|port|stern|bow)\b/g) || []).length;
-  return enHits > ptHits ? "en" : "pt";
-}
-function quizReplaceTermOnce(text, from, to){
-  const pattern = /[A-Za-zÀ-ÿ0-9]/.test(from.charAt(0)) && /[A-Za-zÀ-ÿ0-9]/.test(from.charAt(from.length-1))
-    ? new RegExp(`(^|[^A-Za-zÀ-ÿ0-9])(${quizEscapeRegExp(from)})(?=$|[^A-Za-zÀ-ÿ0-9])`, "i")
-    : new RegExp(`(${quizEscapeRegExp(from)})`, "i");
-  return String(text).replace(pattern, (m, pre, hit) => hit === undefined ? quizPreserveCase(m, to) : pre + quizPreserveCase(hit, to));
-}
-function quizCompactText(raw, maxLen = 520){
-  const clean = normalizeQuizText(raw);
-  if(clean.length <= maxLen) return clean;
-  let cut = clean.slice(0, maxLen);
-  const lastSep = Math.max(cut.lastIndexOf(";"), cut.lastIndexOf(","), cut.lastIndexOf(". "), cut.lastIndexOf(" "));
-  if(lastSep > Math.floor(maxLen * 0.62)) cut = cut.slice(0, lastSep);
-  return cut.trim().replace(/[,:;.-]+$/, "") + "…";
-}
-function quizOptionMaxLenForAnswer(fullText){
-  const len = normalizeQuizText(fullText).length;
-  if(len > 520) return 180;
-  if(len > 360) return 230;
-  if(len > 260) return 300;
-  return 520;
-}
-function quizEligibleCards(includeBad=false){
-  return visibleCards(CARDS).filter(c => {
-    if(!c || c.ativo === false) return false;
-    if(!includeBad && QUIZ_BAD_CARDS.has(String(c.id))) return false;
-    return !!quizQuestionText(c) && !!quizFullAnswerText(c);
-  });
-}
-function getLocalQuizAttempts(){
-  try { return JSON.parse(localStorage.getItem(QUIZ_KEY) || "[]"); }
-  catch(e){ return []; }
-}
-function saveLocalQuizAttempts(){
-  try { localStorage.setItem(QUIZ_KEY, JSON.stringify(QUIZ_ATTEMPTS.slice(-20000))); }
-  catch(e){ console.warn("Não consegui salvar histórico local do quiz:", e); }
-}
-function mergeQuizAttempts(a, b){
-  const map = new Map();
-  [...(a || []), ...(b || [])].forEach(ev => { if(ev && ev.id) map.set(String(ev.id), ev); });
-  return Array.from(map.values()).sort((x,y) => new Date(x.ts || x.created_at || 0) - new Date(y.ts || y.created_at || 0));
-}
-function currentQuizAttempts(){
-  const uid = currentUser?.id || null;
-  return (QUIZ_ATTEMPTS || []).filter(ev => !uid || !ev.user_id || ev.user_id === uid);
-}
-function quizPayloadForSupabase(ev){
-  return {
-    id: ev.id, user_id: currentUser?.id || ev.user_id || null, card_id: ev.card_id,
-    publicacao: ev.publicacao || "Geral", assunto: ev.assunto || "Geral",
-    resposta_card_id: ev.resposta_card_id || null, resultado: ev.result,
-    created_at: ev.ts || new Date().toISOString()
-  };
-}
-async function loadQuizResponsesFromSupabase(){
-  QUIZ_ATTEMPTS = mergeQuizAttempts(QUIZ_ATTEMPTS, getLocalQuizAttempts());
-  QUIZ_TABLE_READY = false;
-  saveLocalQuizAttempts();
-}
-async function syncLocalQuizAttemptsToSupabase(){ QUIZ_TABLE_READY = false; return; }
-function getQuizGoalEvents(){
-  return currentQuizAttempts()
-    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
-    .map(ev => ({
-      id: `quiz:${ev.id}`, card_id: `quiz:${ev.card_id}`,
-      publicacao: cleanLabel(ev.publicacao, "Quiz"), assunto: cleanLabel(ev.assunto, "Geral"),
-      result: ev.result, ts: ev.ts, kind: "quiz"
-    }));
-}
-function quizGroups(){
-  const map = new Map();
-  quizEligibleCards().forEach(c => {
-    const key = `${c.publicacao}|||${c.assunto}`;
-    if(!map.has(key)) map.set(key, { publicacao:c.publicacao, assunto:c.assunto, total:0 });
-    map.get(key).total++;
-  });
-  return Array.from(map.values()).sort((a,b) => {
-    const sa = quizStats(a.publicacao, a.assunto), sb = quizStats(b.publicacao, b.assunto);
-    const pa = sa.pct === null ? 101 : sa.pct;
-    const pb = sb.pct === null ? 101 : sb.pct;
-    if(pa !== pb) return pa - pb;
-    if((sb.total || 0) !== (sa.total || 0)) return (sb.total || 0) - (sa.total || 0);
-    const p = a.publicacao.localeCompare(b.publicacao, 'pt-BR');
-    return p || a.assunto.localeCompare(b.assunto, 'pt-BR');
-  });
-}
-function quizStats(publicacao=null, assunto=null){
-  const evs = currentQuizAttempts().filter(ev => {
-    if(publicacao && ev.publicacao !== publicacao) return false;
-    if(assunto && ev.assunto !== assunto) return false;
-    return isAnsweredResult(ev.result);
-  });
-  const right = evs.filter(e => e.result === "right").length;
-  const wrong = evs.filter(e => e.result === "wrong").length;
-  const total = right + wrong;
-  return { right, wrong, total, pct: total ? Math.round(right / total * 100) : null };
-}
-function quizCardStats(card){
-  const id = String(card?.id || "");
-  const evs = currentQuizAttempts().filter(ev => String(ev.card_id) === id && isAnsweredResult(ev.result));
-  const right = evs.filter(e => e.result === "right").length;
-  const wrong = evs.filter(e => e.result === "wrong").length;
-  const total = right + wrong;
-  const last = evs.length ? evs[evs.length - 1] : null;
-  return { right, wrong, total, pct: total ? Math.round(right/total*100) : null, lastResult: last?.result || null, lastTs: last?.ts || null };
-}
-function quizCardsForGroup(publicacao=null, assunto=null){
-  return quizEligibleCards().filter(c => {
-    if(publicacao && c.publicacao !== publicacao) return false;
-    if(assunto && c.assunto !== assunto) return false;
-    return true;
-  });
-}
-function quizShuffle(arr){
-  const a = [...(arr || [])];
-  for(let i=a.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [a[i],a[j]]=[a[j],a[i]]; }
-  return a;
-}
-function quizSortByWeakness(cards){
-  return [...cards].sort((a,b) => {
-    const sa = quizCardStats(a), sb = quizCardStats(b);
-    const pa = sa.pct === null ? 50 : sa.pct;
-    const pb = sb.pct === null ? 50 : sb.pct;
-    const scoreA = (sa.wrong * 3) - sa.right + (pa < 70 ? 2 : 0) + (sa.total === 0 ? 1 : 0);
-    const scoreB = (sb.wrong * 3) - sb.right + (pb < 70 ? 2 : 0) + (sb.total === 0 ? 1 : 0);
-    if(scoreB !== scoreA) return scoreB - scoreA;
-    return Math.random() - 0.5;
-  });
-}
-function quizSmartOrder(cards){
-  const newCards = [], wrongCards = [], dueCards = [], rest = [];
-  cards.forEach(c => {
-    const st = quizCardStats(c);
-    if(st.total === 0) newCards.push(c);
-    else if(st.lastResult === "wrong" || st.wrong > st.right) wrongCards.push(c);
-    else if(st.pct !== null && st.pct < 70) dueCards.push(c);
-    else rest.push(c);
-  });
-  const pools = [quizShuffle(newCards), quizSortByWeakness(wrongCards), quizSortByWeakness(dueCards), quizShuffle(rest)];
-  const out = [];
-  let guard = 0;
-  while(pools.some(p => p.length) && guard++ < cards.length * 3){
-    for(let k=0;k<3;k++){ if(pools[0].length) out.push(pools[0].shift()); }
-    if(pools[1].length) out.push(pools[1].shift());
-    if(!pools[0].length && !pools[1].length){
-      if(pools[2].length) out.push(pools[2].shift());
-      else if(pools[3].length) out.push(pools[3].shift());
-    }
-  }
-  return out;
-}
-function quizClassifyCard(card){
-  const a = quizFullAnswerText(card), q = quizQuestionText(card), all = `${q} ${a}`.toLowerCase();
-  const items = quizListItems(a);
-  if(String(card?.publicacao || "").toLowerCase().includes("código internacional") || /^[A-Za-zÀ-ÿ-]+\s*\([A-Z]\)/.test(a)) return "CIS/bandeira";
-  if(card?.image_q_url || card?.image_a_url) return "imagem";
-  if(items.length >= 5 || a.length > 520) return "lista longa";
-  if(/\b\d+(?:[,.]\d+)?\b/.test(a)) return "número/prazo";
-  if(/\b\d{1,2}\s*de\s*[a-zç]+\b/i.test(a) || /janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro/i.test(a)) return "data";
-  if(/compete|cabe|autoridade|deverá|poderá|shall|must|should|may/i.test(all)) return "competência/regra";
-  if(items.length >= 3) return "lista";
-  return "conceito";
-}
-function quizTypeIcon(type){
-  const t = String(type || "");
-  if(t.includes("lista")) return "☑️";
-  if(t.includes("número") || t.includes("data")) return "🔢";
-  if(t.includes("prova")) return "🧪";
-  if(t.includes("lacuna")) return "🧩";
-  if(t.includes("CIS")) return "🚩";
-  return "🎯";
-}
-function quizOptionCountForItem(item){
-  if(item?.kind === "cloze" || item?.kind === "list" || item?.kind === "notBelongs") return Math.min(5, Math.max(3, item.options?.length || 3));
-  const len = normalizeQuizText(item?.card ? quizFullAnswerText(item.card) : "").length;
-  if(len > 420) return 3;
-  if(len > 280) return 4;
-  return 5;
-}
-
-function quizListItems(text){
-  let t = normalizeQuizText(text)
-    .replace(/^[A-Za-zÀ-ÿ-]+\s*\([A-Z]\)\s*/, "")
-    .replace(/\b(?:são|sao|incluem|compreendem|indicam|consistem em|consiste em|são considerados|sao considerados)\b\s*:?/i, "");
-  t = t.replace(/\bi\)\s*/ig, "; ").replace(/\bii\)\s*/ig, "; ").replace(/\biii\)\s*/ig, "; ").replace(/\biv\)\s*/ig, "; ").replace(/\bv\)\s*/ig, "; ");
-  const raw = t.split(/;|\n|•|\s+-\s+|,(?=\s*(?:[A-Za-zÀ-ÿ]{3,}|\d))/g)
-    .map(x => normalizeQuizText(x.replace(/^(e|ou)\s+/i, "")))
-    .filter(x => x.length >= 3 && x.length <= 120)
-    .filter(x => !/^\d+$/.test(x));
-  const seen = new Set(), out = [];
-  raw.forEach(x => { const k = quizSimpleKey(x); if(k && !seen.has(k)){ seen.add(k); out.push(x); } });
-  return out.slice(0, 16);
-}
-function quizGenericWrongItems(lang="pt"){
-  if(lang === "en") return [
-    "yellow towing light", "pilot ladder only", "anchor ball", "normal port clearance", "routine radio check", "safe-water signal", "ordinary mooring line", "weather report", "cargo manifest", "engine-room alarm"
-  ];
-  return [
-    "luz amarela de reboque", "escada de prático", "balão de fundeio", "despacho normal do porto", "chamada rádio de rotina", "sinal de águas seguras", "cabo de amarração comum", "boletim meteorológico", "manifesto de carga", "alarme da praça de máquinas"
-  ];
-}
-function quizBuildListItem(card, number){
-  const full = quizFullAnswerText(card);
-  const items = quizListItems(full);
-  if(items.length < 4) return null;
-  const lang = quizDetectLang(full);
-  const mode = Math.random() < 0.55 ? "notBelongs" : "belongs";
-  if(mode === "notBelongs"){
-    const wrongPool = quizGenericWrongItems(lang).filter(x => !items.some(i => quizSimpleKey(i) === quizSimpleKey(x) || quizSimpleKey(i).includes(quizSimpleKey(x))));
-    if(!wrongPool.length) return null;
-    const correctWrong = quizShuffle(wrongPool)[0];
-    const realItems = quizShuffle(items).slice(0, 4);
-    const options = quizShuffle([
-      ...realItems.map(x => ({ text:x, fullText:x, correct:false, reason:"Este item pertence à lista original." })),
-      { text:correctWrong, fullText:correctWrong, correct:true, reason:"Este é o item que NÃO pertence à lista cobrada." }
-    ]);
-    return {
-      card, number, options, kind:"notBelongs", type:"lista / NÃO pertence", isCompact:true,
-      correctIndex: options.findIndex(o => o.correct),
-      stemHTML: `${escapeHtml(quizQuestionText(card))}<br><br><strong>Qual alternativa NÃO pertence à resposta?</strong>`
-    };
-  }
-  const correct = quizShuffle(items)[0];
-  const wrongs = quizGenericWrongItems(lang).filter(x => quizSimpleKey(x) !== quizSimpleKey(correct)).slice(0,4);
-  if(wrongs.length < 2) return null;
-  const options = quizShuffle([
-    { text: correct, fullText: correct, correct:true, reason:"Este item aparece na resposta original." },
-    ...quizShuffle(wrongs).slice(0,4).map(x => ({ text:x, fullText:x, correct:false, reason:"Este item não aparece na resposta original." }))
-  ]);
-  return {
-    card, number, options, kind:"list", type:"lista / item", isCompact:true,
-    correctIndex: options.findIndex(o => o.correct),
-    stemHTML: `${escapeHtml(quizQuestionText(card))}<br><br><strong>Qual alternativa pertence à resposta?</strong>`
-  };
-}
-function quizClozeCandidates(text){
-  const t = normalizeQuizText(text);
-  const candidates = [];
-  const numberRe = /\b\d+(?:[,.]\d+)?\s*(?:%|m|metros?|milhas?|MN|nós|kHz|MHz|dias?|horas?|min(?:utos?)?|seg(?:undos?)?|pés|jardas|°)?\b/ig;
-  let m;
-  while((m = numberRe.exec(t)) && candidates.length < 12){ candidates.push({ value: normalizeQuizText(m[0]), type:"número" }); }
-  const dateRe = /\b\d{1,2}\s*de\s*(?:janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)\b/ig;
-  while((m = dateRe.exec(t)) && candidates.length < 12){ candidates.push({ value: normalizeQuizText(m[0]), type:"data" }); }
-  const termGroups = ["porto", "fundeadouro", "viagem", "proa", "popa", "boreste", "bombordo", "vante", "ré", "master", "pilot", "conn", "port", "anchorage", "stern", "bow", "starboard", "port side"];
-  termGroups.forEach(term => {
-    const re = new RegExp(`\\b${quizEscapeRegExp(term)}\\b`, "i");
-    if(re.test(t)) candidates.push({ value: term, type:"termo" });
-  });
-  const seen = new Set();
-  return candidates.filter(c => { const k = quizSimpleKey(c.value); if(seen.has(k)) return false; seen.add(k); return true; });
-}
-function quizMutateClozeValue(value, type, sourceText){
-  const lang = quizDetectLang(sourceText);
-  const v = normalizeQuizText(value);
-  if(type === "data"){
-    const months = ["janeiro","fevereiro","março","abril","maio","junho","julho","agosto","setembro","outubro","novembro","dezembro"];
-    const m = v.match(/(\d{1,2})\s*de\s*([a-zç]+)/i);
-    if(m){
-      const day = Number(m[1]); const month = m[2].toLowerCase(); const idx = months.indexOf(month);
-      const outs = [Math.max(1, day-1), day+1, day+7].map(d => `${d} de ${month}`);
-      if(idx >= 0) outs.push(`${day} de ${months[(idx+1)%12]}`);
-      return outs;
-    }
-  }
-  if(type === "número"){
-    const m = v.match(/\d+(?:[,.]\d+)?/);
-    if(m){
-      const raw = m[0]; const unit = v.replace(raw, "").trim(); const num = Number(raw.replace(",", "."));
-      if(Number.isFinite(num)){
-        const deltas = num === 0 ? [1,2,5,10] : [num*0.5, num*0.75, num*1.25, num*1.5, num+1, Math.max(0, num-1)];
-        return deltas.map(x => {
-          const decimals = (raw.split(/[,.]/)[1] || "").length;
-          let y = decimals ? x.toFixed(decimals) : String(Math.round(x));
-          if(raw.includes(",")) y = y.replace(".", ",");
-          return normalizeQuizText(`${y}${unit ? " " + unit : ""}`);
-        });
-      }
-    }
-  }
-  const swaps = lang === "en" ? {
-    "port":"anchorage", "anchorage":"port", "stern":"bow", "bow":"stern", "starboard":"port", "port side":"starboard", "master":"pilot", "pilot":"master", "conn":"command", "after":"before", "before":"after"
-  } : {
-    "porto":"fundeadouro", "fundeadouro":"porto", "viagem":"porto", "proa":"popa", "popa":"proa", "boreste":"bombordo", "bombordo":"boreste", "vante":"ré", "ré":"vante", "autoridade marítima":"autoridade portuária", "comandante":"prático"
-  };
-  const low = v.toLowerCase();
-  if(swaps[low]) return [swaps[low]];
-  return [];
-}
-function quizBuildClozeItem(card, number){
-  const full = quizFullAnswerText(card);
-  const candidates = quizClozeCandidates(full);
-  if(!candidates.length) return null;
-  const cand = quizShuffle(candidates)[0];
-  const wrongs = quizMutateClozeValue(cand.value, cand.type, full).filter(x => quizSimpleKey(x) !== quizSimpleKey(cand.value));
-  const seen = new Set([quizSimpleKey(cand.value)]);
-  const options = [{ text:cand.value, fullText:cand.value, correct:true, reason:`Valor correto da lacuna: ${cand.value}.` }];
-  wrongs.forEach(w => {
-    if(options.length >= 5) return;
-    const k = quizSimpleKey(w);
-    if(!k || seen.has(k)) return;
-    seen.add(k); options.push({ text:normalizeQuizText(w), fullText:normalizeQuizText(w), correct:false, reason:`A resposta original usa “${cand.value}”, não “${normalizeQuizText(w)}”.` });
-  });
-  if(options.length < 3) return null;
-  const re = new RegExp(quizEscapeRegExp(cand.value), "i");
-  const answerWithBlank = quizCompactText(full.replace(re, "____"), 420);
-  const shuffled = quizShuffle(options);
-  return {
-    card, number, options: shuffled, kind:"cloze", type:`lacuna / ${cand.type}`, isCompact:true,
-    correctIndex: shuffled.findIndex(o => o.correct),
-    stemHTML: `${escapeHtml(quizQuestionText(card))}<br><br><strong>Complete a lacuna:</strong><br>${escapeHtml(answerWithBlank)}`
-  };
-}
-
-function quizBadGenericVariant(correctText, variant){
-  const correct = normalizeQuizText(correctText), v = normalizeQuizText(variant);
-  if(!correct || !v) return false;
-  const ck = correct.toLowerCase(), vf = v.toLowerCase();
-  const prefixes = ["em regra, ", "apenas ", "somente ", "só ", "mesmo quando ", "também ", "as a rule, ", "only ", "also ", "even when ", "generally "];
-  for(const p of prefixes){ if(vf === p + ck || vf.startsWith(p + ck)) return true; }
-  return false;
-}
-function quizAddVariant(out, seen, correctText, variant, reason=""){
-  const clean = normalizeQuizText(variant); const key = quizSimpleKey(clean);
-  if(!clean || clean.length < 2) return;
-  if(key === quizSimpleKey(correctText) || seen.has(key)) return;
-  if(quizBadGenericVariant(correctText, clean)) return;
-  seen.add(key); out.push({ text:clean, reason });
-}
-function quizContextualMutations(text, correctText, out, seen){
-  const base = normalizeQuizText(text); const lang = quizDetectLang(base);
-  const replacements = lang === "en" ? [
-    ["only after", "before", "trocou a condição temporal"], ["after", "before", "trocou after por before"], ["before", "after", "trocou before por after"],
-    ["master", "pilot", "trocou master por pilot"], ["pilot", "master", "trocou pilot por master"], ["fully", "partly", "trocou fully por partly"],
-    ["should", "may", "trocou should por may"], ["must", "may", "trocou must por may"], ["may", "must", "trocou may por must"],
-    ["port", "anchorage", "trocou port por anchorage"], ["stern", "bow", "trocou stern por bow"], ["starboard", "port", "trocou starboard por port"]
-  ] : [
-    ["deve", "pode", "trocou deve por pode"], ["pode", "deve", "trocou pode por deve"], ["não deve", "deve", "removeu a negação"], ["não pode", "pode", "removeu a negação"],
-    ["porto", "fundeadouro", "trocou porto por fundeadouro"], ["fundeadouro", "porto", "trocou fundeadouro por porto"], ["proa", "popa", "trocou proa por popa"], ["popa", "proa", "trocou popa por proa"],
-    ["boreste", "bombordo", "trocou boreste por bombordo"], ["bombordo", "boreste", "trocou bombordo por boreste"], ["meia-adriça", "topo", "trocou meia-adriça por topo"],
-    ["autoridade marítima", "autoridade portuária", "trocou autoridade marítima por autoridade portuária"], ["comandante", "prático", "trocou comandante por prático"]
-  ];
-  replacements.forEach(([a,b,r]) => { if(base.toLowerCase().includes(a.toLowerCase())) quizAddVariant(out, seen, correctText, quizReplaceTermOnce(base, a, b), r); });
-  const negPatterns = lang === "en" ? [[/\b(is|are|was|were)\b/i, "$1 not"], [/\b(should|shall|must|may|can|will)\b/i, "$1 not"]] : [[/\b(é|são|será|serão|deve|devem|pode|podem|poderá|poderão|cabe|compete)\b/i, "não $1"]];
-  negPatterns.forEach(([re, repl]) => { if(re.test(base)) quizAddVariant(out, seen, correctText, base.replace(re, repl), "inseriu negação no verbo principal"); });
-}
-function quizNumberMutations(text, correctText, out, seen){
-  const base = normalizeQuizText(text);
-  const matches = Array.from(base.matchAll(/\b\d+(?:[,.]\d+)?\b/g)).slice(0,8);
-  matches.forEach(m => {
-    const raw = m[0]; const num = Number(raw.replace(",", ".")); if(!Number.isFinite(num)) return;
-    [num+1, Math.max(0, num-1), num*2, num/2].forEach(v => {
-      const decimals = (raw.split(/[,.]/)[1] || "").length;
-      let repl = decimals ? v.toFixed(decimals) : String(Math.round(v));
-      if(raw.includes(",")) repl = repl.replace(".", ",");
-      quizAddVariant(out, seen, correctText, base.replace(raw, repl), `trocou ${raw} por ${repl}`);
-    });
-  });
-}
-function quizTermMutations(text, correctText, out, seen){
-  const base = normalizeQuizText(text);
-  const groups = [
-    ["maior", "menor", "igual"], ["superior", "inferior", "igual"], ["entrada", "saída"], ["entrar", "sair"], ["nacional", "estrangeiro"],
-    ["vante", "ré"], ["cheia normal", "preamar de sizígia"], ["carga", "tripulação"], ["plena carga", "sem carga"],
-    ["ahead", "astern"], ["inward", "outward"], ["increase", "decrease"]
-  ];
-  groups.forEach(g => g.forEach(term => {
-    if(base.toLowerCase().includes(term.toLowerCase())) g.filter(x => x !== term).slice(0,2).forEach(alt => quizAddVariant(out, seen, correctText, quizReplaceTermOnce(base, term, alt), `trocou ${term} por ${alt}`));
-  }));
-}
-function generatedQuizDistractorTexts(correctCard, count=4){
-  const correctText = quizFullAnswerText(correctCard);
-  const out = []; const seen = new Set([quizSimpleKey(correctText)]);
-  quizContextualMutations(correctText, correctText, out, seen);
-  quizNumberMutations(correctText, correctText, out, seen);
-  quizTermMutations(correctText, correctText, out, seen);
-  return out.slice(0, count);
-}
-function quizMeaningfulTokens(text){
-  const stop = new Set(["a","o","os","as","um","uma","de","da","do","das","dos","em","no","na","nos","nas","para","por","com","sem","que","e","ou","ao","aos","é","são","será","deve","pode","quando","the","an","of","to","in","on","and","or","with","that","is","are","be","will","shall","should","may","can","when","only","after","before"]);
-  return quizSimpleKey(text).split(/\s+/).filter(t => t.length > 2 && !stop.has(t));
-}
-function quizLooksSameFamily(correctText, candidateText){
-  const c = quizMeaningfulTokens(correctText), v = quizMeaningfulTokens(candidateText);
-  if(c.length <= 2 || v.length <= 2) return true;
-  const cs = new Set(c); const overlap = v.filter(t => cs.has(t)).length; const base = Math.min(c.length, v.length);
-  return overlap >= 2 && (overlap / base) >= 0.25;
-}
-function quizExplainWrong(item, selectedIndex){
-  const selected = item.options[selectedIndex]; const correct = item.options[item.correctIndex];
-  if(!selected) return "";
-  if(selected.reason) return escapeHtml(selected.reason);
-  const a = normalizeQuizText(correct.fullText || correct.text), b = normalizeQuizText(selected.fullText || selected.text);
-  const na = a.match(/\b\d+(?:[,.]\d+)?\b/), nb = b.match(/\b\d+(?:[,.]\d+)?\b/);
-  if(na && nb && na[0] !== nb[0]) return `A alternativa trocou <strong>${escapeHtml(na[0])}</strong> por <strong>${escapeHtml(nb[0])}</strong>.`;
-  const pairs = [["porto","fundeadouro"],["proa","popa"],["boreste","bombordo"],["deve","pode"],["master","pilot"],["after","before"],["stern","bow"]];
-  for(const [x,y] of pairs){
-    const al = a.toLowerCase(), bl = b.toLowerCase();
-    if(al.includes(x) && bl.includes(y)) return `A alternativa trocou <strong>${escapeHtml(x)}</strong> por <strong>${escapeHtml(y)}</strong>.`;
-    if(al.includes(y) && bl.includes(x)) return `A alternativa trocou <strong>${escapeHtml(y)}</strong> por <strong>${escapeHtml(x)}</strong>.`;
-  }
-  return "Compare a alternativa escolhida com a correta: a diferença está em condição, termo técnico, número ou competência.";
-}
-function buildQuizItem(card, number, options={}){
-  const fullCorrect = quizFullAnswerText(card);
-  const type = quizClassifyCard(card);
-  const forceKind = options.kind || null;
-
-  if(forceKind !== "normal"){
-    if(forceKind === "list" || type.includes("lista") || fullCorrect.length > 520){
-      const listItem = quizBuildListItem(card, number);
-      if(listItem) return listItem;
-    }
-    if(forceKind === "cloze" || type.includes("número") || type.includes("data") || fullCorrect.length > 260){
-      const cloze = quizBuildClozeItem(card, number);
-      if(cloze) return cloze;
-    }
-  }
-
-  const desiredOptionCount = fullCorrect.length > 420 ? 3 : (fullCorrect.length > 280 ? 4 : 5);
-  const displayMaxLen = quizOptionMaxLenForAnswer(fullCorrect);
-  const correctDisplay = quizCompactText(fullCorrect, displayMaxLen);
-  const optionsOut = [{ card_id: card.id, text: correctDisplay, fullText: fullCorrect, correct:true, reason:"Resposta original do flashcard." }];
-  const displaySeen = new Set([quizSimpleKey(correctDisplay)]);
-  const distractorTexts = generatedQuizDistractorTexts(card, 12);
-  distractorTexts.forEach((obj, i) => {
-    if(optionsOut.length >= desiredOptionCount) return;
-    const text = typeof obj === "string" ? obj : obj.text;
-    if(!quizLooksSameFamily(fullCorrect, text)) return;
-    const display = quizCompactText(text, displayMaxLen); const key = quizSimpleKey(display);
-    if(!display || displaySeen.has(key)) return;
-    displaySeen.add(key);
-    optionsOut.push({ card_id:`generated-${card.id}-${i+1}`, text:display, fullText:normalizeQuizText(text), correct:false, reason: obj.reason || "Alterou um detalhe interno da resposta correta." });
-  });
-  if(optionsOut.length < 3) return null;
-  const shuffled = quizShuffle(optionsOut);
-  return { card, number, options: shuffled, kind:"normal", type, isCompact: fullCorrect.length > 220 || shuffled.length < 5, correctIndex: shuffled.findIndex(o => o.correct), stemHTML: escapeHtml(quizQuestionText(card) || "—") };
-}
-function buildQuizDeckFromCards(cards, opts={}){
-  const max = Number(opts.limit || 0);
-  const source = opts.smart ? quizSmartOrder(cards) : quizShuffle(cards);
-  const deck = [];
-  source.forEach((card) => {
-    if(max && deck.length >= max) return;
-    const item = buildQuizItem(card, deck.length + 1, opts);
-    if(item && item.options && item.options.length >= 3) deck.push(item);
-  });
-  return deck.map((item, i) => ({...item, number:i+1}));
-}
-function showQuizList(){
-  activeTab = "quiz";
-  document.getElementById("quiz-list-view").style.display = "block";
-  document.getElementById("quiz-study-view").style.display = "none";
-  const groups = quizGroups();
-  const totalCards = quizEligibleCards().length;
-  const totalStats = quizStats();
-  const badCount = QUIZ_BAD_CARDS.size;
-  const note = document.getElementById("quiz-top-note");
-  if(note){
-    note.innerHTML = `Disponíveis para quiz: <strong>${totalCards}</strong> flashcards. Histórico local: <strong>${totalStats.total}</strong> respostas, <strong>${totalStats.right}</strong> acertos, <strong>${totalStats.wrong}</strong> erros, aproveitamento <strong>${totalStats.pct === null ? "—" : totalStats.pct + "%"}</strong>. Cards marcados como alternativa ruim: <strong>${badCount}</strong>.<br><strong>Novidades:</strong> modo lacuna, “NÃO pertence”, modo prova, refazer erradas do Quiz e aleatório inteligente usando prioridade semelhante ao Estudar.`;
-  }
-  const el = document.getElementById("quiz-subjects");
-  if(!groups.length){ el.innerHTML = `<div class="q-empty">Nenhum flashcard disponível para gerar quiz.</div>`; return; }
-  el.innerHTML = groups.map(g => {
-    const st = quizStats(g.publicacao, g.assunto);
-    const pubCount = quizCardsForGroup(g.publicacao, null).length;
-    const pubArg = encodeURIComponent(g.publicacao || ""); const assArg = encodeURIComponent(g.assunto || "");
-    return `
-      <div class="question-subject-card quiz-clickable" onclick="startQuiz(decodeURIComponent('${pubArg}'), decodeURIComponent('${assArg}'))" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault(); startQuiz(decodeURIComponent('${pubArg}'), decodeURIComponent('${assArg}'));}" role="button" tabindex="0" title="Iniciar quiz deste assunto">
-        <div class="question-subject-head">
-          <div>
-            <div class="question-subject-title">${escapeHtml(g.publicacao)} <span class="diag-topic">— ${escapeHtml(g.assunto)}</span></div>
-            <div class="question-meta">
-              <span class="meta-pill quiz-source-pill">${g.total} cards no assunto</span>
-              <span class="meta-pill">${pubCount} cards na publicação</span>
-              <span class="meta-pill">${st.total} respondidas</span>
-              <span class="meta-pill">${st.right} acertos</span>
-              <span class="meta-pill">${st.wrong} erros</span>
-            </div>
-          </div>
-          <div class="question-subject-pct">${st.pct === null ? "—" : st.pct + "%"}</div>
-        </div>
-        <div class="question-actions">
-          <button class="question-action-btn primary" onclick="event.stopPropagation(); startQuiz(decodeURIComponent('${pubArg}'), decodeURIComponent('${assArg}'))">Quiz do assunto</button>
-          <button class="question-action-btn good" onclick="event.stopPropagation(); startQuiz(decodeURIComponent('${pubArg}'), null)">Quiz da publicação</button>
-          <button class="question-action-btn" onclick="event.stopPropagation(); startQuiz(decodeURIComponent('${pubArg}'), decodeURIComponent('${assArg}'), {mode:'exam', limit:30})">Modo prova</button>
-        </div>
-      </div>`;
-  }).join("");
-}
-function startQuiz(publicacao=null, assunto=null, opts={}){
-  let cards = quizCardsForGroup(publicacao, assunto);
-  let effectivePublicacao = publicacao, effectiveAssunto = assunto;
-  if(!cards.length && publicacao){ const pubCards = quizCardsForGroup(publicacao, null); if(pubCards.length){ cards = pubCards; effectiveAssunto = null; } }
-  if(!cards.length){ cards = quizCardsForGroup(null, null); effectivePublicacao = null; effectiveAssunto = null; }
-  if(!cards.length){ alert("Não há flashcards disponíveis para montar o Quiz."); return; }
-  const mode = opts.mode || "practice";
-  const smart = !!opts.smart || mode === "randomSmart";
-  const limit = opts.limit || (mode === "exam" ? 30 : 0);
-  quizDeck = buildQuizDeckFromCards(cards, { smart, limit });
-  if(!quizDeck.length && (effectivePublicacao || effectiveAssunto)){
-    quizDeck = buildQuizDeckFromCards(quizCardsForGroup(null, null), { smart:true, limit });
-    effectivePublicacao = null; effectiveAssunto = null;
-  }
-  if(!quizDeck.length){ alert("Não consegui gerar alternativas boas para este grupo. Tente outro assunto, a publicação inteira ou o modo aleatório."); return; }
-  quizIdx = 0; quizSessionDone = 0; quizSessionTotal = quizDeck.length; QUIZ_LAST_RESULTS = [];
-  activeQuizGroup = {
-    publicacao: effectivePublicacao, assunto: effectiveAssunto, mode,
-    label: effectivePublicacao ? (effectiveAssunto ? `${effectivePublicacao} — ${effectiveAssunto}` : effectivePublicacao) : (smart ? "Aleatório inteligente" : "Quiz geral")
-  };
-  document.getElementById("quiz-list-view").style.display = "none";
-  document.getElementById("quiz-study-view").style.display = "block";
-  showQuizCard();
-}
-function startQuizRandomSmart(){ startQuiz(null, null, {mode:"randomSmart", smart:true}); }
-function quizWrongCardIdsBetween(start, end){
-  const s = start.getTime(), e = end.getTime();
-  const last = new Map();
-  currentQuizAttempts().filter(ev => ev && ev.ts && isAnsweredResult(ev.result)).forEach(ev => {
-    const t = new Date(ev.ts).getTime(); if(isNaN(t) || t < s || t > e) return;
-    last.set(String(ev.card_id), { result: ev.result, ts:t });
-  });
-  return Array.from(last.entries()).filter(([id, ev]) => ev.result === "wrong").map(([id]) => id);
-}
-function startQuizWrongPeriod(period="today"){
-  const now = new Date();
-  const ranges = {
-    today: [startOfLocalDay(now), endOfLocalDay(now)],
-    week: [startOfLocalWeek(now), endOfLocalWeek(now)],
-    month: [startOfLocalMonth(now), endOfLocalMonth(now)],
-    all: [new Date(0), new Date(8640000000000000)]
-  };
-  const [start, end] = ranges[period] || ranges.today;
-  const ids = new Set(quizWrongCardIdsBetween(start, end));
-  const cards = quizEligibleCards(true).filter(c => ids.has(String(c.id)) && !QUIZ_BAD_CARDS.has(String(c.id)));
-  if(!cards.length){ alert("Não há erradas do Quiz nesse período para refazer."); return; }
-  quizDeck = buildQuizDeckFromCards(cards, { smart:true });
-  if(!quizDeck.length){ alert("As erradas desse período não geraram alternativas boas. Elas podem estar marcadas como ruins ou exigir revisão manual."); return; }
-  quizIdx = 0; quizSessionDone = 0; quizSessionTotal = quizDeck.length; QUIZ_LAST_RESULTS = [];
-  const labelMap = {today:"Erradas do Quiz — hoje", week:"Erradas do Quiz — semana", month:"Erradas do Quiz — mês", all:"Erradas do Quiz"};
-  activeQuizGroup = { publicacao:null, assunto:null, mode:"practice", label:labelMap[period] || "Erradas do Quiz" };
-  document.getElementById("quiz-list-view").style.display = "none";
-  document.getElementById("quiz-study-view").style.display = "block";
-  showQuizCard();
-}
-function resetBadQuizCards(){
-  if(!QUIZ_BAD_CARDS.size){ showToast("Não há cards marcados como alternativa ruim.", "success"); return; }
-  showConfirmToast(`Liberar ${QUIZ_BAD_CARDS.size} card(s) marcados como alternativa ruim?`, () => {
-    QUIZ_BAD_CARDS.clear(); saveBadQuizCards(); showQuizList();
-    showToast("Cards liberados para o Quiz.", "success");
-  }, {confirmText:"Liberar", tone:"success"});
-}
-function showQuizCard(){
-  if(!quizDeck.length || quizIdx >= quizDeck.length){ finishQuizSession(); return; }
-  const item = quizDeck[quizIdx]; const c = item.card;
-  quizAnsweredLocked = false;
-  document.getElementById("quiz-study-title").textContent = activeQuizGroup?.label || "Quiz";
-  const st = quizStats(activeQuizGroup?.publicacao || null, activeQuizGroup?.assunto || null);
-  const isExam = activeQuizGroup?.mode === "exam";
-  document.getElementById("quiz-study-stats").innerHTML = `
-    <span class="meta-pill">${isExam ? "Modo prova: resultado só no final" : "Treino com feedback imediato"}</span>
-    <span class="meta-pill">Aproveitamento: ${st.pct === null ? "—" : st.pct + "%"}</span>
-    <span class="meta-pill">${st.total} respondidas</span>
-    <span class="meta-pill">${st.right} acertos</span>
-    <span class="meta-pill">${st.wrong} erros</span>`;
-  document.getElementById("quiz-study-progress").textContent = `${Math.min(quizSessionDone, quizSessionTotal)} / ${quizSessionTotal}`;
-  document.getElementById("quiz-front-subject").textContent = c.assunto || "Quiz";
-  document.getElementById("quiz-front-number").innerHTML = `Card ${item.number}<span class="quiz-type-pill">${quizTypeIcon(item.type)} ${escapeHtml(item.type || "quiz")}</span>${item.isCompact ? '<span class="quiz-compact-note">compacto</span>' : ''}`;
-  document.getElementById("quiz-stem").innerHTML = item.stemHTML || escapeHtml(quizQuestionText(c) || "—");
-  const imgWrap = document.getElementById("quiz-img-wrap"); const img = document.getElementById("quiz-img");
-  if(imgWrap && img){ if(c.image_q_url){ imgWrap.style.display = "flex"; img.src = c.image_q_url; img.alt = "Imagem do flashcard"; } else { imgWrap.style.display = "none"; img.removeAttribute("src"); } }
-  const letters = ["a","b","c","d","e"];
-  document.getElementById("quiz-alt-list").innerHTML = item.options.map((opt, i) => `
-    <button type="button" class="q-alt q-alt-btn" data-index="${i}" onclick="selectQuizOption(event, ${i})">
-      <span class="q-alt-letter">${letters[i].toUpperCase()})</span><span class="q-alt-content">${escapeHtml(opt.text)}</span>
-    </button>`).join("");
-  const feedback = document.getElementById("quiz-feedback");
-  feedback.style.display = isExam ? "block" : "none";
-  feedback.className = isExam ? "quiz-exam-banner" : "q-feedback";
-  feedback.innerHTML = isExam ? "Modo prova ativo: escolha uma alternativa. O gabarito e o percentual aparecerão apenas no final." : "";
-}
-async function saveQuizEvent(item, selectedIndex, result){
-  const selected = item.options[selectedIndex] || {};
-  const event = {
-    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random(),
-    user_id: currentUser?.id || null, card_id: String(item.card.id),
-    publicacao: cleanLabel(item.card.publicacao, "Geral"), assunto: cleanLabel(item.card.assunto, "Geral"),
-    resposta_card_id: selected.card_id || null, result, ts: new Date().toISOString(), quiz_mode: activeQuizGroup?.mode || "practice"
-  };
-  QUIZ_ATTEMPTS = mergeQuizAttempts(QUIZ_ATTEMPTS, [event]); saveLocalQuizAttempts(); renderDailyGoalWidget(); return event;
-}
-async function selectQuizOption(event, selectedIndex){
-  event.stopPropagation(); if(quizAnsweredLocked) return;
-  const item = quizDeck[quizIdx]; if(!item) return;
-  quizAnsweredLocked = true;
-  const result = selectedIndex === item.correctIndex ? "right" : "wrong";
-  const isExam = activeQuizGroup?.mode === "exam";
-  document.querySelectorAll("#quiz-alt-list .q-alt-btn").forEach(btn => {
-    const i = Number(btn.getAttribute("data-index")); btn.disabled = true;
-    if(isExam && i === selectedIndex) btn.classList.add("quiz-selected");
-    if(!isExam && i === item.correctIndex) btn.classList.add("correct");
-    if(!isExam && i === selectedIndex && selectedIndex !== item.correctIndex) btn.classList.add("wrong");
-  });
-  const correct = item.options[item.correctIndex]; const selected = item.options[selectedIndex];
-  const feedback = document.getElementById("quiz-feedback"); feedback.style.display = "block";
-  if(isExam){
-    feedback.className = "quiz-exam-banner";
-    feedback.innerHTML = "Resposta registrada. O gabarito será mostrado ao final da prova.";
-  } else {
-    feedback.className = `q-feedback ${result === "right" ? "ok" : "bad"}`;
-    const explain = result === "wrong" ? `<small><strong>Por que errou:</strong> ${quizExplainWrong(item, selectedIndex)}</small>` : "";
-    feedback.innerHTML = result === "right"
-      ? `✓ Correta.<div class="quiz-correct-answer">${escapeHtml(correct.fullText || correct.text)}</div><button class="quiz-bad-btn" onclick="markCurrentQuizCardBad(event)">⚠️ Alternativa ruim</button>`
-      : `✗ Errada. A correta é ${["A","B","C","D","E"][item.correctIndex]}.${explain}<div class="quiz-correct-answer">${escapeHtml(correct.fullText || correct.text)}</div><button class="quiz-bad-btn" onclick="markCurrentQuizCardBad(event)">⚠️ Alternativa ruim</button>`;
-  }
-  quizSessionDone++;
-  const ev = await saveQuizEvent(item, selectedIndex, result);
-  QUIZ_LAST_RESULTS.push({ item, selectedIndex, result, event: ev });
-  const st = quizStats(activeQuizGroup?.publicacao || null, activeQuizGroup?.assunto || null);
-  document.getElementById("quiz-study-progress").textContent = `${Math.min(quizSessionDone, quizSessionTotal)} / ${quizSessionTotal}`;
-  document.getElementById("quiz-study-stats").innerHTML = `
-    <span class="meta-pill">${isExam ? "Modo prova: resultado só no final" : "Treino com feedback imediato"}</span>
-    <span class="meta-pill">Aproveitamento: ${st.pct === null ? "—" : st.pct + "%"}</span>
-    <span class="meta-pill">${st.total} respondidas</span>
-    <span class="meta-pill">${st.right} acertos</span>
-    <span class="meta-pill">${st.wrong} erros</span>`;
-  if(activeTab === "goals") renderGoalsPage();
-  if(isExam){ setTimeout(() => nextQuizCard(), 380); }
-}
-function markCurrentQuizCardBad(event){
-  event?.stopPropagation?.();
-  const item = quizDeck[quizIdx] || QUIZ_LAST_RESULTS[QUIZ_LAST_RESULTS.length - 1]?.item;
-  const cardId = item?.card?.id;
-  if(!cardId) return;
-  QUIZ_BAD_CARDS.add(String(cardId)); saveBadQuizCards();
-  const feedback = document.getElementById("quiz-feedback");
-  if(feedback) feedback.innerHTML += `<small>Card marcado como ruim para Quiz. Ele ficará fora dos próximos quizzes até você liberar.</small>`;
-}
-function nextQuizCard(){
-  if(!quizDeck.length) return;
-  if(!quizAnsweredLocked) quizSessionDone++;
-  quizDeck.splice(quizIdx, 1);
-  if(quizIdx >= quizDeck.length) quizIdx = Math.max(0, quizDeck.length - 1);
-  showQuizCard();
-}
-function skipQuizCard(){ nextQuizCard(); }
-function shuffleQuizDeck(){ quizDeck = quizShuffle(quizDeck); quizIdx = 0; showQuizCard(); }
-function finishQuizSession(){
-  const done = QUIZ_LAST_RESULTS.length || quizSessionDone; const total = quizSessionTotal;
-  const right = QUIZ_LAST_RESULTS.filter(r => r.result === "right").length;
-  const wrong = QUIZ_LAST_RESULTS.filter(r => r.result === "wrong").length;
-  const pct = done ? Math.round(right / done * 100) : 0;
-  const wrongRows = QUIZ_LAST_RESULTS.filter(r => r.result === "wrong").slice(0, 20).map(r => {
-    const q = quizQuestionText(r.item.card); const correct = r.item.options[r.item.correctIndex]; const selected = r.item.options[r.selectedIndex];
-    return `<div class="quiz-review-item"><strong>${escapeHtml(r.item.card.assunto || "Quiz")}</strong><br>${escapeHtml(quizCompactText(q, 160))}<br><span style="color:var(--red)">Sua:</span> ${escapeHtml(selected?.text || "—")}<br><span style="color:var(--green)">Correta:</span> ${escapeHtml(correct?.fullText || correct?.text || "—")}</div>`;
-  }).join("");
-  quizDeck = []; quizIdx = 0;
-  document.getElementById("quiz-study-view").style.display = "none";
-  document.getElementById("quiz-list-view").style.display = "block";
-  showQuizList();
-  const note = document.getElementById("quiz-top-note");
-  if(note){
-    note.innerHTML = `<div class="quiz-final-box">
-      <div class="quiz-final-title">Quiz concluído</div>
-      <div class="quiz-final-grid">
-        <div class="quiz-final-stat"><div class="quiz-final-n">${done}</div><div class="quiz-final-l">respondidas</div></div>
-        <div class="quiz-final-stat"><div class="quiz-final-n" style="color:var(--green)">${right}</div><div class="quiz-final-l">acertos</div></div>
-        <div class="quiz-final-stat"><div class="quiz-final-n" style="color:var(--red)">${wrong}</div><div class="quiz-final-l">erros</div></div>
-        <div class="quiz-final-stat"><div class="quiz-final-n" style="color:var(--accent2)">${pct}%</div><div class="quiz-final-l">aproveitamento</div></div>
-      </div>
-      <div class="db-actions">
-        <button class="mini-btn" onclick="startQuizRandomSmart()">Novo aleatório</button>
-        <button class="mini-btn danger-btn" onclick="startQuizWrongPeriod('today')">Refazer erradas de hoje</button>
-        <button class="mini-btn danger-btn" onclick="startQuizWrongPeriod('week')">Refazer erradas da semana</button>
-      </div>
-      ${wrongRows ? `<div class="quiz-review-list">${wrongRows}</div>` : `<div class="goal-alert good">Nenhuma errada nesta rodada.</div>`}
-    </div>` + note.innerHTML;
-  }
-  renderDailyGoalWidget();
-}
 
 // ================= QUESTÕES - banco SQL separado dos flashcards =================
 function questionSubjects(){
@@ -4135,7 +3317,7 @@ function openGoalsPage(){
 
 function showTab(tab){
   activeTab = tab;
-  ["study","diag","questions","quiz","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
+  ["study","diag","questions","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
   const studyDisplay = tab === "study";
   const dailyGoal = document.getElementById("daily-goal-widget");
   if(dailyGoal) dailyGoal.style.display = studyDisplay ? "block" : "none";
@@ -4146,14 +3328,12 @@ function showTab(tab){
   document.getElementById("goals-screen").style.display = tab === "goals" ? "block" : "none";
   document.getElementById("diagnostic-screen").style.display = tab === "diag" ? "block" : "none";
   document.getElementById("questions-screen").style.display = tab === "questions" ? "block" : "none";
-  document.getElementById("quiz-screen").style.display = tab === "quiz" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
   document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
   if(tab === "study") renderDailyGoalWidget();
   if(tab === "goals") renderGoalsPage();
   if(tab === "diag") buildDashboard("all");
   if(tab === "questions") showQuestionList();
-  if(tab === "quiz") showQuizList();
   if(tab === "db") renderSummary("db-summary");
   if(tab === "arch") renderArchivedCards();
 }
@@ -5236,7 +4416,6 @@ async function startAuthenticatedApp(){
           loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
           loadReviewStateFromSupabase().catch(err => { console.warn("Revisão não carregou:", err); }),
           loadGoalSettingsFromSupabase().catch(err => { console.warn("Metas não carregaram:", err); }),
-          (async () => { await loadQuizResponsesFromSupabase(); await syncLocalQuizAttemptsToSupabase(); })().catch(err => { console.warn("Quiz não sincronizou:", err); }),
           loadResponsesFromSupabase().then(() => { responsesLoaded = true; }).catch(err => { console.warn("Histórico remoto não carregou:", err); })
         ];
         await Promise.allSettled(backgroundTasks);
