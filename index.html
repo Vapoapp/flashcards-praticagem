@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v55</title>
-<!-- versão v55: meta diária corrigida para não duplicar questões após sincronização -->
+<title>Flashcards — Praticagem v56</title>
+<!-- versão v56: sincronização da meta diária entre aparelhos; botão Sincronizar agora também puxa questões remotas -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -1015,6 +1015,8 @@ const GOALS_KEY = "flashpratico_goals_v1";
 const CARD_PENDING_SYNC_KEY = "flashpratico_card_pending_sync_v1";
 const CARD_ORPHAN_SYNC_KEY = "flashpratico_card_orphan_sync_v1";
 let LAST_SYNC_AT = null;
+let LAST_GOAL_REMOTE_REFRESH_AT = 0;
+let GOAL_REMOTE_REFRESH_BUSY = false;
 let SYNC_BUSY = false;
 let REMOTE_CARD_RESPONSE_IDS = new Set();
 let REMOTE_CARD_RESPONSE_KEYS = new Set();
@@ -1048,6 +1050,7 @@ let QUESTION_BANK = [];
 let QUESTION_ATTEMPTS = [];
 let QUESTION_TABLE_READY = true;
 let questionDeck = [], questionIdx = 0, questionSessionDone = 0, questionSessionTotal = 0, activeQuestionSubject = null, questionAnsweredLocked = false;
+let CARD_ANSWER_LOCK = false;
 
 
 
@@ -1741,9 +1744,15 @@ async function forceSyncNow(){
     } else {
       console.warn("Assinaturas remotas de flashcards não carregadas; pulando recuperação por comparação para evitar duplicidade.");
     }
+    // v56: antes o botão sincronizava pendências de questões, mas não puxava
+    // as respostas feitas em outro aparelho para o QUESTION_ATTEMPTS local.
+    // Isso fazia a meta diária ficar diferente entre celular e computador
+    // até recarregar a página. Agora o botão força o carregamento remoto.
+    try { await ensureQuestionsLoaded(false); } catch(e){ console.warn("Não consegui garantir questões carregadas antes da sincronização:", e); }
     if(QUESTION_SOURCE === "supabase"){
       await refreshRemoteQuestionIds();
       await syncLocalQuestionResponsesToSupabase();
+      await loadQuestionResponsesFromSupabase();
       await refreshRemoteQuestionIds();
     }
     await loadResponsesFromSupabase();
@@ -1754,7 +1763,7 @@ async function forceSyncNow(){
     renderSyncPanel();
     const after = syncSummary();
     const sent = cardResult.synced + missingCardResult.synced;
-    setSyncStatus(`sincronização concluída. Enviados: ${sent} flashcard(s). Pendentes restantes: ${after.totalPending}.`);
+    setSyncStatus(`sincronização concluída. Enviados: ${sent} flashcard(s). Histórico de questões recarregado. Pendentes restantes: ${after.totalPending}.`);
     if(!after.totalPending) showToast("Sincronização concluída. Não há pendências locais detectadas.", "success");
   }catch(error){
     console.error("Erro ao sincronizar agora:", error);
@@ -1856,11 +1865,52 @@ function getQuestionGoalEvents(){
       kind: "question"
     }));
 }
-function getGoalHistory(){
-  return [
+function goalEventTimestamp(ev){
+  const t = new Date(ev?.ts || ev?.created_at || "").getTime();
+  return Number.isFinite(t) ? t : NaN;
+}
+function goalEventExactKey(ev){
+  if(!ev) return "";
+  const kind = String(ev.kind || "card");
+  const item = String(ev.card_id || ev.question_id || "");
+  const result = String(ev.result || ev.resultado || "");
+  const t = goalEventTimestamp(ev);
+  const ts = Number.isFinite(t) ? new Date(t).toISOString() : String(ev.ts || ev.created_at || "");
+  return [kind, item, result, ts].join("|");
+}
+function dedupeGoalEvents(events){
+  // A meta diária deve refletir respostas reais, não duplicatas geradas por:
+  // 1) o mesmo evento salvo no backup local e no Supabase;
+  // 2) duplo clique/toque rápido no botão Acertei/Errei;
+  // 3) pequena diferença de milissegundos entre registros local/remoto.
+  // Mantém tentativas legítimas repetidas, mas colapsa repetição idêntica do mesmo item
+  // e mesmo resultado dentro de uma janela curta.
+  const exact = new Set();
+  const lastByBurstKey = new Map();
+  const clean = [];
+  (events || [])
+    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
+    .sort((a,b) => goalEventTimestamp(a) - goalEventTimestamp(b))
+    .forEach(ev => {
+      const t = goalEventTimestamp(ev);
+      if(!Number.isFinite(t)) return;
+      const exactKey = goalEventExactKey(ev);
+      if(exact.has(exactKey)) return;
+      exact.add(exactKey);
+      const burstKey = [String(ev.kind || "card"), String(ev.card_id || ""), String(ev.result || "")].join("|");
+      const prev = lastByBurstKey.get(burstKey);
+      if(prev && Math.abs(t - prev) <= 3000) return;
+      lastByBurstKey.set(burstKey, t);
+      clean.push(ev);
+    });
+  return clean;
+}
+function getGoalHistory(options = {}){
+  const raw = [
     ...getHistory({includeOrphans:true}).map(ev => ({...ev, kind: ev.kind || "card"})),
     ...getQuestionGoalEvents()
   ];
+  return options.raw ? raw : dedupeGoalEvents(raw);
 }
 async function saveEvent(card, result){
   invalidateSyncSummaryCache();
@@ -2821,6 +2871,11 @@ async function saveQuestionEvent(q, selected, result){
           console.error("Erro ao salvar questão:", error);
           setSyncStatus("Resposta salva localmente; pendente de sincronização: " + error.message);
         } else {
+          REMOTE_QUESTION_RESPONSE_IDS.add(String(event.id));
+          const stableKey = questionAttemptStableKey(event);
+          if(stableKey) REMOTE_QUESTION_RESPONSE_KEYS.add(stableKey);
+          invalidateSyncSummaryCache();
+          renderSyncPanel();
           setSyncStatus("Resposta de questão salva no Supabase.");
         }
       })
@@ -3147,6 +3202,39 @@ function renderDailyGoalWidget(){
     : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
   document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dia${streak.current === 1 ? "" : "s"}`;
 }
+
+async function refreshRemoteGoalCounters(reason = "auto"){
+  if(!currentUser?.id || !supabaseClient || GOAL_REMOTE_REFRESH_BUSY) return;
+  const now = Date.now();
+  // Evita consultas pesadas repetidas quando o Safari/Chrome dispara foco/visibilidade várias vezes.
+  if(reason !== "manual" && now - LAST_GOAL_REMOTE_REFRESH_AT < 45000) return;
+  GOAL_REMOTE_REFRESH_BUSY = true;
+  LAST_GOAL_REMOTE_REFRESH_AT = now;
+  try{
+    try { await loadResponsesFromSupabase({ silent:true }); }
+    catch(err){ console.warn("Não consegui atualizar histórico remoto de flashcards:", err); }
+
+    try { await ensureQuestionsLoaded(false); }
+    catch(err){ console.warn("Não consegui carregar questões para atualizar meta:", err); }
+
+    if(QUESTION_SOURCE === "supabase"){
+      try { await loadQuestionResponsesFromSupabase(); }
+      catch(err){ console.warn("Não consegui atualizar histórico remoto de questões:", err); }
+    }
+
+    renderDailyGoalWidget();
+    renderSyncPanel();
+    if(activeTab === "goals") renderGoalsPage();
+    if(activeTab === "db") renderSummary("db-summary");
+  } finally {
+    GOAL_REMOTE_REFRESH_BUSY = false;
+  }
+}
+
+window.addEventListener("focus", () => refreshRemoteGoalCounters("focus"));
+document.addEventListener("visibilitychange", () => {
+  if(!document.hidden) refreshRemoteGoalCounters("visible");
+});
 
 function periodCard(title, stats, target, kind){
   const progress = goalProgress(stats.total, target);
@@ -3848,7 +3936,17 @@ function setFormattedAnswer(elementId, raw){
   el.classList.add("formatted-answer");
 }
 
+function setCardActionButtonsDisabled(disabled){
+  document.querySelectorAll('#btn-row .btn, .nav-row .btn-nav').forEach(btn => {
+    btn.disabled = !!disabled;
+    btn.style.opacity = disabled ? '.58' : '';
+    btn.style.pointerEvents = disabled ? 'none' : '';
+  });
+}
+
 function showCard(){
+  CARD_ANSWER_LOCK = false;
+  setCardActionButtonsDisabled(false);
   if(idx >= deck.length){ showComplete(); return; }
   const c = deck[idx];
   isFlipped = false;
@@ -3889,33 +3987,53 @@ function flipCard(){
 }
 
 async function answer(type){
+  if(CARD_ANSWER_LOCK) return;
   const c = deck[idx];
   if(!c) return;
-  noteSessionAttempt(c);
-  SESSION_RESULTS.set(c.id, type);
-  await saveEvent(c, type);
-  if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
-  if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
-  if(type==='hard') scoreHard++;
-  renderDailyGoalWidget();
-  answered++;
-  sessionDone++;
-  // Remove da fila atual imediatamente. Assim, mesmo se o usuário embaralhar,
-  // o card recém-agendado não reaparece no mesmo estudo.
-  deck.splice(idx, 1);
-  if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
-  isFlipped=false;
-  showCard();
+  CARD_ANSWER_LOCK = true;
+  setCardActionButtonsDisabled(true);
+  try{
+    noteSessionAttempt(c);
+    SESSION_RESULTS.set(c.id, type);
+    await saveEvent(c, type);
+    if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
+    if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
+    if(type==='hard') scoreHard++;
+    renderDailyGoalWidget();
+    answered++;
+    sessionDone++;
+    // Remove da fila atual imediatamente. Assim, mesmo se o usuário embaralhar,
+    // o card recém-agendado não reaparece no mesmo estudo.
+    deck.splice(idx, 1);
+    if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
+    isFlipped=false;
+    showCard();
+  }catch(error){
+    console.error('Erro ao registrar resposta do flashcard:', error);
+    CARD_ANSWER_LOCK = false;
+    setCardActionButtonsDisabled(false);
+    showToast('Não consegui registrar a resposta. Tente novamente.', 'error');
+  }
 }
 
 async function skipCard(){
+  if(CARD_ANSWER_LOCK) return;
   const c = deck[idx];
-  if(c) await saveEvent(c, "skip");
-  sessionDone++;
-  deck.splice(idx, 1);
-  if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
-  isFlipped=false;
-  showCard();
+  CARD_ANSWER_LOCK = true;
+  setCardActionButtonsDisabled(true);
+  try{
+    if(c) await saveEvent(c, "skip");
+    sessionDone++;
+    deck.splice(idx, 1);
+    if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
+    isFlipped=false;
+    showCard();
+  }catch(error){
+    console.error('Erro ao pular flashcard:', error);
+    CARD_ANSWER_LOCK = false;
+    setCardActionButtonsDisabled(false);
+    showToast('Não consegui pular o card. Tente novamente.', 'error');
+  }
 }
 function prevCard(){ if(idx>0){idx--;isFlipped=false;showCard();} }
 function shuffleCards(){ for(let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];} idx=0;isFlipped=false;showCard(); }
@@ -4404,8 +4522,8 @@ async function loadReviewStateFromSupabase(){
     .forEach(row => REVIEW_STATE.set(row.card_id, row));
 }
 
-async function loadResponsesFromSupabase(){
-  setSyncStatus("carregando histórico...");
+async function loadResponsesFromSupabase(options = {}){
+  if(!options.silent) setSyncStatus("carregando histórico...");
   const data = await fetchSupabasePages((from, to) => {
     let query = supabaseClient
       .from("respostas")
