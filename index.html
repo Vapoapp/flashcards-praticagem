@@ -28,18 +28,6 @@
   .score-pill.r { border-color: rgba(224,92,92,0.4); color: var(--red); }
 
   /* CATEGORY PILLS */
-  .cat-nav-wrap { display: grid; grid-template-columns: 34px minmax(0, 1fr) 34px; align-items: center; gap: 6px; }
-  .cats { display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden; padding: 0 0 7px; scrollbar-width: thin; scrollbar-color: var(--accent2) var(--surface2); scroll-behavior: smooth; -webkit-overflow-scrolling: touch; cursor: grab; touch-action: pan-x; }
-  .cats.dragging { cursor: grabbing; user-select: none; scroll-behavior: auto; }
-  .cats::-webkit-scrollbar { height: 6px; }
-  .cats::-webkit-scrollbar-track { background: var(--surface2); border-radius: 8px; }
-  .cats::-webkit-scrollbar-thumb { background: var(--accent2); border-radius: 8px; }
-  .cat-scroll-btn { height: 28px; border-radius: 12px; border: 1px solid var(--border2); background: var(--surface2); color: var(--text); font-size: 18px; font-weight: 800; cursor: pointer; display:flex; align-items:center; justify-content:center; }
-  .cat-scroll-btn:active { transform: scale(.96); background: var(--accent); }
-  .cat-pill { flex-shrink: 0; padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; border: 1px solid var(--border); background: var(--surface2); color: var(--muted); cursor: pointer; transition: all 0.18s; white-space: nowrap; appearance: none; -webkit-appearance: none; font-family: inherit; line-height: 1.2; user-select: none; touch-action: manipulation; position: relative; z-index: 2; }
-  .cat-pill:hover { border-color: var(--accent2); color: var(--text); }
-  .cat-pill:active { transform: scale(.97); }
-  .cat-pill.active { background: var(--accent); border-color: var(--accent2); color: #fff; box-shadow: 0 0 0 1px rgba(124,140,248,.2) inset; }
   .cat-list-toggle { margin-top: 8px; width: 100%; border: 1px solid var(--border); background: rgba(255,255,255,.045); color: var(--text); border-radius: 14px; padding: 9px 11px; font-size: 12px; font-weight: 850; cursor: pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; }
   .cat-list-toggle:active { transform: scale(.985); background: rgba(91,106,240,.16); }
   .cat-list-toggle-main { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
@@ -161,8 +149,9 @@
 
 
   /* ADAPTIVE STUDY SYSTEM */
-  .tabbar { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; padding: 10px 16px 0; background: var(--bg); }
-  .tab-btn { border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 14px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; }
+  .tabbar { display: flex; flex-wrap: nowrap; gap: 8px; padding: 10px 16px 0; background: var(--bg); overflow-x: auto; overflow-y: hidden; -webkit-overflow-scrolling: touch; scrollbar-width: none; }
+  .tabbar::-webkit-scrollbar { display: none; }
+  .tab-btn { flex: 0 0 auto; min-width: 128px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); border-radius: 14px; padding: 10px 8px; font-size: 12px; font-weight: 800; cursor: pointer; white-space: nowrap; }
   .tab-btn.active { background: var(--accent); color: #fff; border-color: var(--accent2); }
   .tab-btn.today { background: rgba(61,184,176,0.14); color: var(--teal); border-color: rgba(61,184,176,0.35); }
   .tab-btn.today:active { transform: scale(0.98); }
@@ -455,10 +444,6 @@
   #app { height: 100dvh; max-height: 100dvh; overflow: hidden; flex-direction: column; }
   .header { position: relative; flex: 0 0 auto; padding: 8px 12px 6px; }
   .header-top { margin-bottom: 6px; }
-  .cat-nav-wrap { grid-template-columns: 30px minmax(0, 1fr) 30px; gap: 5px; }
-  .cat-scroll-btn { height: 26px; font-size: 16px; }
-  .cats { padding-bottom: 6px; }
-  .cat-pill { padding: 4px 10px; font-size: 10px; }
   .score-pill { padding: 2px 8px; font-size: 10px; }
   .tabbar { flex: 0 0 auto; padding: 6px 12px 0; gap: 6px; }
   .tab-btn { padding: 8px 8px; border-radius: 12px; }
@@ -483,9 +468,6 @@
   @media (max-height: 780px) {
     .header { padding: 6px 10px 5px; }
     .app-title { font-size: 14px; }
-    .cat-nav-wrap { grid-template-columns: 28px minmax(0, 1fr) 28px; }
-    .cat-scroll-btn { height: 24px; border-radius: 10px; }
-    .cat-pill { padding: 3px 9px; }
     .tab-btn { padding: 7px 8px; }
     .prog-wrap { padding: 6px 10px 3px; }
     .study-title { margin-top: 4px; padding: 7px 10px; }
@@ -498,8 +480,8 @@
     .nav-row { margin-top: 5px; }
   }
   @media (max-width: 520px) {
-    .tabbar { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-    .tab-btn { font-size: 11px; padding: 8px 4px; }
+    .tabbar { padding-left: 10px; padding-right: 10px; }
+    .tab-btn { min-width: 106px; font-size: 11px; padding: 8px 8px; }
     .card-wrapper, .btn-row, .nav-row, .study-title { max-width: 100%; }
   }
 
@@ -551,7 +533,6 @@
 
 
   /* QUESTÕES - banco separado dos flashcards */
-  .tabbar { grid-template-columns: repeat(5, 1fr); }
   #questions-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 24px; }
   .question-top-note { max-width: 760px; margin: 10px auto 0; color: var(--muted); font-size: 12px; line-height: 1.55; background: rgba(255,255,255,0.04); border: 1px solid var(--border); border-radius: 14px; padding: 10px 12px; }
   .question-subject-grid { max-width: 860px; margin: 14px auto 0; display: grid; gap: 10px; }
@@ -604,8 +585,7 @@
     .question-actions { grid-template-columns: 1fr; }
     .question-subject-head, .question-study-head { align-items:center; }
     .q-btn-row { flex-direction: row; }
-    .tabbar { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-    .tab-btn { font-size: 10px; padding-left: 2px; padding-right: 2px; }
+    .tab-btn { min-width: 112px; font-size: 10px; padding-left: 8px; padding-right: 8px; }
   }
 
 </style>
@@ -642,11 +622,6 @@
         <div class="score-pill g">✓ <span id="score-right">0</span></div>
         <div class="score-pill r">✗ <span id="score-wrong">0</span></div>
       </div>
-    </div>
-    <div class="cat-nav-wrap">
-      <button class="cat-scroll-btn" type="button" onclick="scrollCats(-1)" aria-label="Ver publicações anteriores">‹</button>
-      <div class="cats" id="cat-pills"></div>
-      <button class="cat-scroll-btn" type="button" onclick="scrollCats(1)" aria-label="Ver próximas publicações">›</button>
     </div>
     <button class="cat-list-toggle" type="button" onclick="toggleCategoryList()" aria-expanded="false" aria-controls="cat-list-panel" id="cat-list-toggle">
       <span class="cat-list-toggle-main" id="cat-list-toggle-main">Publicações</span>
@@ -3732,13 +3707,14 @@ function selectCatFromList(encodedCat){
 
 function buildCatPills(){
   const el = document.getElementById('cat-pills');
+  updateCategoryListToggle();
+  renderCategoryList(document.getElementById("cat-list-search")?.value || "");
+  if(!el) return;
   el.innerHTML = CATS.map(c => {
     const label = categoryLabel(c);
     const safeValue = encodeURIComponent(c);
     return `<button class="cat-pill ${c===activeCat?'active':''}" type="button" onclick="selectCat(decodeURIComponent('${safeValue}'))" title="Estudar ${escapeHtml(c)}">${escapeHtml(label)}</button>`;
   }).join('');
-  updateCategoryListToggle();
-  renderCategoryList(document.getElementById("cat-list-search")?.value || "");
   requestAnimationFrame(() => {
     const active = el.querySelector('.cat-pill.active');
     active?.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' });
