@@ -40,6 +40,21 @@
   .cat-pill:hover { border-color: var(--accent2); color: var(--text); }
   .cat-pill:active { transform: scale(.97); }
   .cat-pill.active { background: var(--accent); border-color: var(--accent2); color: #fff; box-shadow: 0 0 0 1px rgba(124,140,248,.2) inset; }
+  .cat-list-toggle { margin-top: 8px; width: 100%; border: 1px solid var(--border); background: rgba(255,255,255,.045); color: var(--text); border-radius: 14px; padding: 9px 11px; font-size: 12px; font-weight: 850; cursor: pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .cat-list-toggle:active { transform: scale(.985); background: rgba(91,106,240,.16); }
+  .cat-list-toggle-main { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; text-align:left; }
+  .cat-list-toggle-sub { flex:0 0 auto; color: var(--accent2); font-size: 11px; font-weight: 900; }
+  .cat-list-panel { display:none; margin-top: 8px; border:1px solid var(--border); background: rgba(26,29,39,.98); border-radius: 16px; padding: 10px; box-shadow: 0 18px 54px rgba(0,0,0,.45); }
+  .cat-list-panel.open { display:block; }
+  .cat-list-search { width:100%; border:1px solid var(--border2); background: var(--surface2); color: var(--text); border-radius: 12px; padding: 10px 11px; font-size: 13px; outline:none; margin-bottom: 9px; }
+  .cat-list-search:focus { border-color: rgba(124,140,248,.62); box-shadow: 0 0 0 3px rgba(91,106,240,.12); }
+  .cat-list { display:grid; gap:6px; max-height: min(52vh, 430px); overflow-y:auto; padding-right: 2px; }
+  .cat-list-item { width:100%; border:1px solid var(--border); background: rgba(255,255,255,.035); color: var(--text); border-radius: 13px; padding: 10px 11px; display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; text-align:left; font-family:inherit; }
+  .cat-list-item:hover { border-color: rgba(124,140,248,.45); background: rgba(91,106,240,.08); }
+  .cat-list-item.active { border-color: rgba(124,140,248,.75); background: rgba(91,106,240,.20); }
+  .cat-list-name { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size: 12px; font-weight: 850; }
+  .cat-list-count { flex:0 0 auto; color: var(--accent2); font-size: 11px; font-weight: 900; background: rgba(124,140,248,.13); border: 1px solid rgba(124,140,248,.25); border-radius: 999px; padding: 3px 8px; }
+  .cat-list-empty { color: var(--muted); font-size: 12px; line-height: 1.45; padding: 10px; text-align:center; }
 
   /* PROGRESS */
   .prog-wrap { padding: 10px 16px 6px; }
@@ -633,12 +648,21 @@
       <div class="cats" id="cat-pills"></div>
       <button class="cat-scroll-btn" type="button" onclick="scrollCats(1)" aria-label="Ver próximas publicações">›</button>
     </div>
+    <button class="cat-list-toggle" type="button" onclick="toggleCategoryList()" aria-expanded="false" aria-controls="cat-list-panel" id="cat-list-toggle">
+      <span class="cat-list-toggle-main" id="cat-list-toggle-main">Publicações</span>
+      <span class="cat-list-toggle-sub">Lista ▾</span>
+    </button>
+    <div class="cat-list-panel" id="cat-list-panel">
+      <input class="cat-list-search" id="cat-list-search" type="search" placeholder="Buscar publicação..." autocomplete="off" oninput="renderCategoryList(this.value)">
+      <div class="cat-list" id="cat-list"></div>
+    </div>
   </div>
 
 
   <!-- NAVIGATION -->
   <div class="tabbar">
     <button class="tab-btn active" id="tab-study" onclick="smartStudy()">Estudar</button>
+    <button class="tab-btn" id="tab-programmed" onclick="programmedStudy()">Programado</button>
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-questions" onclick="showTab('questions')">Questões</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
@@ -1929,7 +1953,7 @@ async function saveEvent(card, result){
   renderDailyGoalWidget();
   if(isOnlineMode && currentUser){
     ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, [event]);
-    await updateReviewState(card, result);
+    await updateStudyReviewState(card, result);
     try {
       const syncResult = await insertCardResponseEvents([event]);
       const eventId = String(event.id);
@@ -1949,7 +1973,7 @@ async function saveEvent(card, result){
     }
     return;
   }
-  await updateReviewState(card, result);
+  await updateStudyReviewState(card, result);
   setHistory(getHistory());
 }
 
@@ -2118,6 +2142,86 @@ function interleaveNewAndWrong(newCards, wrongCards){
   }
   return out;
 }
+
+const PROGRAMMED_INTERVALS = [0, 3, 6, 9, 12, 15, 20, 30];
+const PROGRAMMED_REINFORCEMENT_MINUTES = 20;
+
+function programmedLevelFor(card, state = null){
+  if(state) return Math.max(0, Math.min(7, Number(state.acertos_seguidos || 0)));
+  const st = reviewStateFor(card) || {};
+  const stored = Number(st.acertos_seguidos || 0);
+  const fromHistory = countConsecutiveRightFromHistory(card);
+  return Math.max(0, Math.min(7, Math.max(stored, fromHistory)));
+}
+
+function programmedIntervalDays(level){
+  const safe = Math.max(0, Math.min(7, Number(level || 0)));
+  return PROGRAMMED_INTERVALS[safe] || 0;
+}
+
+function isProgrammedDue(card){
+  if(isNewCard(card)) return true;
+  const st = reviewStateFor(card);
+  if(!st?.proxima_revisao) return true;
+  const next = new Date(st.proxima_revisao).getTime();
+  return !Number.isFinite(next) || next <= Date.now();
+}
+
+function getProgrammedStudyCards(baseCards = null){
+  const base = baseCards || baseCardsForActiveFilter();
+  const available = base.filter(isProgrammedDue);
+  const assigned = new Set();
+  const makeBucket = (filterFn) => {
+    const bucket = [];
+    available.forEach(card => {
+      if(!card || assigned.has(card.id)) return;
+      if(filterFn(card)){
+        assigned.add(card.id);
+        bucket.push(card);
+      }
+    });
+    return shuffleCopy(bucket);
+  };
+
+  const buckets = {
+    new: makeBucket(isNewCard),
+    reinforce: makeBucket(card => lastStudyResult(card) === "wrong" && programmedLevelFor(card) === 0),
+    wrong: makeBucket(card => lastStudyResult(card) === "wrong"),
+    low: makeBucket(card => {
+      const level = programmedLevelFor(card);
+      return level >= 1 && level <= 3;
+    }),
+    high: makeBucket(card => programmedLevelFor(card) >= 4),
+    other: makeBucket(() => true)
+  };
+
+  const pattern = ["new", "new", "reinforce", "new", "new", "low", "new", "new", "wrong", "new", "new", "high"];
+  const fallback = ["reinforce", "wrong", "new", "low", "high", "other"];
+  const out = [];
+  const seen = new Set();
+  const remaining = () => Object.values(buckets).reduce((sum, bucket) => sum + bucket.length, 0);
+  const pull = (name) => {
+    const card = buckets[name]?.shift();
+    if(card && !seen.has(card.id)){
+      seen.add(card.id);
+      out.push(card);
+      return true;
+    }
+    return false;
+  };
+
+  let i = 0;
+  while(remaining() > 0 && i < available.length * 3 + 30){
+    const preferred = pattern[i % pattern.length];
+    if(!pull(preferred)){
+      const alt = fallback.find(name => buckets[name]?.length);
+      if(alt) pull(alt);
+    }
+    i++;
+  }
+  return out;
+}
+
 function spacedIntervalFor(result, previous){
   const now = new Date();
   const prev = previous || {};
@@ -2179,6 +2283,75 @@ async function updateReviewState(card, result){
       setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
     }
   }
+}
+
+function programmedScheduleFor(card, result, previous){
+  const now = new Date();
+  const oldLevel = programmedLevelFor(card, previous);
+  let level = oldLevel;
+  let next = now;
+  let intervalDays = 0;
+
+  if(result === "right"){
+    level = Math.min(7, oldLevel + 1);
+    intervalDays = programmedIntervalDays(level);
+    next = addDays(now, intervalDays);
+  } else if(result === "wrong"){
+    level = Math.max(0, oldLevel - 1);
+    intervalDays = programmedIntervalDays(level);
+    if(level === 0){
+      const attempts = attemptsToday(card);
+      next = attempts >= 2 ? addDays(now, 1) : addMinutes(now, PROGRAMMED_REINFORCEMENT_MINUTES);
+      intervalDays = 0;
+    } else {
+      next = addDays(now, intervalDays);
+    }
+  } else if(result === "hard"){
+    level = Math.max(0, oldLevel - 1);
+    intervalDays = level === 0 ? 0 : programmedIntervalDays(level);
+    next = level === 0 ? addMinutes(now, PROGRAMMED_REINFORCEMENT_MINUTES) : addDays(now, intervalDays);
+  } else if(result === "skip"){
+    level = oldLevel;
+    intervalDays = Number(previous?.intervalo_dias || programmedIntervalDays(level));
+    next = previous?.proxima_revisao ? new Date(previous.proxima_revisao) : now;
+  }
+
+  return { level, intervalDays, next };
+}
+
+async function updateProgrammedReviewState(card, result){
+  const previous = REVIEW_STATE.get(card.id) || null;
+  const { level, intervalDays, next } = programmedScheduleFor(card, result, previous);
+  const row = {
+    user_id: currentUser?.id,
+    card_id: card.id,
+    acertos_seguidos: level,
+    intervalo_dias: intervalDays,
+    proxima_revisao: next.toISOString(),
+    ultima_revisao: result === "skip" ? (previous?.ultima_revisao || null) : new Date().toISOString(),
+    ultimo_resultado: result === "skip" ? (previous?.ultimo_resultado || "skip") : result,
+    total_acertos: Number(previous?.total_acertos || 0) + (result === "right" ? 1 : 0),
+    total_erros: Number(previous?.total_erros || 0) + (result === "wrong" ? 1 : 0),
+    total_dificeis: Number(previous?.total_dificeis || 0) + (result === "hard" ? 1 : 0),
+    total_pulos: Number(previous?.total_pulos || 0) + (result === "skip" ? 1 : 0),
+    updated_at: new Date().toISOString()
+  };
+  REVIEW_STATE.set(card.id, row);
+  if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
+    const { error } = await supabaseClient
+      .from("estado_cards_usuario")
+      .upsert(row, { onConflict: "user_id,card_id" });
+    if(error){
+      console.error("Erro ao atualizar revisão programada:", error);
+      REVIEW_TABLE_READY = false;
+      setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
+    }
+  }
+}
+
+async function updateStudyReviewState(card, result){
+  if(currentStudy?.mode === "programmed") return updateProgrammedReviewState(card, result);
+  return updateReviewState(card, result);
 }
 function uniqueCards(cards){
   const seen = new Set();
@@ -3236,6 +3409,18 @@ document.addEventListener("visibilitychange", () => {
   if(!document.hidden) refreshRemoteGoalCounters("visible");
 });
 
+document.addEventListener("click", (ev) => {
+  const panel = document.getElementById("cat-list-panel");
+  const toggle = document.getElementById("cat-list-toggle");
+  if(!panel?.classList.contains("open")) return;
+  if(panel.contains(ev.target) || toggle?.contains(ev.target)) return;
+  closeCategoryList();
+});
+
+document.addEventListener("keydown", (ev) => {
+  if(ev.key === "Escape") closeCategoryList();
+});
+
 function periodCard(title, stats, target, kind){
   const progress = goalProgress(stats.total, target);
   const pctText = stats.pct === null ? "—" : `${stats.pct}%`;
@@ -3449,8 +3634,8 @@ function openGoalsPage(){
 
 function showTab(tab){
   activeTab = tab;
-  ["study","diag","questions","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
-  const studyDisplay = tab === "study";
+  ["study","programmed","diag","questions","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
+  const studyDisplay = tab === "study" || tab === "programmed";
   const dailyGoal = document.getElementById("daily-goal-widget");
   if(dailyGoal) dailyGoal.style.display = studyDisplay ? "block" : "none";
   document.querySelector(".prog-wrap").style.display = studyDisplay ? "block" : "none";
@@ -3462,7 +3647,7 @@ function showTab(tab){
   document.getElementById("questions-screen").style.display = tab === "questions" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
   document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
-  if(tab === "study") renderDailyGoalWidget();
+  if(tab === "study" || tab === "programmed") renderDailyGoalWidget();
   if(tab === "goals") renderGoalsPage();
   if(tab === "diag") buildDashboard("all");
   if(tab === "questions") showQuestionList();
@@ -3484,15 +3669,76 @@ function initCatDrag(){
   return;
 }
 
+function categoryCount(cat){
+  return cat === "Todas" ? visibleCards(CARDS).length : visibleCards(CARDS).filter(x => x.publicacao === cat).length;
+}
+
+function categoryLabel(cat){
+  return cat === "Todas" ? `Todas (${categoryCount(cat)})` : `${cat} (${categoryCount(cat)})`;
+}
+
+function updateCategoryListToggle(){
+  const main = document.getElementById("cat-list-toggle-main");
+  if(main) main.textContent = categoryLabel(activeCat);
+}
+
+function renderCategoryList(query = ""){
+  const el = document.getElementById("cat-list");
+  if(!el) return;
+  const q = String(query || "").trim().toLowerCase();
+  const items = CATS
+    .map(cat => ({ cat, count: categoryCount(cat), label: categoryLabel(cat) }))
+    .filter(item => !q || item.cat.toLowerCase().includes(q));
+  if(!items.length){
+    el.innerHTML = `<div class="cat-list-empty">Nenhuma publicação encontrada.</div>`;
+    return;
+  }
+  el.innerHTML = items.map(item => `
+    <button class="cat-list-item ${item.cat === activeCat ? "active" : ""}" type="button" onclick="selectCatFromList('${encodeURIComponent(item.cat)}')">
+      <span class="cat-list-name">${escapeHtml(item.cat)}</span>
+      <span class="cat-list-count">${item.count}</span>
+    </button>
+  `).join("");
+}
+
+function openCategoryList(){
+  const panel = document.getElementById("cat-list-panel");
+  const toggle = document.getElementById("cat-list-toggle");
+  if(!panel) return;
+  panel.classList.add("open");
+  if(toggle) toggle.setAttribute("aria-expanded", "true");
+  renderCategoryList(document.getElementById("cat-list-search")?.value || "");
+  setTimeout(() => document.getElementById("cat-list-search")?.focus(), 40);
+}
+
+function closeCategoryList(){
+  const panel = document.getElementById("cat-list-panel");
+  const toggle = document.getElementById("cat-list-toggle");
+  if(panel) panel.classList.remove("open");
+  if(toggle) toggle.setAttribute("aria-expanded", "false");
+}
+
+function toggleCategoryList(){
+  const panel = document.getElementById("cat-list-panel");
+  if(panel?.classList.contains("open")) closeCategoryList();
+  else openCategoryList();
+}
+
+function selectCatFromList(encodedCat){
+  closeCategoryList();
+  selectCat(decodeURIComponent(encodedCat));
+}
+
 
 function buildCatPills(){
   const el = document.getElementById('cat-pills');
   el.innerHTML = CATS.map(c => {
-    const count = c === "Todas" ? visibleCards(CARDS).length : visibleCards(CARDS).filter(x => x.publicacao === c).length;
-    const label = c === "Todas" ? `Todas (${count})` : `${c} (${count})`;
+    const label = categoryLabel(c);
     const safeValue = encodeURIComponent(c);
     return `<button class="cat-pill ${c===activeCat?'active':''}" type="button" onclick="selectCat(decodeURIComponent('${safeValue}'))" title="Estudar ${escapeHtml(c)}">${escapeHtml(label)}</button>`;
   }).join('');
+  updateCategoryListToggle();
+  renderCategoryList(document.getElementById("cat-list-search")?.value || "");
   requestAnimationFrame(() => {
     const active = el.querySelector('.cat-pill.active');
     active?.scrollIntoView({ behavior:'smooth', block:'nearest', inline:'center' });
@@ -3674,6 +3920,7 @@ function showNoAvailableCards(scopeLabel, totalCards){
 
 function selectCat(cat){
   activeCat = cat;
+  closeCategoryList();
   buildCatPills();
 
   // Ao clicar numa publicação/assunto na barra superior, o usuário está escolhendo
@@ -3703,6 +3950,21 @@ function smartStudy(){
   document.getElementById('complete').style.display='none';
   updateStudyTitle();
   showTab('study');
+  if(!deck.length){ showNoAvailableCards(currentStudy.label, base.length); return; }
+  showCard();
+}
+
+function programmedStudy(){
+  const base = baseCardsForActiveFilter();
+  const cards = getProgrammedStudyCards(base);
+  deck = [...cards];
+  sessionTotal = deck.length;
+  idx = 0; isFlipped=false; resetSessionScore();
+  currentStudy = { type:"programmed", publicacao:activeCat==="Todas"?null:activeCat, assunto:null, mode:"programmed", label:activeCat==="Todas"?"Todas as publicações":activeCat };
+  document.getElementById('complete').classList.remove('show');
+  document.getElementById('complete').style.display='none';
+  updateStudyTitle();
+  showTab('programmed');
   if(!deck.length){ showNoAvailableCards(currentStudy.label, base.length); return; }
   showCard();
 }
@@ -3746,7 +4008,7 @@ function studyToday(){
 }
 
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", wrongWeek:"Erradas da semana", wrongMonth:"Erradas do mês", wrongPeriod:"Erradas do período", pendingPeriod:"Pendentes do período", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", wrongWeek:"Erradas da semana", wrongMonth:"Erradas do mês", wrongPeriod:"Erradas do período", pendingPeriod:"Pendentes do período", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente", programmed:"Programado"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = sessionTotal || deck.length;
@@ -4204,6 +4466,7 @@ function restart(){
   document.getElementById('complete').classList.remove('show');
   document.getElementById('complete').style.display='none';
   if(currentStudy.type === "smart") smartStudy();
+  else if(currentStudy.type === "programmed") programmedStudy();
   else if(currentStudy.type === "topic") studyGroup(currentStudy.publicacao, currentStudy.assunto, currentStudy.mode);
   else if(currentStudy.type === "wrongPeriod" && currentStudy.startMs !== null && currentStudy.endMs !== null){
     const start = new Date(Number(currentStudy.startMs));
