@@ -115,6 +115,22 @@
   .btn-right { background: rgba(76,175,125,0.15); border-color: rgba(76,175,125,0.4); color: var(--green); }
   .btn-right:active { background: rgba(76,175,125,0.3); transform: scale(0.96); }
 
+  .auto-quiz-box { width:100%; max-width: 520px; margin-top: 16px; display:none; text-align:left; }
+  .auto-quiz-label { display:inline-flex; align-items:center; gap:6px; color: var(--accent2); background: rgba(91,106,240,.14); border: 1px solid rgba(91,106,240,.34); border-radius: 999px; padding: 4px 9px; font-size: 11px; font-weight: 900; margin-bottom: 9px; }
+  .auto-quiz-options { display:grid; gap:8px; }
+  .auto-quiz-option { width:100%; border:1px solid var(--border); background: rgba(255,255,255,.045); color: var(--text); border-radius: 14px; padding: 11px 12px; display:grid; grid-template-columns: 30px minmax(0, 1fr); gap:9px; align-items:start; text-align:left; font-family:inherit; font-size: 13px; line-height: 1.45; cursor:pointer; }
+  .auto-quiz-option:active { transform: scale(.985); }
+  .auto-quiz-letter { width: 28px; height: 28px; border-radius: 999px; display:flex; align-items:center; justify-content:center; background: rgba(124,140,248,.18); border: 1px solid rgba(124,140,248,.34); color: var(--accent2); font-weight: 950; }
+  .auto-quiz-option.correct { border-color: rgba(76,175,125,.68); background: rgba(76,175,125,.16); }
+  .auto-quiz-option.wrong { border-color: rgba(224,92,92,.68); background: rgba(224,92,92,.16); }
+  .auto-quiz-option:disabled { cursor: default; opacity: 1; }
+  .auto-quiz-actions { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-top: 10px; }
+  .auto-quiz-photo-btn { border:1px solid rgba(124,140,248,.38); background: rgba(91,106,240,.13); color: var(--accent2); border-radius: 12px; padding: 8px 10px; font-size: 12px; font-weight: 900; cursor:pointer; }
+  .auto-quiz-feedback { color: var(--muted); font-size: 12px; font-weight: 800; }
+  .auto-quiz-photo-wrap { display:none; margin-top: 10px; gap: 8px; flex-direction:column; }
+  .auto-quiz-photo-wrap.show { display:flex; }
+  .auto-quiz-photo-wrap img { max-width: 100%; max-height: 42vh; object-fit: contain; background:#fff; border-radius: 12px; border:1px solid var(--border); }
+
   .nav-row { display: flex; gap: 8px; width: 100%; max-width: 420px; margin-top: 8px; }
   .btn-nav { flex: 1; padding: 10px; border-radius: 12px; border: 1px solid var(--border); background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; transition: all 0.15s; }
   .btn-nav:active { background: var(--surface2); transform: scale(0.97); }
@@ -875,10 +891,19 @@
               <div id="q-img-caption" class="card-img-caption"></div>
             </div>
             <div class="question-text" id="q-text">Carregando...</div>
+            <div class="auto-quiz-box" id="auto-quiz-box">
+              <div class="auto-quiz-label">Quiz A/B automático</div>
+              <div class="auto-quiz-options" id="auto-quiz-options"></div>
+              <div class="auto-quiz-actions" id="auto-quiz-actions">
+                <button class="auto-quiz-photo-btn" id="auto-quiz-photo-btn" type="button" onclick="toggleAutoQuizPhoto(event)" style="display:none;">Ver foto</button>
+                <span class="auto-quiz-feedback" id="auto-quiz-feedback"></span>
+              </div>
+              <div class="auto-quiz-photo-wrap" id="auto-quiz-photo-wrap"></div>
+            </div>
             <div class="hint" id="q-hint"></div>
             <div class="src-badge" id="q-src"></div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Toque para ver a resposta</span><br><span class="footer-actions"><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint" id="front-tap-hint">Toque para ver a resposta</span><br><span class="footer-actions"><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
         </div>
         <div class="card-face card-back">
           <div class="card-header">
@@ -1050,6 +1075,7 @@ let QUESTION_ATTEMPTS = [];
 let QUESTION_TABLE_READY = true;
 let questionDeck = [], questionIdx = 0, questionSessionDone = 0, questionSessionTotal = 0, activeQuestionSubject = null, questionAnsweredLocked = false;
 let CARD_ANSWER_LOCK = false;
+let CURRENT_AUTO_QUIZ = null;
 
 
 
@@ -2678,6 +2704,20 @@ function escapeHtml(str){
   return String(str ?? "").replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
 }
 
+function escapeRegExp(str){
+  return String(str ?? "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function hashString(str){
+  let hash = 0;
+  const s = String(str ?? "");
+  for(let i = 0; i < s.length; i++){
+    hash = ((hash << 5) - hash) + s.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+}
+
 
 
 // ================= QUESTÕES - banco SQL separado dos flashcards =================
@@ -4174,6 +4214,212 @@ function setFormattedAnswer(elementId, raw){
   el.classList.add("formatted-answer");
 }
 
+function plainTextFromHtml(raw){
+  const tmp = document.createElement("div");
+  tmp.innerHTML = String(raw || "")
+    .replace(/<img\b[^>]*>/gi, " ")
+    .replace(/<br\s*\/?>/gi, " ");
+  return (tmp.textContent || tmp.innerText || "")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractImageSourcesFromHtml(raw){
+  const htmlText = String(raw || "");
+  const out = [];
+  htmlText.replace(/<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi, (_, src) => {
+    if(src && !out.includes(src)) out.push(src);
+    return "";
+  });
+  return out;
+}
+
+function autoQuizImagesFor(card){
+  const imgs = [];
+  if(card?.image_q_url) imgs.push(card.image_q_url);
+  if(card?.image_a_url) imgs.push(card.image_a_url);
+  extractImageSourcesFromHtml(card?.a || "").forEach(src => {
+    if(!imgs.includes(src)) imgs.push(src);
+  });
+  return imgs;
+}
+
+function autoQuizAnswerIsShort(text){
+  const a = String(text || "");
+  if(!a || a.length > 230) return false;
+  if((a.match(/;/g) || []).length > 2) return false;
+  if((a.match(/[,;]/g) || []).length > 8) return false;
+  if(/\b(?:I{1,3}|IV|V|VI{0,3}|[a-e])\)/.test(a)) return false;
+  if(/\b(?:1º|2º|3º|4º|5º|6º|7º|8º)\b/.test(a) && a.length > 120) return false;
+  return true;
+}
+
+function autoQuizWholeWordReplace(text, from, to){
+  const flags = /^[A-Z]{2,}$/.test(from) ? "g" : "gi";
+  const pattern = new RegExp(`(^|[^\\wÀ-ÿ])(${escapeRegExp(from)})(?=$|[^\\wÀ-ÿ])`, flags);
+  let changed = false;
+  const out = String(text || "").replace(pattern, (m, before) => {
+    if(changed) return m;
+    changed = true;
+    return before + to;
+  });
+  return changed ? out : null;
+}
+
+function autoQuizHasTerm(text, term){
+  return new RegExp(`(^|[^\\wÀ-ÿ])${escapeRegExp(term)}(?=$|[^\\wÀ-ÿ])`, /^[A-Z]{2,}$/.test(term) ? "" : "i").test(String(text || ""));
+}
+
+function autoQuizBadPhrase(text){
+  const low = String(text || "").toLowerCase();
+  return [
+    /proa\s+a\s+proa/,
+    /popa\s+a\s+popa/,
+    /vante\s+a\s+vante/,
+    /ré\s+a\s+ré/,
+    /\bbb\s+a\s+bb\b/i,
+    /\bbe\s+a\s+be\b/i,
+    /transversais\s+e\s+transversais/,
+    /longitudinais\s+e\s+longitudinais/
+  ].some(rx => rx.test(low));
+}
+
+function autoQuizNumberDistractor(text){
+  const s = String(text || "");
+  const matches = Array.from(s.matchAll(/(^|[^\w])([0-9]+(?:[,.][0-9]+)?)(\s*%|\s*°|\s*m\b|\s*dias?\b|\s*horas?\b|\s*anos?\b|\s*meses?\b|\s*kn\b|\s*nós\b|\s*BHP\b)?/gi));
+  if(!matches.length) return null;
+  const chosen = matches.find(m => m[3]) || matches[0];
+  const raw = chosen[2];
+  const unit = chosen[3] || "";
+  const val = Number(raw.replace(",", "."));
+  if(!Number.isFinite(val)) return null;
+  let next = val + 1;
+  if(unit.trim() === "%") next = val < 50 ? val + 1 : val - 5;
+  else if(unit.includes("°")) next = val < 85 ? val + 5 : val - 5;
+  else if(!unit && val >= 10) next = val + 5;
+  const nextText = raw.includes(",") || raw.includes(".")
+    ? String(Number(next.toFixed(1))).replace(".", ",")
+    : String(Math.max(0, Math.round(next)));
+  const start = chosen.index + chosen[1].length;
+  const end = start + raw.length;
+  const out = s.slice(0, start) + nextText + s.slice(end);
+  return autoQuizBadPhrase(out) ? null : { text: out, rule: "número" };
+}
+
+function autoQuizTextDistractor(text){
+  const s = String(text || "");
+  const families = {
+    "proa/popa": ["proa", "popa"],
+    "vante/ré": ["vante", "ré"],
+    "BE/BB": ["BE", "BB", "boreste", "bombordo"],
+    "longitudinal/transversal": ["longitudinal", "transversal", "longitudinais", "transversais"],
+    "vertical/horizontal": ["vertical", "horizontal", "verticalmente", "horizontalmente"],
+    "primária/secundária": ["primária", "secundária"]
+  };
+  const swaps = [
+    ["BE", "BB", "BE/BB"], ["BB", "BE", "BE/BB"], ["boreste", "bombordo", "BE/BB"], ["bombordo", "boreste", "BE/BB"],
+    ["proa", "popa", "proa/popa"], ["popa", "proa", "proa/popa"], ["vante", "ré", "vante/ré"], ["ré", "vante", "vante/ré"],
+    ["acima", "abaixo", "acima/abaixo"], ["abaixo", "acima", "acima/abaixo"], ["superior", "inferior", "superior/inferior"], ["inferior", "superior", "superior/inferior"],
+    ["maior", "menor", "maior/menor"], ["menor", "maior", "maior/menor"], ["aumenta", "diminui", "aumenta/diminui"], ["diminui", "aumenta", "aumenta/diminui"],
+    ["aumentam", "diminuem", "aumenta/diminui"], ["diminuem", "aumentam", "aumenta/diminui"], ["aumento", "redução", "aumenta/diminui"], ["redução", "aumento", "aumenta/diminui"],
+    ["permitida", "proibida", "permitido/proibido"], ["proibida", "permitida", "permitido/proibido"], ["permitido", "proibido", "permitido/proibido"], ["proibido", "permitido", "permitido/proibido"],
+    ["obrigatório", "facultativo", "obrigatório/facultativo"], ["facultativo", "obrigatório", "obrigatório/facultativo"], ["obrigatória", "facultativa", "obrigatório/facultativo"], ["facultativa", "obrigatória", "obrigatório/facultativo"],
+    ["longitudinal", "transversal", "longitudinal/transversal"], ["transversal", "longitudinal", "longitudinal/transversal"], ["longitudinais", "transversais", "longitudinal/transversal"], ["transversais", "longitudinais", "longitudinal/transversal"],
+    ["verticalmente", "horizontalmente", "vertical/horizontal"], ["horizontalmente", "verticalmente", "vertical/horizontal"], ["vertical", "horizontal", "vertical/horizontal"], ["horizontal", "vertical", "vertical/horizontal"],
+    ["primária", "secundária", "primária/secundária"], ["secundária", "primária", "primária/secundária"], ["primary", "secondary", "primary/secondary"], ["secondary", "primary", "primary/secondary"],
+    ["entrada", "saída", "entrada/saída"], ["saída", "entrada", "entrada/saída"], ["introduzem", "retiram", "entrada/saída"], ["retiram", "introduzem", "entrada/saída"],
+    ["interno", "externo", "interno/externo"], ["externo", "interno", "interno/externo"], ["interna", "externa", "interno/externo"], ["externa", "interna", "interno/externo"],
+    ["aberta", "fechada", "aberto/fechado"], ["fechada", "aberta", "aberto/fechado"], ["aberto", "fechado", "aberto/fechado"], ["fechado", "aberto", "aberto/fechado"],
+    ["ahead", "astern", "ahead/astern"], ["astern", "ahead", "ahead/astern"], ["upper", "lower", "upper/lower"], ["lower", "upper", "upper/lower"],
+    ["before", "after", "before/after"], ["after", "before", "before/after"], ["increase", "decrease", "increase/decrease"], ["decrease", "increase", "increase/decrease"],
+    ["increases", "decreases", "increase/decrease"], ["decreases", "increases", "increase/decrease"], ["positive", "negative", "positive/negative"], ["negative", "positive", "positive/negative"],
+    ["port", "starboard", "port/starboard"], ["starboard", "port", "port/starboard"]
+  ];
+  for(const [from, to, rule] of swaps){
+    const family = families[rule];
+    if(family){
+      const present = family.filter(term => autoQuizHasTerm(s, term)).length;
+      if(present >= 2) continue;
+    }
+    const out = autoQuizWholeWordReplace(s, from, to);
+    if(out && out !== s && !autoQuizBadPhrase(out)) return { text: out, rule };
+  }
+  return null;
+}
+
+function buildAutoQuiz(card){
+  if(!card) return null;
+  const answerText = plainTextFromHtml(card.a || "");
+  if(!autoQuizAnswerIsShort(answerText)) return null;
+  const dist = autoQuizNumberDistractor(answerText) || autoQuizTextDistractor(answerText);
+  if(!dist || !dist.text || dist.text === answerText) return null;
+  const correctIsA = hashString(String(card.id || answerText)) % 2 === 0;
+  return {
+    cardId: card.id,
+    correct: correctIsA ? "A" : "B",
+    rule: dist.rule,
+    answerText,
+    images: autoQuizImagesFor(card),
+    options: correctIsA
+      ? { A: answerText, B: dist.text }
+      : { A: dist.text, B: answerText }
+  };
+}
+
+function renderAutoQuiz(quiz){
+  const box = document.getElementById("auto-quiz-box");
+  const options = document.getElementById("auto-quiz-options");
+  const photoBtn = document.getElementById("auto-quiz-photo-btn");
+  const photoWrap = document.getElementById("auto-quiz-photo-wrap");
+  const feedback = document.getElementById("auto-quiz-feedback");
+  if(!box || !options) return;
+  if(!quiz){
+    box.style.display = "none";
+    options.innerHTML = "";
+    if(feedback) feedback.textContent = "";
+    if(photoWrap){ photoWrap.innerHTML = ""; photoWrap.classList.remove("show"); }
+    if(photoBtn) photoBtn.style.display = "none";
+    return;
+  }
+  box.style.display = "block";
+  options.innerHTML = ["A", "B"].map(letter => `
+    <button class="auto-quiz-option" id="auto-quiz-option-${letter}" type="button" onclick="answerAutoQuiz('${letter}', event)">
+      <span class="auto-quiz-letter">${letter}</span>
+      <span>${escapeHtml(quiz.options[letter])}</span>
+    </button>
+  `).join("");
+  if(feedback) feedback.textContent = "";
+  if(photoWrap){
+    photoWrap.classList.remove("show");
+    photoWrap.innerHTML = quiz.images.map(src => `<img src="${escapeHtml(src)}" alt="Imagem do flashcard">`).join("");
+  }
+  if(photoBtn) photoBtn.style.display = quiz.images.length ? "inline-flex" : "none";
+}
+
+function toggleAutoQuizPhoto(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  document.getElementById("auto-quiz-photo-wrap")?.classList.toggle("show");
+}
+
+function answerAutoQuiz(choice, event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  if(CARD_ANSWER_LOCK || !CURRENT_AUTO_QUIZ) return;
+  const quiz = CURRENT_AUTO_QUIZ;
+  const right = choice === quiz.correct;
+  setCardActionButtonsDisabled(true);
+  ["A","B"].forEach(letter => {
+    const btn = document.getElementById(`auto-quiz-option-${letter}`);
+    if(!btn) return;
+    btn.disabled = true;
+    if(letter === quiz.correct) btn.classList.add("correct");
+    else if(letter === choice) btn.classList.add("wrong");
+  });
+  const feedback = document.getElementById("auto-quiz-feedback");
+  if(feedback) feedback.textContent = right ? "Correto." : `Errado. Correta: ${quiz.correct}.`;
+  setTimeout(() => answer(right ? "right" : "wrong"), 520);
+}
+
 function setCardActionButtonsDisabled(disabled){
   document.querySelectorAll('#btn-row .btn, .nav-row .btn-nav').forEach(btn => {
     btn.disabled = !!disabled;
@@ -4204,6 +4450,10 @@ function showCard(){
   setCardImage("a", c.image_a_url || "", c.image_caption || "");
   document.getElementById('q-text').textContent = frontQuestionText(c);
   document.getElementById('q-hint').textContent = c.hint ? '💡 ' + c.hint : '';
+  CURRENT_AUTO_QUIZ = buildAutoQuiz(c);
+  renderAutoQuiz(CURRENT_AUTO_QUIZ);
+  const frontTapHint = document.getElementById('front-tap-hint');
+  if(frontTapHint) frontTapHint.textContent = CURRENT_AUTO_QUIZ ? 'Escolha A ou B' : 'Toque para ver a resposta';
   const srcEl = document.getElementById('q-src');
   const srcText = frontSourceText(c);
   if(srcEl){
@@ -4219,6 +4469,7 @@ function showCard(){
 }
 
 function flipCard(){
+  if(CURRENT_AUTO_QUIZ && !isFlipped) return;
   isFlipped = !isFlipped;
   document.getElementById('card').classList.toggle('flipped', isFlipped);
   document.getElementById('btn-row').style.display = isFlipped ? 'flex' : 'none';
