@@ -2216,9 +2216,81 @@ function programmedIntervalDays(level){
   return PROGRAMMED_INTERVALS[safe] || 0;
 }
 
+function programmedReviewStateFromHistory(card){
+  const last = lastStudyEventForCard(card);
+  if(!last || !last.ts) return null;
+  const lastDate = new Date(last.ts);
+  if(isNaN(lastDate.getTime())) return null;
+
+  const result = last.result;
+  let level = 0;
+  let intervalDays = 0;
+  let next = lastDate;
+
+  if(result === "right"){
+    // Conta a sequência real de acertos no histórico até a última resposta.
+    // Isso garante: 1 acerto = 3 dias; 2 = 6; 3 = 9; etc.,
+    // mesmo quando a tabela estado_cards_usuario estiver atrasada.
+    level = Math.max(1, countConsecutiveRightFromHistory(card));
+    intervalDays = programmedIntervalDays(level);
+    next = addDays(lastDate, intervalDays);
+  } else if(result === "wrong"){
+    level = 0;
+    intervalDays = 0;
+    const attempts = attemptsToday(card);
+    next = attempts >= 2 ? addDays(lastDate, 1) : addMinutes(lastDate, PROGRAMMED_REINFORCEMENT_MINUTES);
+  } else if(result === "hard"){
+    level = Math.max(0, programmedLevelFor(card) - 1);
+    intervalDays = level === 0 ? 0 : programmedIntervalDays(level);
+    next = level === 0 ? addMinutes(lastDate, PROGRAMMED_REINFORCEMENT_MINUTES) : addDays(lastDate, intervalDays);
+  } else {
+    return null;
+  }
+
+  return {
+    card_id: card.id,
+    acertos_seguidos: level,
+    intervalo_dias: intervalDays,
+    proxima_revisao: next.toISOString(),
+    ultima_revisao: lastDate.toISOString(),
+    ultimo_resultado: result
+  };
+}
+
+function effectiveProgrammedReviewState(card){
+  const st = reviewStateFor(card);
+  const hist = programmedReviewStateFromHistory(card);
+  const last = lastStudyEventForCard(card);
+
+  if(st?.proxima_revisao || st?.ultimo_resultado){
+    if(!last?.ts) return st;
+    const lastMs = new Date(last.ts).getTime();
+    const stateMs = Math.max(
+      st.ultima_revisao ? new Date(st.ultima_revisao).getTime() : 0,
+      st.updated_at ? new Date(st.updated_at).getTime() : 0
+    );
+    if(!Number.isFinite(lastMs) || lastMs <= stateMs + 1000) return st;
+    // Se o histórico tem uma resposta mais recente que o estado salvo,
+    // o estado está defasado. Recalcula abaixo pelo histórico.
+  }
+
+  // Fallback importante: se a tabela estado_cards_usuario ainda não existir,
+  // falhar ao sincronizar, ou estiver desatualizada em outro aparelho, a aba
+  // Programado não pode tratar um card já acertado como disponível. Nesse caso,
+  // reconstruímos a próxima revisão a partir do histórico de respostas.
+  return hist;
+}
+
 function isProgrammedDue(card){
   if(isNewCard(card)) return true;
-  const st = reviewStateFor(card);
+  const hist = programmedReviewStateFromHistory(card);
+  if(hist?.proxima_revisao){
+    const histNext = new Date(hist.proxima_revisao).getTime();
+    // Trava rígida: se o histórico mais recente diz que ainda está bloqueado,
+    // o card NÃO entra no Programado, mesmo que o estado salvo esteja vencido.
+    if(Number.isFinite(histNext) && histNext > Date.now()) return false;
+  }
+  const st = effectiveProgrammedReviewState(card);
   if(!st?.proxima_revisao) return true;
   const next = new Date(st.proxima_revisao).getTime();
   return !Number.isFinite(next) || next <= Date.now();
