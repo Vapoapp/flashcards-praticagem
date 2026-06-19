@@ -505,6 +505,8 @@
   /* EDITAR FLASHCARD */
   .edit-link { border: none; background: transparent; color: var(--accent2); font-size: 11px; cursor: pointer; padding: 4px 8px; border-radius: 10px; opacity: .9; font-weight: 800; }
   .edit-link:hover { opacity: 1; background: rgba(91,106,240,0.12); }
+  .compare-link { border: none; background: transparent; color: var(--teal); font-size: 11px; cursor: pointer; padding: 4px 8px; border-radius: 10px; opacity: .9; font-weight: 900; }
+  .compare-link:hover { opacity: 1; background: rgba(61,184,176,0.12); }
   .footer-actions { display: inline-flex; align-items: center; justify-content: center; gap: 8px; flex-wrap: wrap; margin-top: 2px; }
   .edit-modal-backdrop { position: fixed; inset: 0; z-index: 9999; background: rgba(0,0,0,.62); display: none; align-items: center; justify-content: center; padding: 16px; }
   .edit-modal { width: min(720px, 100%); max-height: min(92dvh, 820px); overflow: auto; background: var(--surface); border: 1px solid var(--border2); border-radius: 20px; box-shadow: 0 24px 90px rgba(0,0,0,.45); }
@@ -525,6 +527,29 @@
   .edit-cancel { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 13px; padding: 12px 16px; font-weight: 900; cursor:pointer; }
   .edit-save:disabled { opacity: .55; cursor: not-allowed; }
   @media (max-width: 620px) { .edit-grid { grid-template-columns: 1fr; } }
+
+  /* COMPARAR CARDS DO MESMO ASSUNTO */
+  .compare-modal-backdrop { position: fixed; inset: 0; z-index: 9998; background: rgba(0,0,0,.66); display: none; align-items: center; justify-content: center; padding: 14px; }
+  .compare-modal { width: min(860px, 100%); max-height: min(92dvh, 840px); overflow: hidden; background: var(--surface); border: 1px solid var(--border2); border-radius: 20px; box-shadow: 0 24px 90px rgba(0,0,0,.45); display: flex; flex-direction: column; }
+  .compare-modal-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; padding: 15px 17px; border-bottom: 1px solid var(--border); }
+  .compare-modal-title { font-size: 17px; font-weight: 950; }
+  .compare-modal-sub { font-size: 12px; color: var(--muted); line-height: 1.4; margin-top: 4px; }
+  .compare-close { border: 1px solid var(--border); background: var(--surface2); color: var(--text); border-radius: 12px; width: 34px; height: 34px; cursor: pointer; font-size: 18px; flex: 0 0 auto; }
+  .compare-list { overflow: auto; padding: 12px 14px 16px; display: grid; gap: 10px; }
+  .compare-item { border: 1px solid var(--border); background: rgba(255,255,255,0.035); border-radius: 15px; padding: 11px 12px; }
+  .compare-item.current { border-color: rgba(61,184,176,.58); box-shadow: 0 0 0 1px rgba(61,184,176,.16) inset; background: rgba(61,184,176,.07); }
+  .compare-item-head { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom: 7px; }
+  .compare-item-meta { display:flex; flex-wrap:wrap; gap:6px; align-items:center; margin-bottom: 8px; }
+  .compare-pill { font-size: 10px; font-weight: 900; color: var(--accent2); background: rgba(124,140,248,.13); border: 1px solid rgba(124,140,248,.35); border-radius: 999px; padding: 3px 8px; }
+  .compare-source-pill { font-size: 10px; font-weight: 900; color: var(--text); background: rgba(255,255,255,.06); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; }
+  .compare-subject-pill { font-size: 10px; font-weight: 900; color: var(--muted); background: rgba(255,255,255,.035); border: 1px solid var(--border); border-radius: 999px; padding: 3px 8px; }
+  .compare-current-pill { font-size: 10px; font-weight: 950; color: var(--teal); background: rgba(61,184,176,.13); border: 1px solid rgba(61,184,176,.38); border-radius: 999px; padding: 3px 8px; }
+  .compare-q { font-weight: 900; color: var(--text); line-height: 1.42; margin-bottom: 7px; }
+  .compare-a { color: var(--muted); font-size: 13px; line-height: 1.48; }
+  .compare-a p { margin: 0 0 8px; }
+  .compare-a p:last-child { margin-bottom: 0; }
+  .compare-a img { max-width: 180px; max-height: 120px; object-fit: contain; display: block; margin-top: 8px; border-radius: 10px; background: #fff; }
+  .compare-empty { color: var(--muted); text-align: center; padding: 22px; border: 1px dashed var(--border); border-radius: 14px; }
 
 
   /* FORMATAÇÃO AUTOMÁTICA DE RESPOSTAS DOS FLASHCARDS */
@@ -957,7 +982,7 @@
             <div class="hint" id="q-hint"></div>
             <div class="src-badge" id="q-src"></div>
           </div>
-          <div class="card-footer"><span class="tap-hint" id="front-tap-hint">Toque para ver a resposta</span><br><span class="footer-actions"><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint" id="front-tap-hint">Toque para ver a resposta</span><br><span class="footer-actions"><button class="compare-link" onclick="openCompareModal(event)">Comparar</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
         </div>
         <div class="card-face card-back">
           <div class="card-header">
@@ -971,7 +996,7 @@
               <div id="a-img-caption" class="card-img-caption"></div>
             </div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="compare-link" onclick="openCompareModal(event)">Comparar</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
         </div>
       </div>
     </div>
@@ -1012,6 +1037,20 @@
       <div class="q-img-modal-body">
         <img id="q-img-modal-img" alt="Imagem ampliada da questão">
       </div>
+    </div>
+  </div>
+
+  <!-- COMPARE MODAL -->
+  <div class="compare-modal-backdrop" id="compare-modal-backdrop" onclick="closeCompareModal(event)">
+    <div class="compare-modal" role="dialog" aria-modal="true" aria-labelledby="compare-modal-title" onclick="event.stopPropagation()">
+      <div class="compare-modal-head">
+        <div>
+          <div class="compare-modal-title" id="compare-modal-title">Comparar cards</div>
+          <div class="compare-modal-sub" id="compare-modal-sub">Cards do mesmo assunto, em lista rápida.</div>
+        </div>
+        <button class="compare-close" type="button" onclick="closeCompareModal()" aria-label="Fechar">×</button>
+      </div>
+      <div class="compare-list" id="compare-list"></div>
     </div>
   </div>
 
@@ -1106,7 +1145,14 @@ const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
 let supabaseClient = null;
 if (window.supabase && window.supabase.createClient) {
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: "flashpratico_supabase_auth_v1"
+    }
+  });
 } else {
   console.error("Supabase JS não carregou. Verifique conexão/CDN.");
 }
@@ -5067,6 +5113,108 @@ function restart(){
 
 
 let editingCardId = null;
+
+function compareAnswerPreviewHTML(raw){
+  const htmlText = String(raw || "");
+  if(/<\/?[a-z][\s\S]*>/i.test(htmlText)) return htmlText;
+  return formatFlashcardAnswerHTML(htmlText);
+}
+
+function cardsForSameSubject(card){
+  if(!card) return [];
+  const assunto = normalizeCompareText(cleanLabel(card.assunto, "Geral"));
+  const terms = compareTermsFor(card);
+  return visibleCards(CARDS)
+    .map(c => ({ card:c, score: compareScore(card, c, assunto, terms) }))
+    .filter(item => item.score > 0)
+    .sort((a,b) => {
+      if(a.card.id === card.id) return -1;
+      if(b.card.id === card.id) return 1;
+      if(b.score !== a.score) return b.score - a.score;
+      const pubCmp = String(a.card.publicacao || "").localeCompare(String(b.card.publicacao || ""), "pt-BR");
+      if(pubCmp) return pubCmp;
+      return String(a.card.q || "").localeCompare(String(b.card.q || ""), "pt-BR");
+    })
+    .slice(0, 80)
+    .map(item => item.card);
+}
+
+function normalizeCompareText(text){
+  return String(text || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/<[^>]+>/g, " ")
+    .replace(/[^a-z0-9à-ÿ]+/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function compareTermsFor(card){
+  const stop = new Set(["qual","quais","como","onde","quando","porque","por","para","com","dos","das","que","uma","um","sao","sobre","entre","de","da","do","em","no","na","nos","nas","ao","aos","as","os","o","a","e","ou"]);
+  const base = `${card?.assunto || ""} ${card?.q || ""}`;
+  return normalizeCompareText(base)
+    .split(" ")
+    .filter(w => w.length >= 4 && !stop.has(w))
+    .slice(0, 18);
+}
+
+function compareScore(current, candidate, currentAssunto, terms){
+  if(!candidate) return 0;
+  if(candidate.id === current.id) return 1000;
+  const candAssunto = normalizeCompareText(cleanLabel(candidate.assunto, "Geral"));
+  if(currentAssunto && candAssunto === currentAssunto) return 900;
+
+  // Camada de aproximação: útil quando publicações diferentes nomeiam o mesmo
+  // tema de modo ligeiramente diferente.
+  const hay = normalizeCompareText(`${candidate.assunto || ""} ${candidate.q || ""} ${plainTextFromHtml(candidate.a || "")}`);
+  let hits = 0;
+  terms.forEach(t => { if(hay.includes(t)) hits++; });
+  if(hits >= 3) return 100 + hits;
+  return 0;
+}
+
+function openCompareModal(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const c = deck[idx];
+  if(!c) return;
+  const same = cardsForSameSubject(c);
+  const title = document.getElementById("compare-modal-title");
+  const sub = document.getElementById("compare-modal-sub");
+  const list = document.getElementById("compare-list");
+  if(title) title.textContent = "Comparar cards";
+  if(sub) sub.textContent = `Mesmo assunto em todas as publicações · ${c.assunto || "Geral"} · ${same.length} card${same.length === 1 ? "" : "s"}`;
+  if(list){
+    if(!same.length){
+      list.innerHTML = `<div class="compare-empty">Não encontrei outros cards neste assunto.</div>`;
+    } else {
+      list.innerHTML = same.map((item, i) => {
+        const isCurrent = item.id === c.id;
+        return `
+          <div class="compare-item ${isCurrent ? "current" : ""}">
+            <div class="compare-item-head">
+              <span class="compare-pill">#${i + 1}</span>
+              ${isCurrent ? `<span class="compare-current-pill">card atual</span>` : ""}
+            </div>
+            <div class="compare-item-meta">
+              <span class="compare-source-pill">${escapeHtml(item.publicacao || item.src || "Sem publicação")}</span>
+              <span class="compare-subject-pill">${escapeHtml(item.assunto || "Geral")}</span>
+            </div>
+            <div class="compare-q">${escapeHtml(frontQuestionText(item))}</div>
+            <div class="compare-a">${compareAnswerPreviewHTML(item.a)}</div>
+          </div>
+        `;
+      }).join("");
+    }
+  }
+  document.getElementById("compare-modal-backdrop").style.display = "flex";
+}
+
+function closeCompareModal(event){
+  if(event && event.target && event.target.id !== "compare-modal-backdrop") return;
+  const el = document.getElementById("compare-modal-backdrop");
+  if(el) el.style.display = "none";
+}
 
 function editCurrentCard(event){
   if(event){ event.preventDefault(); event.stopPropagation(); }
