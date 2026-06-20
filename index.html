@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v56.4</title>
+<title>Flashcards — Praticagem v56.2</title>
 <!-- versão v56: sincronização da meta diária entre aparelhos; botão Sincronizar agora também puxa questões remotas -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1170,6 +1170,16 @@ let SESSION_RESULTS = new Map();
 let scoreRight = 0, scoreWrong = 0, scoreHard = 0;
 let answered = 0, sessionDone = 0, sessionTotal = 0, activeCat = "Todas", activeTab = "study";
 let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", label:"Todas as publicações" };
+
+// Índices leves para o Programado. Evitam varrer todos os cards e todo o
+// histórico a cada clique/troca de aba. Sem isso, com milhares de eventos o
+// navegador pode travar montando a revisão programada.
+let HISTORY_UNION_CACHE = null;
+let HISTORY_ACTIVE_CACHE = null;
+let STUDY_IDENTITY_INDEX_CACHE = null;
+let HISTORY_LOGICAL_INDEX_CACHE = null;
+let EFFECTIVE_PROGRAMMED_STATE_CACHE = new Map();
+
 let QUESTION_BANK = [];
 let QUESTION_ATTEMPTS = [];
 let QUESTION_TABLE_READY = true;
@@ -1904,6 +1914,12 @@ async function forceSyncNow(){
 }
 
 let LOCAL_HISTORY_CACHE = null;
+// Histórico em memória maior que o backup local.
+// O Programado precisa do máximo de eventos carregados do Supabase para reconstruir
+// níveis quando o estado salvo estiver ausente/defasado. Já o localStorage precisa
+// ficar menor para não estourar quota no Safari/iOS.
+const CARD_HISTORY_MEMORY_LIMIT = 50000;
+const CARD_HISTORY_STORAGE_LIMIT = 20000;
 function normalizeCardHistoryEvent(ev){
   if(!ev) return null;
   const id = ev.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
@@ -1918,6 +1934,7 @@ function normalizeCardHistoryEvent(ev){
     card_id: String(card_id),
     publicacao: cleanLabel(ev.publicacao, "Geral"),
     assunto: cleanLabel(ev.assunto, "Geral"),
+    logical_key: eventLogicalKey(ev),
     result,
     ts
   };
@@ -1939,30 +1956,43 @@ function mergeHistoryEvents(...lists){
     const key = cardResponseKeyFromEvent(ev) || String(ev.id);
     if(!map.has(key)) map.set(key, ev);
   });
-  return Array.from(map.values()).sort((a,b) => new Date(a.ts) - new Date(b.ts)).slice(-20000);
+  return Array.from(map.values())
+    .sort((a,b) => new Date(a.ts) - new Date(b.ts))
+    .slice(-CARD_HISTORY_MEMORY_LIMIT);
 }
 function writeLocalCardHistory(hist){
   const clean = mergeHistoryEvents(hist);
   LOCAL_HISTORY_CACHE = clean;
-  try { localStorage.setItem(DB_KEY, JSON.stringify(clean)); }
+  // Não grava necessariamente todo o histórico em localStorage. O histórico
+  // remoto completo continua em memória; o backup local fica limitado para
+  // evitar travamento/quota excedida em navegadores móveis.
+  const storageClean = clean.slice(-CARD_HISTORY_STORAGE_LIMIT);
+  try { localStorage.setItem(DB_KEY, JSON.stringify(storageClean)); }
   catch(e){ console.warn("Não consegui salvar backup local dos flashcards:", e); }
   invalidateSyncSummaryCache();
+  invalidateProgrammedRuntimeCaches();
   return clean;
 }
 function rememberLocalCardEvent(event){
   const merged = writeLocalCardHistory(mergeHistoryEvents(readLocalCardHistory(), [event]));
   if(isOnlineMode) ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, [event]);
+  invalidateProgrammedRuntimeCaches();
   return merged;
 }
 function getHistory(options={}){
   // A meta diária usa sempre a união do Supabase com o backup local.
   // Assim, uma falha de sincronização ou troca de versão não zera o progresso do dia.
-  const all = mergeHistoryEvents(isOnlineMode ? ONLINE_HISTORY : [], readLocalCardHistory());
-  if(options && options.includeOrphans === false){
-    const ids = loadedCardIdSet();
-    if(ids.size) return all.filter(ev => ids.has(String(ev.card_id)));
+  if(!HISTORY_UNION_CACHE){
+    HISTORY_UNION_CACHE = mergeHistoryEvents(isOnlineMode ? ONLINE_HISTORY : [], readLocalCardHistory());
+    HISTORY_ACTIVE_CACHE = null;
   }
-  return all;
+  if(options && options.includeOrphans === false){
+    if(HISTORY_ACTIVE_CACHE) return HISTORY_ACTIVE_CACHE;
+    const ids = loadedCardIdSet();
+    HISTORY_ACTIVE_CACHE = ids.size ? HISTORY_UNION_CACHE.filter(ev => ids.has(String(ev.card_id))) : HISTORY_UNION_CACHE;
+    return HISTORY_ACTIVE_CACHE;
+  }
+  return HISTORY_UNION_CACHE;
 }
 function getActiveCardHistory(){
   return getHistory({includeOrphans:false});
@@ -1970,14 +2000,17 @@ function getActiveCardHistory(){
 window.addEventListener("storage", (ev) => {
   if(ev.key === DB_KEY || ev.key === CARD_PENDING_SYNC_KEY || ev.key === QUESTION_LOCAL_KEY || ev.key === CARD_ORPHAN_SYNC_KEY){
     LOCAL_HISTORY_CACHE = null;
+    invalidateProgrammedRuntimeCaches();
     invalidateSyncSummaryCache();
     renderSyncPanel();
     renderDailyGoalWidget();
+    pruneProgrammedDeckAfterDataRefresh();
   }
 });
 function setHistory(hist){
   const merged = writeLocalCardHistory(hist || []);
   if(isOnlineMode) ONLINE_HISTORY = merged;
+  invalidateProgrammedRuntimeCaches();
 }
 function getQuestionGoalEvents(){
   return (QUESTION_ATTEMPTS || [])
@@ -2047,6 +2080,7 @@ async function saveEvent(card, result){
     card_id: card.id,
     publicacao: cleanLabel(card.publicacao, "Geral"),
     assunto: cleanLabel(card.assunto, "Geral"),
+    logical_key: studySessionKey(card),
     result,
     ts: new Date().toISOString()
   };
@@ -2107,12 +2141,250 @@ function normalizeStudyKeyText(text){
     .trim();
 }
 
-function cardLogicalKey(card){
+function cardIdentitySignature(card){
   if(!card) return "";
+  return [
+    card.publicacao || card.src || "",
+    card.assunto || card.topic || "",
+    card.q || "",
+    card.a || "",
+    card.image_q_url || "",
+    card.image_a_url || "",
+    card.image_caption || ""
+  ].join("\u001f");
+}
+
+function safeSetCardCache(card, key, value){
+  try { Object.defineProperty(card, key, { value, configurable:true, writable:true, enumerable:false }); }
+  catch(e){ try { card[key] = value; } catch(_){} }
+}
+
+function cardLegacyLogicalKey(card){
+  // Chave antiga: publicação + assunto + pergunta.
+  // Mantida apenas para conseguir ler eventos locais gravados por versões anteriores.
+  if(!card) return "";
+  const sig = cardIdentitySignature(card);
+  if(card.__fpLegacySig === sig && typeof card.__fpLegacyKey === "string") return card.__fpLegacyKey;
   const pub = normalizeStudyKeyText(card.publicacao || card.src || "");
   const assunto = normalizeStudyKeyText(card.assunto || card.topic || "");
   const question = normalizeStudyKeyText(card.q || "");
-  return [pub, assunto, question].join("|");
+  const key = [pub, assunto, question].join("|");
+  safeSetCardCache(card, "__fpLegacySig", sig);
+  safeSetCardCache(card, "__fpLegacyKey", key);
+  return key;
+}
+
+function normalizeImageIdentityText(raw){
+  const text = String(raw || "").trim();
+  if(!text) return "";
+  try{
+    const base = (typeof window !== "undefined" && window.location?.href) ? window.location.href : "https://local.invalid/";
+    const url = new URL(text, base);
+    url.hash = "";
+    url.search = "";
+    return normalizeStudyKeyText(url.toString());
+  }catch(e){
+    return normalizeStudyKeyText(text.replace(/[?#].*$/, ""));
+  }
+}
+
+function embeddedImageSrcKey(raw){
+  const html = String(raw || "");
+  if(!/<\s*img\b/i.test(html)) return "";
+  const srcs = [];
+  const re = /<\s*img\b[^>]*\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))/gi;
+  let m;
+  while((m = re.exec(html))){
+    const src = normalizeImageIdentityText(m[1] || m[2] || m[3] || "");
+    if(src && !srcs.includes(src)) srcs.push(src);
+  }
+  return srcs.sort().join(" ");
+}
+
+function cardLogicalKeyV2(card){
+  // Chave precisa v2: publicação + assunto + pergunta + resposta + campos de imagem.
+  // Continua sendo usada como compatibilidade para eventos salvos no index-47.
+  if(!card) return "";
+  const sig = cardIdentitySignature(card);
+  if(card.__fpV2Sig === sig && typeof card.__fpV2Key === "string") return card.__fpV2Key;
+  const pub = normalizeStudyKeyText(card.publicacao || card.src || "");
+  const assunto = normalizeStudyKeyText(card.assunto || card.topic || "");
+  const question = normalizeStudyKeyText(card.q || "");
+  const answer = normalizeStudyKeyText(card.a || "");
+  const imgQ = normalizeImageIdentityText(card.image_q_url || "");
+  const imgA = normalizeImageIdentityText(card.image_a_url || "");
+  const caption = normalizeStudyKeyText(card.image_caption || "");
+  const key = (!pub && !assunto && !question && !answer && !imgQ && !imgA && !caption) ? "" : ["v2", pub, assunto, question, answer, imgQ, imgA, caption].join("|");
+  safeSetCardCache(card, "__fpV2Sig", sig);
+  safeSetCardCache(card, "__fpV2Key", key);
+  return key;
+}
+
+function cardLogicalKey(card){
+  // Chave lógica atual. Além da v2, inclui imagens embutidas em HTML dentro
+  // da pergunta/resposta. Sem isso, dois cards com mesmo texto, mas figuras
+  // diferentes dentro de <img>, poderiam ser tratados como duplicatas.
+  if(!card) return "";
+  const sig = cardIdentitySignature(card);
+  if(card.__fpV3Sig === sig && typeof card.__fpV3Key === "string") return card.__fpV3Key;
+  const v2 = cardLogicalKeyV2(card);
+  const embeddedQ = embeddedImageSrcKey(card.q || "");
+  const embeddedA = embeddedImageSrcKey(card.a || "");
+  if(!embeddedQ && !embeddedA){
+    safeSetCardCache(card, "__fpV3Sig", sig);
+    safeSetCardCache(card, "__fpV3Key", v2);
+    return v2;
+  }
+  const pub = normalizeStudyKeyText(card.publicacao || card.src || "");
+  const assunto = normalizeStudyKeyText(card.assunto || card.topic || "");
+  const question = normalizeStudyKeyText(card.q || "");
+  const answer = normalizeStudyKeyText(card.a || "");
+  const imgQ = normalizeImageIdentityText(card.image_q_url || "");
+  const imgA = normalizeImageIdentityText(card.image_a_url || "");
+  const caption = normalizeStudyKeyText(card.image_caption || "");
+  const key = ["v3", pub, assunto, question, answer, imgQ, imgA, caption, embeddedQ, embeddedA].join("|");
+  safeSetCardCache(card, "__fpV3Sig", sig);
+  safeSetCardCache(card, "__fpV3Key", key);
+  return key;
+}
+
+function eventLogicalKey(ev){
+  // Eventos novos usam chave precisa v2/v3. Eventos antigos podem conter a
+  // chave legada publicação + assunto + pergunta, aceita só quando inequívoca.
+  return String(ev?.logical_key || ev?.study_key || ev?.card_key || "").trim();
+}
+
+function isV2LogicalKey(key){
+  return String(key || "").startsWith("v2|");
+}
+
+function isV3LogicalKey(key){
+  return String(key || "").startsWith("v3|");
+}
+
+function addToSetMap(map, key, value){
+  if(!key) return;
+  if(!map.has(key)) map.set(key, new Set());
+  map.get(key).add(value);
+}
+
+function invalidateProgrammedRuntimeCaches(){
+  HISTORY_UNION_CACHE = null;
+  HISTORY_ACTIVE_CACHE = null;
+  HISTORY_LOGICAL_INDEX_CACHE = null;
+  EFFECTIVE_PROGRAMMED_STATE_CACHE = new Map();
+}
+
+function invalidateStudyIdentityCaches(){
+  STUDY_IDENTITY_INDEX_CACHE = null;
+  invalidateProgrammedRuntimeCaches();
+}
+
+function buildStudyIdentityIndex(){
+  if(STUDY_IDENTITY_INDEX_CACHE) return STUDY_IDENTITY_INDEX_CACHE;
+  const byId = new Map();
+  const keyById = new Map();
+  const idsByKey = new Map();
+  const preciseByV2 = new Map();
+  const preciseByLegacy = new Map();
+
+  (CARDS || []).forEach(card => {
+    if(!card) return;
+    const id = cardIdKey(card);
+    const key = cardLogicalKey(card) || id;
+    const v2 = cardLogicalKeyV2(card);
+    const legacy = cardLegacyLogicalKey(card);
+    if(id){
+      byId.set(id, card);
+      keyById.set(id, key);
+      addToSetMap(idsByKey, key, id);
+    }
+    if(key){
+      addToSetMap(preciseByV2, v2, key);
+      addToSetMap(preciseByLegacy, legacy, key);
+    }
+  });
+
+  STUDY_IDENTITY_INDEX_CACHE = { byId, keyById, idsByKey, preciseByV2, preciseByLegacy };
+  return STUDY_IDENTITY_INDEX_CACHE;
+}
+
+function preciseKeysForV2LogicalKey(v2Key){
+  const key = String(v2Key || "").trim();
+  if(!key) return new Set();
+  return new Set(buildStudyIdentityIndex().preciseByV2.get(key) || []);
+}
+
+function isV2LogicalKeySafeForCard(card){
+  const v2 = cardLogicalKeyV2(card);
+  if(!v2) return false;
+  const precise = studySessionKey(card);
+  const preciseKeys = preciseKeysForV2LogicalKey(v2);
+  return !!precise && preciseKeys.size === 1 && preciseKeys.has(precise);
+}
+
+function preciseKeysForLegacyLogicalKey(legacyKey){
+  const legacy = String(legacyKey || "").trim();
+  if(!legacy) return new Set();
+  return new Set(buildStudyIdentityIndex().preciseByLegacy.get(legacy) || []);
+}
+
+function isLegacyLogicalKeySafeForCard(card){
+  const legacy = cardLegacyLogicalKey(card);
+  if(!legacy) return false;
+  const precise = studySessionKey(card);
+  const preciseKeys = preciseKeysForLegacyLogicalKey(legacy);
+  // Só aceita a chave antiga se ela apontar para um único conteúdo real.
+  // Se houver várias respostas/imagens para a mesma pergunta, a chave antiga
+  // é ambígua e não deve bloquear todos os cards.
+  return !!precise && preciseKeys.size === 1 && preciseKeys.has(precise);
+}
+
+function keysForHistoryEvent(ev, identityIndex = buildStudyIdentityIndex()){
+  const keys = new Set();
+  if(!ev) return keys;
+  const idKey = cardIdKey(ev.card_id);
+  const byId = identityIndex.keyById.get(idKey);
+  if(byId) keys.add(byId);
+
+  const evKey = eventLogicalKey(ev);
+  if(isV3LogicalKey(evKey)){
+    keys.add(evKey);
+  } else if(isV2LogicalKey(evKey)){
+    const preciseV2Keys = identityIndex.preciseByV2.get(evKey);
+    if(preciseV2Keys && preciseV2Keys.size === 1) keys.add(Array.from(preciseV2Keys)[0]);
+  } else if(evKey){
+    const preciseLegacyKeys = identityIndex.preciseByLegacy.get(evKey);
+    if(preciseLegacyKeys && preciseLegacyKeys.size === 1) keys.add(Array.from(preciseLegacyKeys)[0]);
+  }
+  return keys;
+}
+
+function buildHistoryLogicalIndex(){
+  if(HISTORY_LOGICAL_INDEX_CACHE) return HISTORY_LOGICAL_INDEX_CACHE;
+  const identityIndex = buildStudyIdentityIndex();
+  const byKey = new Map();
+  const byId = new Map();
+  const rightTodayKeys = new Set();
+  const today = new Date();
+
+  getHistory().forEach(ev => {
+    if(!ev) return;
+    const id = cardIdKey(ev.card_id);
+    if(id){
+      if(!byId.has(id)) byId.set(id, []);
+      byId.get(id).push(ev);
+    }
+    const keys = keysForHistoryEvent(ev, identityIndex);
+    keys.forEach(key => {
+      if(!byKey.has(key)) byKey.set(key, []);
+      byKey.get(key).push(ev);
+      if(ev.result === "right" && isSameLocalDay(ev.ts, today)) rightTodayKeys.add(key);
+    });
+  });
+
+  HISTORY_LOGICAL_INDEX_CACHE = { byKey, byId, rightTodayKeys };
+  return HISTORY_LOGICAL_INDEX_CACHE;
 }
 
 function sameCardIdentity(a, b){
@@ -2220,6 +2492,73 @@ function wasReviewedToday(card){
 function attemptsToday(card){
   return cardEventsFor(card).filter(e => isSameLocalDay(e.ts, new Date())).length;
 }
+
+function cardIdsForLogicalKey(card){
+  const key = studySessionKey(card);
+  if(!key) return new Set([cardIdKey(card)]);
+  const ids = new Set(buildStudyIdentityIndex().idsByKey.get(key) || []);
+  ids.add(cardIdKey(card));
+  return ids;
+}
+
+function cardEventsForLogicalKey(card){
+  const key = studySessionKey(card);
+  if(!key) return [];
+  const events = buildHistoryLogicalIndex().byKey.get(key) || [];
+  // Cópia defensiva: algumas rotinas fazem sort/slice e não devem alterar o índice.
+  return events.slice().sort((a,b) => new Date(a.ts || 0) - new Date(b.ts || 0));
+}
+
+function studyEventsForLogicalKey(card){
+  return cardEventsForLogicalKey(card).filter(e => hasStudyResult(e.result));
+}
+
+function lastStudyEventForLogicalKey(card){
+  const events = studyEventsForLogicalKey(card);
+  return events.length ? events[events.length - 1] : null;
+}
+
+function lastStudyResultLogical(card){
+  const last = lastStudyEventForLogicalKey(card);
+  if(last) return last.result;
+  const st = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card);
+  if(st && hasStudyResult(st.ultimo_resultado)) return st.ultimo_resultado;
+  return null;
+}
+
+function hasCardBeenAnsweredLogical(card){
+  const st = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card);
+  const totalAnswered = Number(st?.total_acertos || 0) + Number(st?.total_erros || 0) + Number(st?.total_dificeis || 0);
+  if(totalAnswered > 0) return true;
+  if(st && hasStudyResult(st.ultimo_resultado)) return true;
+  return !!lastStudyEventForLogicalKey(card);
+}
+
+function isProgrammedNewCard(card){
+  return !hasCardBeenAnsweredLogical(card);
+}
+
+function studyAttemptsTodayLogical(card){
+  return studyEventsForLogicalKey(card).filter(e => isSameLocalDay(e.ts, new Date())).length;
+}
+
+function storedReviewStatesForLogicalKey(card){
+  const ids = cardIdsForLogicalKey(card);
+  const states = [];
+  ids.forEach(id => {
+    const st = REVIEW_STATE.get(id);
+    if(st) states.push(st);
+  });
+  const direct = reviewStateFor(card);
+  if(direct && !states.includes(direct)) states.push(direct);
+  return states;
+}
+
+function latestStoredReviewStateForLogicalKey(card){
+  const states = storedReviewStatesForLogicalKey(card);
+  if(!states.length) return null;
+  return states.sort((a,b) => stateTimestampMs(b) - stateTimestampMs(a))[0] || null;
+}
 function totalAttempts(card){
   return studyEventsForCard(card).length;
 }
@@ -2245,22 +2584,18 @@ function studySessionKey(card){
 function removeAnsweredCardCopiesFromDeck(answeredCard){
   const answeredId = cardIdKey(answeredCard);
   const answeredKey = studySessionKey(answeredCard);
-  deck = deck.filter(card => {
+  let removedBeforeCurrentIndex = 0;
+  deck = deck.filter((card, i) => {
     if(!card) return false;
-    if(cardIdKey(card) === answeredId) return false;
-    return studySessionKey(card) !== answeredKey;
+    const remove = cardIdKey(card) === answeredId || studySessionKey(card) === answeredKey;
+    if(remove && i < idx) removedBeforeCurrentIndex++;
+    return !remove;
   });
+  if(removedBeforeCurrentIndex) idx = Math.max(0, idx - removedBeforeCurrentIndex);
 }
 
 function answeredRightTodayLogicalKeys(){
-  const idToKey = new Map((CARDS || []).map(card => [cardIdKey(card), studySessionKey(card)]));
-  const keys = new Set();
-  getHistory().forEach(ev => {
-    if(!ev || ev.result !== "right" || !isSameLocalDay(ev.ts, new Date())) return;
-    const key = idToKey.get(cardIdKey(ev.card_id));
-    if(key) keys.add(key);
-  });
-  return keys;
+  return new Set(buildHistoryLogicalIndex().rightTodayKeys || []);
 }
 function shuffleCopy(arr){
   const out = [...arr];
@@ -2312,11 +2647,9 @@ const PROGRAMMED_INTERVALS = [0, 3, 6, 9, 12, 15, 20, 30];
 const PROGRAMMED_REINFORCEMENT_MINUTES = 20;
 
 function programmedLevelFor(card, state = null){
-  if(state) return Math.max(0, Math.min(7, Number(state.acertos_seguidos || 0)));
-  const st = reviewStateFor(card) || {};
-  const stored = Number(st.acertos_seguidos || 0);
-  const fromHistory = countConsecutiveRightFromHistory(card);
-  return Math.max(0, Math.min(7, Math.max(stored, fromHistory)));
+  const st = state || effectiveProgrammedReviewState(card) || reviewStateFor(card) || null;
+  if(st) return Math.max(0, Math.min(7, Number(st.acertos_seguidos || 0)));
+  return 0;
 }
 
 function programmedIntervalDays(level){
@@ -2325,7 +2658,7 @@ function programmedIntervalDays(level){
 }
 
 function programmedReviewStateFromHistory(card){
-  const events = studyEventsForCard(card)
+  const events = studyEventsForLogicalKey(card)
     .filter(ev => ev && hasStudyResult(ev.result) && ev.ts)
     .sort((a,b) => new Date(a.ts) - new Date(b.ts));
   if(!events.length) return null;
@@ -2373,79 +2706,84 @@ function programmedReviewStateFromHistory(card){
 }
 
 function effectiveProgrammedReviewState(card){
-  const st = reviewStateFor(card);
+  const key = studySessionKey(card);
+  if(key && EFFECTIVE_PROGRAMMED_STATE_CACHE.has(key)) return EFFECTIVE_PROGRAMMED_STATE_CACHE.get(key);
+
+  const st = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card);
   const hist = programmedReviewStateFromHistory(card);
-  const last = lastStudyEventForCard(card);
+  const last = lastStudyEventForLogicalKey(card);
+  const stateMs = stateTimestampMs(st);
+  const lastMs = last?.ts ? new Date(last.ts).getTime() : 0;
+  let result = null;
 
-  if(st?.proxima_revisao || st?.ultimo_resultado){
-    if(!last?.ts) return st;
-    const lastMs = new Date(last.ts).getTime();
-    const stateMs = Math.max(
-      st.ultima_revisao ? new Date(st.ultima_revisao).getTime() : 0,
-      st.updated_at ? new Date(st.updated_at).getTime() : 0
-    );
-    if(!Number.isFinite(lastMs) || lastMs <= stateMs + 1000) return st;
-    // Se o histórico tem uma resposta mais recente que o estado salvo,
-    // o estado está defasado. Recalcula abaixo pelo histórico.
+  // Regra principal do Programado: se o histórico lógico local/remoto já chegou
+  // até a mesma revisão do estado salvo, recalculamos por histórico. Assim, um
+  // estado antigo errado não faz card voltar antes da data correta.
+  if(hist && (!stateMs || (Number.isFinite(lastMs) && lastMs >= stateMs - 1000))){
+    result = hist;
+  } else if(st?.proxima_revisao || st?.ultimo_resultado){
+    // Se o estado salvo é mais recente que o histórico carregado neste aparelho,
+    // preservamos o estado para respeitar respostas feitas em outro aparelho.
+    result = st;
+  } else {
+    // Fallback importante: se a tabela estado_cards_usuario ainda não existir,
+    // falhar ao sincronizar, ou estiver desatualizada, reconstruímos a próxima
+    // revisão pelo histórico de respostas.
+    result = hist;
   }
-
-  // Fallback importante: se a tabela estado_cards_usuario ainda não existir,
-  // falhar ao sincronizar, ou estiver desatualizada em outro aparelho, a aba
-  // Programado não pode tratar um card já acertado como disponível. Nesse caso,
-  // reconstruímos a próxima revisão a partir do histórico de respostas.
-  return hist;
+  if(key) EFFECTIVE_PROGRAMMED_STATE_CACHE.set(key, result || null);
+  return result;
 }
 
 function isProgrammedDue(card){
-  const hist = programmedReviewStateFromHistory(card);
-  if(hist?.proxima_revisao){
-    const histNext = new Date(hist.proxima_revisao).getTime();
-    // Trava rígida: se o histórico mais recente diz que ainda está bloqueado,
-    // o card NÃO entra no Programado, mesmo que o estado salvo esteja vencido.
-    if(Number.isFinite(histNext) && histNext > Date.now()) return false;
-  }
-
   const st = effectiveProgrammedReviewState(card);
-  if(st?.proxima_revisao){
-    const next = new Date(st.proxima_revisao).getTime();
-    return !Number.isFinite(next) || next <= Date.now();
-  }
-
-  return isNewCard(card) || !st;
+  if(!st) return true;
+  if(!st.proxima_revisao) return true;
+  const next = new Date(st.proxima_revisao).getTime();
+  return !Number.isFinite(next) || next <= Date.now();
 }
 
-function hasProgrammedEvidence(card){
-  return !!(reviewStateFor(card) || programmedReviewStateFromHistory(card) || hasCardBeenAnswered(card));
+function isProgrammedAvailableNow(card){
+  if(!card) return false;
+  return isProgrammedDue(card) && !answeredRightTodayLogicalKeys().has(studySessionKey(card));
 }
 
-function representativeProgrammedCards(base){
-  const groups = new Map();
-  (base || []).forEach(card => {
-    if(!card) return;
+function pruneProgrammedDeckAfterDataRefresh(){
+  if(currentStudy?.mode !== "programmed") return;
+  const currentKey = studySessionKey(deck[idx]);
+  const allowedKeys = new Set(getProgrammedStudyCards(baseCardsForActiveFilter()).map(studySessionKey));
+  const seen = new Set();
+  const beforeLength = deck.length;
+  deck = deck.filter(card => {
     const key = studySessionKey(card);
-    if(!groups.has(key)) groups.set(key, []);
-    groups.get(key).push(card);
+    if(!key || seen.has(key)) return false;
+    seen.add(key);
+    return allowedKeys.has(key);
   });
-
-  const representatives = [];
-  groups.forEach(group => {
-    const withEvidence = group.filter(hasProgrammedEvidence);
-    const candidates = withEvidence.length ? withEvidence : group;
-    const due = candidates.filter(isProgrammedDue);
-    if(!due.length) return;
-
-    // Se houver duplicatas da mesma pergunta, usa a versão que já possui histórico/estado.
-    // Assim uma cópia "nova" não fura o bloqueio de outra cópia já acertada e agendada.
-    representatives.push(due[0]);
-  });
-  return representatives;
+  if(beforeLength === deck.length){
+    updateStudyTitle();
+    return;
+  }
+  const sameIndex = deck.findIndex(card => studySessionKey(card) === currentKey);
+  idx = sameIndex >= 0 ? sameIndex : Math.min(idx, Math.max(0, deck.length - 1));
+  isFlipped = false;
+  if(activeTab === "programmed"){
+    document.getElementById('complete').classList.remove('show');
+    document.getElementById('complete').style.display='none';
+    if(!deck.length){
+      showNoAvailableCards(currentStudy.label, baseCardsForActiveFilter().length);
+      return;
+    }
+    showCard();
+  } else {
+    updateStudyTitle();
+  }
 }
 
 function getProgrammedStudyCards(baseCards = null){
   const base = baseCards || baseCardsForActiveFilter();
   const answeredRightToday = answeredRightTodayLogicalKeys();
-  const available = representativeProgrammedCards(base)
-    .filter(card => isProgrammedDue(card) && !answeredRightToday.has(studySessionKey(card)));
+  const available = base.filter(card => isProgrammedDue(card) && !answeredRightToday.has(studySessionKey(card)));
   const assigned = new Set();
   const makeBucket = (filterFn) => {
     const bucket = [];
@@ -2461,9 +2799,9 @@ function getProgrammedStudyCards(baseCards = null){
   };
 
   const buckets = {
-    new: makeBucket(isNewCard),
-    reinforce: makeBucket(card => lastStudyResult(card) === "wrong" && programmedLevelFor(card) === 0),
-    wrong: makeBucket(card => lastStudyResult(card) === "wrong"),
+    new: makeBucket(isProgrammedNewCard),
+    reinforce: makeBucket(card => lastStudyResultLogical(card) === "wrong" && programmedLevelFor(card) === 0),
+    wrong: makeBucket(card => lastStudyResultLogical(card) === "wrong"),
     low: makeBucket(card => {
       const level = programmedLevelFor(card);
       return level >= 1 && level <= 3;
@@ -2534,7 +2872,7 @@ function spacedIntervalFor(result, previous){
   return { streak, intervalDays, next };
 }
 async function updateReviewState(card, result){
-  const previous = REVIEW_STATE.get(card.id) || {};
+  const previous = reviewStateFor(card) || {};
   const { streak, intervalDays, next } = spacedIntervalFor(result, previous);
   const row = {
     user_id: currentUser?.id,
@@ -2551,6 +2889,7 @@ async function updateReviewState(card, result){
     updated_at: new Date().toISOString()
   };
   REVIEW_STATE.set(cardIdKey(card), row);
+  invalidateStudyIdentityCaches();
   if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
     const { error } = await supabaseClient
       .from("estado_cards_usuario")
@@ -2578,7 +2917,7 @@ function programmedScheduleFor(card, result, previous){
     level = Math.max(0, oldLevel - 1);
     intervalDays = programmedIntervalDays(level);
     if(level === 0){
-      const attempts = attemptsToday(card);
+      const attempts = studyAttemptsTodayLogical(card);
       next = attempts >= 2 ? addDays(now, 1) : addMinutes(now, PROGRAMMED_REINFORCEMENT_MINUTES);
       intervalDays = 0;
     } else {
@@ -2587,7 +2926,12 @@ function programmedScheduleFor(card, result, previous){
   } else if(result === "hard"){
     level = Math.max(0, oldLevel - 1);
     intervalDays = level === 0 ? 0 : programmedIntervalDays(level);
-    next = level === 0 ? addMinutes(now, PROGRAMMED_REINFORCEMENT_MINUTES) : addDays(now, intervalDays);
+    if(level === 0){
+      const attempts = studyAttemptsTodayLogical(card);
+      next = attempts >= 2 ? addDays(now, 1) : addMinutes(now, PROGRAMMED_REINFORCEMENT_MINUTES);
+    } else {
+      next = addDays(now, intervalDays);
+    }
   } else if(result === "skip"){
     level = oldLevel;
     intervalDays = Number(previous?.intervalo_dias || programmedIntervalDays(level));
@@ -2598,7 +2942,7 @@ function programmedScheduleFor(card, result, previous){
 }
 
 async function updateProgrammedReviewState(card, result){
-  const previous = REVIEW_STATE.get(card.id) || null;
+  const previous = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card) || null;
   const { level, intervalDays, next } = programmedScheduleFor(card, result, previous);
   const row = {
     user_id: currentUser?.id,
@@ -2615,6 +2959,7 @@ async function updateProgrammedReviewState(card, result){
     updated_at: new Date().toISOString()
   };
   REVIEW_STATE.set(cardIdKey(card), row);
+  invalidateStudyIdentityCaches();
   if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
     const { error } = await supabaseClient
       .from("estado_cards_usuario")
@@ -4413,7 +4758,7 @@ function resetSessionScore(){
 
 function nextAvailableTextFor(cards){
   const futureDates = cards
-    .map(c => reviewStateFor(c)?.proxima_revisao)
+    .map(c => (currentStudy?.mode === "programmed" ? effectiveProgrammedReviewState(c) : reviewStateFor(c))?.proxima_revisao)
     .filter(Boolean)
     .map(x => new Date(x))
     .filter(d => !isNaN(d.getTime()) && d.getTime() > Date.now())
@@ -4625,7 +4970,11 @@ function likelyCurrentSavedEvent(ev, result){
 }
 
 function studyEventsBeforeCurrentAnswer(card, result){
-  const events = studyEventsForCard(card);
+  // Usa a chave lógica, não apenas o ID, para não perder histórico quando
+  // a mesma pergunta existe duplicada com outro card_id. Como saveEvent()
+  // grava o evento local antes de atualizar a agenda, removemos somente a
+  // resposta recém-salva do cálculo do nível anterior.
+  const events = studyEventsForLogicalKey(card);
   if(!events.length || !hasStudyResult(result)) return events;
   const last = events[events.length - 1];
   return likelyCurrentSavedEvent(last, result) ? events.slice(0, -1) : events;
@@ -4644,7 +4993,18 @@ function programmedLevelBeforeAnswer(card, result, previous){
   const lastBefore = beforeEvents.length ? beforeEvents[beforeEvents.length - 1] : null;
   const lastBeforeMs = lastBefore?.ts ? new Date(lastBefore.ts).getTime() : 0;
   const prevMs = stateTimestampMs(previous);
-  if(previous && (!lastBeforeMs || prevMs >= lastBeforeMs - 1000)){
+
+  // No Programado, o histórico lógico é a fonte mais segura quando está
+  // atualizado até a última revisão. Isso corrige estados antigos gravados
+  // por versões anteriores com nível/proxima_revisao incorretos.
+  if(beforeEvents.length && (!prevMs || lastBeforeMs >= prevMs - 1000)){
+    return programmedLevelFromEvents(beforeEvents);
+  }
+
+  // Se o estado salvo é mais recente que o histórico local carregado, usamos
+  // o estado para não perder respostas feitas em outro aparelho antes da
+  // sincronização completa chegar.
+  if(previous){
     return Math.max(0, Math.min(7, Number(previous.acertos_seguidos || 0)));
   }
   return programmedLevelFromEvents(beforeEvents);
@@ -5440,6 +5800,7 @@ async function saveCardEdit(){
   Object.assign(c, payload, { topic: payload.assunto, cat: c.publicacao });
   deck.forEach(card => { if(card.id === cardId) Object.assign(card, payload, { topic: payload.assunto, cat: card.publicacao }); });
   CATS = ["Todas", ...new Set(CARDS.map(card => card.publicacao))];
+  invalidateStudyIdentityCaches();
   buildCatPills();
   if(activeTab === "diag") buildDashboard("all");
   if(activeTab === "db") renderSummary("db-summary");
@@ -5458,10 +5819,12 @@ async function resetHistory(){
       REMOTE_CARD_RESPONSE_IDS = new Set();
       REMOTE_CARD_RESPONSE_KEYS = new Set();
       REVIEW_STATE = new Map();
+      invalidateStudyIdentityCaches();
       setSyncStatus("Histórico e revisão espaçada apagados no Supabase.");
     } else {
       localStorage.removeItem(DB_KEY);
     }
+    invalidateStudyIdentityCaches();
     invalidateSyncSummaryCache();
     buildDashboard("all");
     renderSummary("db-summary");
@@ -5492,13 +5855,16 @@ async function resetTopicHistory(publicacao, assunto){
           .in("card_id", cardIds);
         if(reviewResp.error) console.warn("Erro ao apagar estado de revisão do assunto:", reviewResp.error);
       }
-      ONLINE_HISTORY = ONLINE_HISTORY.filter(e => !cardIds.includes(e.card_id));
+      const resetIdKeys = new Set(cardIds.map(cardIdKey));
+      ONLINE_HISTORY = ONLINE_HISTORY.filter(e => !resetIdKeys.has(cardIdKey(e.card_id)));
     } else {
-      const hist = getHistory().filter(e => !cardIds.includes(e.card_id));
+      const resetIdKeys = new Set(cardIds.map(cardIdKey));
+      const hist = getHistory().filter(e => !resetIdKeys.has(cardIdKey(e.card_id)));
       setHistory(hist);
     }
 
-    cardIds.forEach(id => REVIEW_STATE.delete(id));
+    cardIds.forEach(id => REVIEW_STATE.delete(cardIdKey(id)));
+    invalidateStudyIdentityCaches();
     if(activeTab === "diag") buildDashboard("all");
     if(activeTab === "db") renderSummary("db-summary");
     setSyncStatus(`Desempenho zerado para ${publicacao} — ${assunto}.`);
@@ -5596,6 +5962,7 @@ async function logoutSupabase(){
   currentUser = null;
   ONLINE_HISTORY = [];
   ARCHIVED_CARDS = new Set();
+  invalidateStudyIdentityCaches();
   document.getElementById("app").style.display = "none";
   document.getElementById("auth-screen").style.display = "flex";
   document.getElementById("auth-msg").textContent = "Você saiu da conta.";
@@ -5651,26 +6018,35 @@ async function loadCardsFromSupabase(){
   }));
   normalizeCards();
   CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
+  invalidateStudyIdentityCaches();
 }
 
 async function loadReviewStateFromSupabase(){
   setSyncStatus("carregando revisão espaçada...");
   REVIEW_STATE = new Map();
   REVIEW_TABLE_READY = true;
-  let query = supabaseClient
-    .from("estado_cards_usuario")
-    .select("user_id,card_id,acertos_seguidos,intervalo_dias,proxima_revisao,ultima_revisao,ultimo_resultado,total_acertos,total_erros,total_dificeis,total_pulos,updated_at");
-  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
-  const { data, error } = await query;
-  if(error){
+  try{
+    const rows = await fetchSupabasePages((from, to) => {
+      let query = supabaseClient
+        .from("estado_cards_usuario")
+        .select("user_id,card_id,acertos_seguidos,intervalo_dias,proxima_revisao,ultima_revisao,ultimo_resultado,total_acertos,total_erros,total_dificeis,total_pulos,updated_at")
+        .order("updated_at", { ascending:true })
+        .range(from, to);
+      if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+      return query;
+    }, 1000, 50000);
+
+    (rows || [])
+      .filter(row => !currentUser?.id || !row.user_id || row.user_id === currentUser.id)
+      .forEach(row => REVIEW_STATE.set(cardIdKey(row.card_id), row));
+  }catch(error){
     console.warn("Tabela de revisão espaçada ainda não disponível:", error);
     REVIEW_TABLE_READY = false;
     setSyncStatus("rode a migração de revisão espaçada no Supabase.");
     return;
   }
-  (data || [])
-    .filter(row => !currentUser?.id || !row.user_id || row.user_id === currentUser.id)
-    .forEach(row => REVIEW_STATE.set(cardIdKey(row.card_id), row));
+  invalidateStudyIdentityCaches();
+  pruneProgrammedDeckAfterDataRefresh();
 }
 
 async function loadResponsesFromSupabase(options = {}){
@@ -5686,23 +6062,26 @@ async function loadResponsesFromSupabase(options = {}){
   }, 1000, 50000);
   REMOTE_CARD_RESPONSE_IDS = new Set((data || []).map(r => String(r.id)));
   REMOTE_CARD_RESPONSE_KEYS = new Set((data || []).map(cardResponseKeyFromRemoteRow).filter(Boolean));
-  const cardMap = new Map(CARDS.map(c => [c.id, c]));
+  const cardMap = new Map(CARDS.map(c => [cardIdKey(c), c]));
   const remoteHistory = (data || [])
     .filter(r => !currentUser?.id || !r.user_id || r.user_id === currentUser.id)
     .map(r => {
-    const c = cardMap.get(r.card_id) || {};
+    const c = cardMap.get(cardIdKey(r.card_id)) || {};
     return {
       id:String(r.id),
       user_id: r.user_id || currentUser?.id || null,
       card_id:r.card_id,
       publicacao:cleanLabel(c.publicacao, "Geral"),
       assunto:cleanLabel(c.assunto, "Geral"),
+      logical_key: c.id ? studySessionKey(c) : "",
       result:r.resultado,
       ts:r.created_at
     };
   });
   ONLINE_HISTORY = mergeHistoryEvents(readLocalCardHistory(), remoteHistory);
   writeLocalCardHistory(ONLINE_HISTORY);
+  invalidateProgrammedRuntimeCaches();
+  pruneProgrammedDeckAfterDataRefresh();
 }
 
 async function startAuthenticatedApp(){
