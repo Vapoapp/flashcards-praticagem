@@ -665,9 +665,10 @@
   }
 
 
-  /* v64 — IMAGENS RESPONSIVAS DAS RESPOSTAS
-     Ajusta imagens embutidas no HTML da resposta e imagens separadas do verso
-     para caberem no espaço real do flashcard, sem forçar 100% da largura. */
+  /* v65 — IMAGENS RESPONSIVAS DAS RESPOSTAS
+     Escala a imagem para o maior tamanho que cabe no verso, respeitando
+     largura e altura disponíveis. Também cria um modo de zoom que se adapta
+     à tela do celular, sem abrir a imagem maior que o viewport. */
   .card-back .card-body {
     overflow-x: hidden !important;
   }
@@ -684,7 +685,7 @@
     width: auto !important;
     height: auto !important;
     max-width: 100% !important;
-    max-height: min(32dvh, 240px) !important;
+    max-height: min(42dvh, 340px) !important;
     object-fit: contain !important;
     margin: 12px auto 0 !important;
     border-radius: 12px;
@@ -707,12 +708,32 @@
     max-width: 100%;
     overflow: hidden;
   }
+  .q-img-modal-backdrop.answer-image-modal .q-img-modal {
+    width: min(96vw, 980px);
+    height: min(92dvh, 860px);
+  }
+  .q-img-modal-backdrop.answer-image-modal .q-img-modal-body {
+    overflow: hidden;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+  .q-img-modal-backdrop.answer-image-modal .q-img-modal-body img {
+    width: auto !important;
+    height: auto !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    max-height: calc(92dvh - 74px) !important;
+    object-fit: contain !important;
+    background: #fff;
+    border-radius: 10px;
+  }
   @media (max-height: 780px) {
     #a-text img,
     .answer-text img,
     .answer-card-img,
     #a-img {
-      max-height: min(28dvh, 190px) !important;
+      max-height: min(38dvh, 300px) !important;
     }
   }
   @media (max-width: 520px) {
@@ -721,7 +742,14 @@
     .answer-card-img,
     #a-img {
       max-width: 100% !important;
-      max-height: min(30dvh, 210px) !important;
+      max-height: min(36dvh, 280px) !important;
+    }
+    .q-img-modal-backdrop.answer-image-modal { padding: 8px; }
+    .q-img-modal-backdrop.answer-image-modal .q-img-modal { height: 94dvh; border-radius: 14px; }
+    .q-img-modal-backdrop.answer-image-modal .q-img-modal-body img {
+      min-width: 0 !important;
+      max-width: 100% !important;
+      max-height: calc(94dvh - 70px) !important;
     }
   }
 
@@ -3932,6 +3960,7 @@ function openQuestionImageModal(event){
   img.src = q.imagem_questao;
   img.alt = `Imagem ampliada da questão ${q.numero}`;
   if(title) title.textContent = `${q.assunto} · Questão ${q.numero}`;
+  backdrop.classList.remove("answer-image-modal");
   backdrop.classList.add("show");
   document.body.style.overflow = "hidden";
 }
@@ -3939,7 +3968,7 @@ function closeQuestionImageModal(event){
   if(event) event.stopPropagation();
   const backdrop = document.getElementById("q-img-modal-backdrop");
   const img = document.getElementById("q-img-modal-img");
-  if(backdrop) backdrop.classList.remove("show");
+  if(backdrop) backdrop.classList.remove("show", "answer-image-modal");
   if(img) img.removeAttribute("src");
   document.body.style.overflow = "";
 }
@@ -5409,26 +5438,43 @@ function setCardActionButtonsDisabled(disabled){
 }
 
 
-// v64 — ajusta imagens do verso ao espaço disponível do flashcard.
+// v65 — ajusta imagens do verso ao espaço disponível do flashcard.
 // Não força 100% da largura: a imagem respeita simultaneamente largura e altura máximas.
 function fitVisibleAnswerImages(){
   const backBody = document.querySelector(".card-back .card-body");
   if(!backBody) return;
+
   const imgs = Array.from(backBody.querySelectorAll("#a-text img, .answer-text img, .answer-card-img, #a-img"))
-    .filter(img => img && img.closest('[style*="display:none"]') === null);
+    .filter(img => img && img.closest('[style*="display:none"]') === null && img.offsetParent !== null);
 
   if(!imgs.length) return;
 
-  const usableHeight = Math.max(120, backBody.clientHeight - 18);
+  const bodyRect = backBody.getBoundingClientRect();
+  const availableWidth = Math.max(120, Math.floor(bodyRect.width - 14));
+  const usableHeight = Math.max(140, Math.floor(bodyRect.height - 18));
   const visibleCount = Math.max(1, imgs.length);
-  const perImageRatio = visibleCount > 1 ? 0.46 : 0.72;
-  const hardLimit = window.innerWidth <= 520 ? 210 : 260;
-  const dynamicMaxHeight = Math.max(96, Math.min(hardLimit, Math.floor(usableHeight * perImageRatio), Math.floor(window.innerHeight * 0.34)));
+  const textOnly = (document.getElementById("a-text")?.innerText || "").trim();
+  const hasSubstantialText = textOnly.length > 80;
+
+  const perImageRatio = visibleCount > 1 ? 0.34 : (hasSubstantialText ? 0.46 : 0.74);
+  const screenLimit = Math.floor(window.innerHeight * (window.innerWidth <= 520 ? 0.36 : 0.44));
+  const hardLimit = window.innerWidth <= 520 ? 280 : 360;
+  const dynamicMaxHeight = Math.max(130, Math.min(hardLimit, screenLimit, Math.floor(usableHeight * perImageRatio)));
 
   imgs.forEach(img => {
     img.removeAttribute("width");
     img.removeAttribute("height");
-    img.style.width = "auto";
+
+    const naturalW = img.naturalWidth || 0;
+    const naturalH = img.naturalHeight || 0;
+    const ratio = naturalW > 0 && naturalH > 0 ? naturalW / naturalH : 1.6;
+
+    // Maior largura possível sem ultrapassar a altura máxima.
+    // Isso aumenta imagens pequenas no card, mas sem cortar nem criar rolagem horizontal.
+    let targetWidth = Math.floor(Math.min(availableWidth, dynamicMaxHeight * ratio));
+    targetWidth = Math.max(120, targetWidth);
+
+    img.style.width = targetWidth + "px";
     img.style.height = "auto";
     img.style.maxWidth = "100%";
     img.style.maxHeight = dynamicMaxHeight + "px";
@@ -5451,7 +5497,7 @@ function openAnswerImageModalFromElement(event){
   img.src = src;
   img.alt = source.alt || "Imagem ampliada da resposta";
   if(title) title.textContent = "Imagem da resposta";
-  backdrop.classList.add("show");
+  backdrop.classList.add("show", "answer-image-modal");
   document.body.style.overflow = "hidden";
 }
 
