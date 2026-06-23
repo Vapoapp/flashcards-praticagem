@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v56.2</title>
-<!-- versão v56: sincronização da meta diária entre aparelhos; botão Sincronizar agora também puxa questões remotas -->
+<title>Flashcards — Praticagem v64 - imagens responsivas</title>
+<!-- versão v64: baseada na última versão enviada; imagens das respostas responsivas ao espaço disponível -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -662,6 +662,67 @@
     .old-exam-badges { justify-content:flex-start; margin-top: 8px; }
     .old-stem-table { grid-template-columns: 1fr; }
     .tab-btn { min-width: 112px; font-size: 10px; padding-left: 8px; padding-right: 8px; }
+  }
+
+
+  /* v64 — IMAGENS RESPONSIVAS DAS RESPOSTAS
+     Ajusta imagens embutidas no HTML da resposta e imagens separadas do verso
+     para caberem no espaço real do flashcard, sem forçar 100% da largura. */
+  .card-back .card-body {
+    overflow-x: hidden !important;
+  }
+  #a-text,
+  .answer-text {
+    min-width: 0;
+    max-width: 100%;
+  }
+  #a-text img,
+  .answer-text img,
+  .answer-card-img,
+  #a-img {
+    display: block !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: 100% !important;
+    max-height: min(32dvh, 240px) !important;
+    object-fit: contain !important;
+    margin: 12px auto 0 !important;
+    border-radius: 12px;
+    background: #fff;
+    border: 1px solid rgba(255,255,255,0.16);
+    box-shadow: 0 8px 28px rgba(0,0,0,.25);
+  }
+  #a-text img.answer-img-clickable,
+  .answer-text img.answer-img-clickable,
+  #a-img.answer-img-clickable {
+    cursor: zoom-in;
+  }
+  #a-text img.answer-img-clickable:hover,
+  .answer-text img.answer-img-clickable:hover,
+  #a-img.answer-img-clickable:hover {
+    box-shadow: 0 10px 34px rgba(0,0,0,.38);
+  }
+  .answer-text .card-img-wrap,
+  .answer-text figure {
+    max-width: 100%;
+    overflow: hidden;
+  }
+  @media (max-height: 780px) {
+    #a-text img,
+    .answer-text img,
+    .answer-card-img,
+    #a-img {
+      max-height: min(28dvh, 190px) !important;
+    }
+  }
+  @media (max-width: 520px) {
+    #a-text img,
+    .answer-text img,
+    .answer-card-img,
+    #a-img {
+      max-width: 100% !important;
+      max-height: min(30dvh, 210px) !important;
+    }
   }
 
 </style>
@@ -5347,6 +5408,83 @@ function setCardActionButtonsDisabled(disabled){
   });
 }
 
+
+// v64 — ajusta imagens do verso ao espaço disponível do flashcard.
+// Não força 100% da largura: a imagem respeita simultaneamente largura e altura máximas.
+function fitVisibleAnswerImages(){
+  const backBody = document.querySelector(".card-back .card-body");
+  if(!backBody) return;
+  const imgs = Array.from(backBody.querySelectorAll("#a-text img, .answer-text img, .answer-card-img, #a-img"))
+    .filter(img => img && img.closest('[style*="display:none"]') === null);
+
+  if(!imgs.length) return;
+
+  const usableHeight = Math.max(120, backBody.clientHeight - 18);
+  const visibleCount = Math.max(1, imgs.length);
+  const perImageRatio = visibleCount > 1 ? 0.46 : 0.72;
+  const hardLimit = window.innerWidth <= 520 ? 210 : 260;
+  const dynamicMaxHeight = Math.max(96, Math.min(hardLimit, Math.floor(usableHeight * perImageRatio), Math.floor(window.innerHeight * 0.34)));
+
+  imgs.forEach(img => {
+    img.removeAttribute("width");
+    img.removeAttribute("height");
+    img.style.width = "auto";
+    img.style.height = "auto";
+    img.style.maxWidth = "100%";
+    img.style.maxHeight = dynamicMaxHeight + "px";
+    img.style.objectFit = "contain";
+  });
+}
+
+function openAnswerImageModalFromElement(event){
+  if(event) event.stopPropagation();
+  const source = event?.currentTarget || event?.target;
+  if(!source) return;
+  const src = source.currentSrc || source.src;
+  if(!src) return;
+
+  const backdrop = document.getElementById("q-img-modal-backdrop");
+  const img = document.getElementById("q-img-modal-img");
+  const title = document.getElementById("q-img-modal-title");
+  if(!backdrop || !img) return;
+
+  img.src = src;
+  img.alt = source.alt || "Imagem ampliada da resposta";
+  if(title) title.textContent = "Imagem da resposta";
+  backdrop.classList.add("show");
+  document.body.style.overflow = "hidden";
+}
+
+function prepareResponsiveAnswerImages(){
+  const backBody = document.querySelector(".card-back .card-body");
+  if(!backBody) return;
+
+  const imgs = Array.from(backBody.querySelectorAll("#a-text img, .answer-text img, .answer-card-img, #a-img"));
+  imgs.forEach(img => {
+    img.removeAttribute("width");
+    img.removeAttribute("height");
+    img.loading = "lazy";
+    img.decoding = "async";
+    img.classList.add("answer-img-clickable");
+    img.onclick = openAnswerImageModalFromElement;
+    img.onload = () => {
+      fitVisibleAnswerImages();
+      setTimeout(fitVisibleAnswerImages, 80);
+    };
+  });
+
+  fitVisibleAnswerImages();
+  setTimeout(fitVisibleAnswerImages, 80);
+  setTimeout(fitVisibleAnswerImages, 250);
+}
+
+if(!window.__answerImagesResponsiveResizeHandler){
+  window.__answerImagesResponsiveResizeHandler = true;
+  window.addEventListener("resize", () => setTimeout(fitVisibleAnswerImages, 60));
+  window.addEventListener("orientationchange", () => setTimeout(fitVisibleAnswerImages, 250));
+}
+
+
 function showCard(){
   CARD_ANSWER_LOCK = false;
   setCardActionButtonsDisabled(false);
@@ -5380,6 +5518,7 @@ function showCard(){
     srcEl.style.display = srcText ? 'inline-flex' : 'none';
   }
   setFormattedAnswer('a-text', c.a);
+  prepareResponsiveAnswerImages();
 
   updateProgress();
   updateStudyTitle();
@@ -5392,6 +5531,7 @@ function flipCard(){
   isFlipped = !isFlipped;
   document.getElementById('card').classList.toggle('flipped', isFlipped);
   document.getElementById('btn-row').style.display = isFlipped ? 'flex' : 'none';
+  if(isFlipped) setTimeout(fitVisibleAnswerImages, 80);
 }
 
 async function answer(type){
