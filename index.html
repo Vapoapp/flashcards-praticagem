@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v64 - imagens responsivas</title>
-<!-- versão v64: baseada na última versão enviada; imagens das respostas responsivas ao espaço disponível -->
+<title>Flashcards — Praticagem v57 - proteção de histórico</title>
+<!-- versão v58: restauração completa por JSON + proteção contra perda aparente de histórico/meta/streak -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -665,93 +665,58 @@
   }
 
 
-  /* v65 — IMAGENS RESPONSIVAS DAS RESPOSTAS
-     Escala a imagem para o maior tamanho que cabe no verso, respeitando
-     largura e altura disponíveis. Também cria um modo de zoom que se adapta
-     à tela do celular, sem abrir a imagem maior que o viewport. */
-  .card-back .card-body {
-    overflow-x: hidden !important;
+  /* PROGRESSO DE LEITURA DA BIBLIOGRAFIA */
+  #progress-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 90px; }
+  .reading-page { max-width: 980px; margin: 0 auto; }
+  .reading-plan-card { background: var(--surface); border:1px solid var(--border); border-radius:18px; padding:14px; margin: 12px auto; }
+  .reading-plan-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .reading-plan-title { font-size:15px; font-weight:950; color:var(--text); }
+  .reading-plan-sub { font-size:12px; color:var(--muted); line-height:1.45; margin-top:4px; }
+  .reading-target-row { display:grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap:10px; margin-top: 12px; align-items:end; }
+  .reading-field { display:flex; flex-direction:column; gap:6px; }
+  .reading-field label { font-size:11px; color:var(--muted); font-weight:900; }
+  .reading-field input, .reading-field textarea { width:100%; border:1px solid var(--border); background:var(--surface2); color:var(--text); border-radius:12px; padding:10px 11px; font-size:13px; outline:none; font-family:inherit; }
+  .reading-field textarea { min-height: 135px; resize: vertical; line-height: 1.45; }
+  .reading-pace { border:1px solid rgba(124,140,248,.35); background:rgba(91,106,240,.12); border-radius:14px; padding:11px 12px; color:var(--text); font-size:13px; line-height:1.45; }
+  .reading-pace strong { color:var(--accent2); }
+  .reading-summary-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin: 12px auto; }
+  .reading-stat { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:13px; }
+  .reading-stat-n { font-size:24px; font-weight:950; line-height:1; }
+  .reading-stat-l { font-size:11px; color:var(--muted); margin-top:5px; line-height:1.35; }
+  .reading-section-list { display:grid; gap:12px; }
+  .reading-section { background:var(--surface); border:1px solid var(--border); border-radius:18px; overflow:hidden; }
+  .reading-section-head { padding:14px; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
+  .reading-section-name { font-size:15px; font-weight:950; line-height:1.35; color:var(--text); }
+  .reading-section-name span { color:var(--accent2); }
+  .reading-section-meta { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
+  .reading-pill { font-size:11px; font-weight:900; color:var(--muted); background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:999px; padding:4px 8px; }
+  .reading-pill.good { color:var(--green); border-color:rgba(76,175,125,.38); background:rgba(76,175,125,.12); }
+  .reading-progress-track { height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.06); margin-top:10px; }
+  .reading-progress-fill { height:100%; width:0%; border-radius:999px; background:linear-gradient(90deg, var(--accent), var(--teal)); }
+  .reading-table { display:grid; gap:8px; padding:12px 14px 14px; }
+  .reading-row { display:grid; grid-template-columns: minmax(180px, 1fr) 92px 92px 104px 36px; gap:8px; align-items:center; border:1px solid var(--border); background:rgba(255,255,255,.035); border-radius:14px; padding:9px; }
+  .reading-row input[type="text"], .reading-row input[type="number"] { width:100%; border:1px solid var(--border); background:var(--surface2); color:var(--text); border-radius:10px; padding:8px 9px; font-size:12px; outline:none; }
+  .reading-row-label { display:none; color:var(--muted); font-size:10px; font-weight:900; margin-bottom:4px; }
+  .reading-check { display:flex; align-items:center; justify-content:center; gap:6px; color:var(--muted); font-size:11px; font-weight:900; white-space:nowrap; }
+  .reading-check input { width:16px; height:16px; accent-color: var(--accent); }
+  .reading-remove { border:1px solid rgba(224,92,92,.35); background:rgba(224,92,92,.12); color:var(--red); border-radius:10px; height:34px; cursor:pointer; font-weight:950; }
+  .reading-section-actions { display:flex; flex-wrap:wrap; gap:8px; padding:0 14px 14px; }
+  .reading-import-panel { display:none; margin-top:12px; }
+  .reading-import-panel.open { display:block; }
+  @media (max-width: 760px){
+    .reading-summary-grid { grid-template-columns: repeat(2, 1fr); }
+    .reading-target-row { grid-template-columns: 1fr; }
+    .reading-row { grid-template-columns: 1fr 1fr; }
+    .reading-row > div:first-child { grid-column: 1 / -1; }
+    .reading-row-label { display:block; }
+    .reading-check { justify-content:flex-start; }
+    .reading-remove { width:100%; }
   }
-  #a-text,
-  .answer-text {
-    min-width: 0;
-    max-width: 100%;
+  @media (max-width: 520px){
+    .reading-summary-grid { grid-template-columns: 1fr; }
+    .reading-row { grid-template-columns: 1fr; }
   }
-  #a-text img,
-  .answer-text img,
-  .answer-card-img,
-  #a-img {
-    display: block !important;
-    width: auto !important;
-    height: auto !important;
-    max-width: 100% !important;
-    max-height: min(42dvh, 340px) !important;
-    object-fit: contain !important;
-    margin: 12px auto 0 !important;
-    border-radius: 12px;
-    background: #fff;
-    border: 1px solid rgba(255,255,255,0.16);
-    box-shadow: 0 8px 28px rgba(0,0,0,.25);
-  }
-  #a-text img.answer-img-clickable,
-  .answer-text img.answer-img-clickable,
-  #a-img.answer-img-clickable {
-    cursor: zoom-in;
-  }
-  #a-text img.answer-img-clickable:hover,
-  .answer-text img.answer-img-clickable:hover,
-  #a-img.answer-img-clickable:hover {
-    box-shadow: 0 10px 34px rgba(0,0,0,.38);
-  }
-  .answer-text .card-img-wrap,
-  .answer-text figure {
-    max-width: 100%;
-    overflow: hidden;
-  }
-  .q-img-modal-backdrop.answer-image-modal .q-img-modal {
-    width: min(96vw, 980px);
-    height: min(92dvh, 860px);
-  }
-  .q-img-modal-backdrop.answer-image-modal .q-img-modal-body {
-    overflow: hidden;
-    align-items: center;
-    justify-content: center;
-    padding: 12px;
-  }
-  .q-img-modal-backdrop.answer-image-modal .q-img-modal-body img {
-    width: auto !important;
-    height: auto !important;
-    min-width: 0 !important;
-    max-width: 100% !important;
-    max-height: calc(92dvh - 74px) !important;
-    object-fit: contain !important;
-    background: #fff;
-    border-radius: 10px;
-  }
-  @media (max-height: 780px) {
-    #a-text img,
-    .answer-text img,
-    .answer-card-img,
-    #a-img {
-      max-height: min(38dvh, 300px) !important;
-    }
-  }
-  @media (max-width: 520px) {
-    #a-text img,
-    .answer-text img,
-    .answer-card-img,
-    #a-img {
-      max-width: 100% !important;
-      max-height: min(36dvh, 280px) !important;
-    }
-    .q-img-modal-backdrop.answer-image-modal { padding: 8px; }
-    .q-img-modal-backdrop.answer-image-modal .q-img-modal { height: 94dvh; border-radius: 14px; }
-    .q-img-modal-backdrop.answer-image-modal .q-img-modal-body img {
-      min-width: 0 !important;
-      max-width: 100% !important;
-      max-height: calc(94dvh - 70px) !important;
-    }
-  }
+
 
 </style>
 </head>
@@ -806,6 +771,7 @@
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-questions" onclick="showTab('questions')">Questões</button>
     <button class="tab-btn" id="tab-oldexams" onclick="showTab('oldexams')">Provas Antigas</button>
+    <button class="tab-btn" id="tab-progress" onclick="showTab('progress')">Progresso</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
     <button class="tab-btn" id="tab-arch" onclick="showTab('arch')">Arquivados</button>
   </div>
@@ -896,6 +862,52 @@
     <div class="diag-list" id="diag-list"></div>
   </div>
 
+
+  <!-- PROGRESS SCREEN -->
+  <div class="screen" id="progress-screen" style="display:none;">
+    <div class="reading-page">
+      <div class="diag-head">
+        <div class="diag-title">Progresso de leitura</div>
+        <div class="diag-sub">Controle da bibliografia por seções 1 a 7. O total geral é calculado automaticamente pelo somatório das seções/publicações. Marque a publicação como lida ou informe quantas páginas já leu. Defina uma data-alvo para o app calcular o ritmo diário necessário até terminar tudo.</div>
+      </div>
+      <div class="reading-summary-grid" id="reading-summary-grid"></div>
+      <div class="reading-plan-card">
+        <div class="reading-plan-head">
+          <div>
+            <div class="reading-plan-title">Planejamento de prazo</div>
+            <div class="reading-plan-sub">A conta usa páginas restantes ÷ dias corridos até a data-alvo, incluindo hoje.</div>
+          </div>
+          <button class="mini-btn" type="button" onclick="renderReadingProgress()">Atualizar</button>
+        </div>
+        <div class="reading-target-row">
+          <div class="reading-field">
+            <label for="reading-target-date">Data para terminar tudo</label>
+            <input id="reading-target-date" type="date" onchange="saveReadingTargetDate()">
+          </div>
+          <div class="reading-pace" id="reading-pace-box">Defina uma data-alvo para calcular o ritmo diário.</div>
+        </div>
+        <div class="diag-controls" style="margin:12px 0 0;">
+          <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
+          <button class="mini-btn" onclick="toggleReadingImportPanel()">Colar levantamento</button>
+          <button class="mini-btn" onclick="exportReadingProgress()">Exportar progresso</button>
+          <button class="mini-btn danger-btn" onclick="resetReadingProgress()">Zerar leitura</button>
+        </div>
+        <div class="reading-import-panel" id="reading-import-panel">
+          <div class="reading-field">
+            <label for="reading-import-text">Cole aqui seu levantamento no formato “Seção — título / Publicação / Páginas”</label>
+            <textarea id="reading-import-text" placeholder="I - MANOBRABILIDADE DO NAVIO&#10;Publicação    Páginas&#10;Practical Ship Hydrodynamics    159&#10;...&#10;TOTAL 8934 páginas"></textarea>
+          </div>
+          <div class="db-actions">
+            <button class="mini-btn" onclick="importReadingPlanFromText()">Importar levantamento</button>
+            <button class="mini-btn" onclick="toggleReadingImportPanel(false)">Fechar</button>
+          </div>
+        </div>
+      </div>
+      <div class="reading-section-list" id="reading-sections"></div>
+    </div>
+  </div>
+
+
   <!-- DATABASE SCREEN -->
   <div class="screen" id="database-screen" style="display:none;">
     <div class="db-panel">
@@ -928,10 +940,13 @@
       <div class="db-actions">
         <button class="mini-btn" onclick="smartStudy()">Estudar</button>
         <button class="mini-btn" onclick="exportHistory()">Exportar histórico</button>
+        <button class="mini-btn" onclick="restoreHistorySafetyBackup()">Recuperar histórico local</button>
         <button class="mini-btn logout-btn" onclick="logoutSupabase()">Sair da conta</button>
         <button class="mini-btn" onclick="document.getElementById('import-file').click()">Importar histórico</button>
+        <button class="mini-btn restore-btn" onclick="document.getElementById('restore-json-file').click()">Restaurar JSON completo</button>
         <button class="mini-btn danger-btn" onclick="resetHistory()">Zerar desempenho</button>
         <input type="file" id="import-file" accept="application/json" style="display:none" onchange="importHistory(event)">
+        <input type="file" id="restore-json-file" accept="application/json" style="display:none" onchange="restoreFullJsonBackup(event)">
       </div>
     </div>
   </div>
@@ -1218,6 +1233,9 @@ CARDS.forEach(c => {
 const DB_KEY = "flashpratico_history_v2";
 const SETTINGS_KEY = "flashpratico_settings_v2";
 const GOALS_KEY = "flashpratico_goals_v1";
+const CARD_HISTORY_LAST_GOOD_KEY = "flashpratico_history_last_good_v1";
+const CARD_HISTORY_RESET_MARK_KEY = "flashpratico_history_reset_marker_v1";
+const GOAL_SNAPSHOT_KEY = "flashpratico_goal_snapshot_v1";
 const CARD_PENDING_SYNC_KEY = "flashpratico_card_pending_sync_v1";
 const CARD_ORPHAN_SYNC_KEY = "flashpratico_card_orphan_sync_v1";
 let LAST_SYNC_AT = null;
@@ -1963,6 +1981,8 @@ async function forceSyncNow(){
   if(btn){ btn.disabled = true; btn.textContent = "Sincronizando..."; }
   setSyncStatus("sincronizando pendências locais...");
   try{
+    const beforeCardCount = visibleCards(CARDS).length;
+
     const cardResult = await syncPendingCardResponsesToSupabase();
     let missingCardResult = { synced:0, skipped:0 };
     if(REMOTE_CARD_RESPONSE_KEYS && REMOTE_CARD_RESPONSE_KEYS.size){
@@ -1970,6 +1990,24 @@ async function forceSyncNow(){
     } else {
       console.warn("Assinaturas remotas de flashcards não carregadas; pulando recuperação por comparação para evitar duplicidade.");
     }
+
+    // O botão Sincronizar agora também precisa puxar cards novos do Supabase.
+    // Sem isso, um aparelho que ficou aberto no Safari/iOS continuava com o
+    // conjunto antigo de cards até recarregar a página. Isso fazia o Programado
+    // mostrar totais diferentes entre celular e computador, especialmente depois
+    // de importar novos flashcards.
+    setSyncStatus("atualizando cards do Supabase...");
+    await loadCardsFromSupabase();
+    if(!CATS.includes(activeCat)) activeCat = "Todas";
+    buildCatPills();
+    renderCategoryList(document.getElementById("cat-list-search")?.value || "");
+    const afterCardCount = visibleCards(CARDS).length;
+
+    // Recarrega a agenda depois de atualizar a lista de cards, para que novos
+    // cards e estados de revisão sejam calculados sobre a mesma base.
+    await loadReviewStateFromSupabase();
+    await loadResponsesFromSupabase();
+
     // v56: antes o botão sincronizava pendências de questões, mas não puxava
     // as respostas feitas em outro aparelho para o QUESTION_ATTEMPTS local.
     // Isso fazia a meta diária ficar diferente entre celular e computador
@@ -1981,16 +2019,21 @@ async function forceSyncNow(){
       await loadQuestionResponsesFromSupabase();
       await refreshRemoteQuestionIds();
     }
-    await loadResponsesFromSupabase();
+
     LAST_SYNC_AT = new Date();
     renderDailyGoalWidget();
     if(activeTab === "goals") renderGoalsPage();
+    if(activeTab === "diag") buildDashboard("all");
     if(activeTab === "db") renderSummary("db-summary");
+    if(activeTab === "arch") renderArchivedCards();
+    if(currentStudy?.mode === "programmed" && activeTab === "programmed") programmedStudy();
     renderSyncPanel();
     const after = syncSummary();
     const sent = cardResult.synced + missingCardResult.synced;
-    setSyncStatus(`sincronização concluída. Enviados: ${sent} flashcard(s). Histórico de questões recarregado. Pendentes restantes: ${after.totalPending}.`);
-    if(!after.totalPending) showToast("Sincronização concluída. Não há pendências locais detectadas.", "success");
+    const cardDelta = afterCardCount - beforeCardCount;
+    const cardMsg = cardDelta ? ` Cards: ${beforeCardCount} → ${afterCardCount} (${cardDelta > 0 ? "+" : ""}${cardDelta}).` : ` Cards: ${afterCardCount}.`;
+    setSyncStatus(`sincronização concluída. Enviados: ${sent} flashcard(s).${cardMsg} Histórico de questões recarregado. Pendentes restantes: ${after.totalPending}.`);
+    if(!after.totalPending) showToast("Sincronização concluída. Cards e histórico atualizados.", "success");
   }catch(error){
     console.error("Erro ao sincronizar agora:", error);
     setSyncStatus("falha ao sincronizar: " + (error.message || "erro desconhecido"));
@@ -2028,15 +2071,6 @@ function normalizeCardHistoryEvent(ev){
     ts
   };
 }
-function readLocalCardHistory(){
-  if(Array.isArray(LOCAL_HISTORY_CACHE)) return LOCAL_HISTORY_CACHE;
-  try {
-    LOCAL_HISTORY_CACHE = (JSON.parse(localStorage.getItem(DB_KEY) || "[]") || [])
-      .map(normalizeCardHistoryEvent)
-      .filter(Boolean);
-  } catch(e){ LOCAL_HISTORY_CACHE = []; }
-  return LOCAL_HISTORY_CACHE;
-}
 function mergeHistoryEvents(...lists){
   const map = new Map();
   lists.flat().map(normalizeCardHistoryEvent).filter(Boolean).forEach(ev => {
@@ -2049,24 +2083,125 @@ function mergeHistoryEvents(...lists){
     .sort((a,b) => new Date(a.ts) - new Date(b.ts))
     .slice(-CARD_HISTORY_MEMORY_LIMIT);
 }
-function writeLocalCardHistory(hist){
-  const clean = mergeHistoryEvents(hist);
+function readStoredHistoryArray(key){
+  try{
+    return (JSON.parse(localStorage.getItem(key) || "[]") || [])
+      .map(normalizeCardHistoryEvent)
+      .filter(Boolean);
+  }catch(e){
+    console.warn("Não consegui ler histórico local em", key, e);
+    return [];
+  }
+}
+function readLastGoodHistoryBackup(){
+  try{
+    const payload = JSON.parse(localStorage.getItem(CARD_HISTORY_LAST_GOOD_KEY) || "null");
+    const list = Array.isArray(payload) ? payload : payload?.history;
+    return mergeHistoryEvents(list || []);
+  }catch(e){
+    console.warn("Não consegui ler backup de segurança do histórico:", e);
+    return [];
+  }
+}
+function hasExplicitHistoryReset(){
+  try{ return !!localStorage.getItem(CARD_HISTORY_RESET_MARK_KEY); }
+  catch(e){ return false; }
+}
+function markExplicitHistoryReset(){
+  try{ localStorage.setItem(CARD_HISTORY_RESET_MARK_KEY, new Date().toISOString()); }catch(e){}
+}
+function clearExplicitHistoryReset(){
+  try{ localStorage.removeItem(CARD_HISTORY_RESET_MARK_KEY); }catch(e){}
+}
+function saveLastGoodHistoryBackup(events, reason="auto"){
+  const clean = mergeHistoryEvents(events || []).slice(-CARD_HISTORY_STORAGE_LIMIT);
+  if(!clean.length) return;
+  const payload = {
+    version: 1,
+    reason,
+    saved_at: new Date().toISOString(),
+    count: clean.length,
+    first_ts: clean[0]?.ts || null,
+    last_ts: clean[clean.length - 1]?.ts || null,
+    history: clean
+  };
+  try{
+    const previous = JSON.parse(localStorage.getItem(CARD_HISTORY_LAST_GOOD_KEY) || "null");
+    const previousCount = Number(previous?.count || (Array.isArray(previous) ? previous.length : 0));
+    // Só substitui o backup quando o novo conjunto é pelo menos tão completo
+    // quanto o anterior. Assim, uma tela aberta sem carregar histórico remoto
+    // não apaga o último backup bom.
+    if(previousCount && clean.length < previousCount) return;
+    localStorage.setItem(CARD_HISTORY_LAST_GOOD_KEY, JSON.stringify(payload));
+  }catch(e){
+    console.warn("Não consegui gravar backup de segurança do histórico:", e);
+  }
+}
+function clearHistorySafetyBackups(){
+  try{
+    localStorage.removeItem(CARD_HISTORY_LAST_GOOD_KEY);
+    localStorage.removeItem(GOAL_SNAPSHOT_KEY);
+  }catch(e){}
+}
+function readLocalCardHistory(){
+  if(Array.isArray(LOCAL_HISTORY_CACHE)) return LOCAL_HISTORY_CACHE;
+  let primary = readStoredHistoryArray(DB_KEY);
+  if(!primary.length && !hasExplicitHistoryReset()){
+    const backup = readLastGoodHistoryBackup();
+    if(backup.length){
+      primary = backup;
+      try{ localStorage.setItem(DB_KEY, JSON.stringify(primary.slice(-CARD_HISTORY_STORAGE_LIMIT))); }catch(e){}
+      console.warn(`Histórico local recuperado automaticamente do backup de segurança (${backup.length} eventos).`);
+    }
+  }
+  LOCAL_HISTORY_CACHE = primary;
+  return LOCAL_HISTORY_CACHE;
+}
+function writeLocalCardHistory(hist, options={}){
+  const previous = Array.isArray(LOCAL_HISTORY_CACHE) ? LOCAL_HISTORY_CACHE : readStoredHistoryArray(DB_KEY);
+  if(previous && previous.length && !hasExplicitHistoryReset()) saveLastGoodHistoryBackup(previous, "before-write");
+
+  let clean = mergeHistoryEvents(hist);
+  // Proteção contra perda aparente: nenhuma sincronização normal pode reduzir
+  // o backup local. Se algum carregamento vier incompleto, o app mescla com
+  // o último histórico local conhecido em vez de sobrescrever com menos eventos.
+  if(!options.allowShrink && previous.length && clean.length < previous.length){
+    console.warn(`Proteção de histórico: tentativa de reduzir ${previous.length} → ${clean.length}. Mesclando em vez de sobrescrever.`);
+    clean = mergeHistoryEvents(previous, clean);
+  }
+
   LOCAL_HISTORY_CACHE = clean;
+  if(clean.length) clearExplicitHistoryReset();
   // Não grava necessariamente todo o histórico em localStorage. O histórico
   // remoto completo continua em memória; o backup local fica limitado para
   // evitar travamento/quota excedida em navegadores móveis.
   const storageClean = clean.slice(-CARD_HISTORY_STORAGE_LIMIT);
   try { localStorage.setItem(DB_KEY, JSON.stringify(storageClean)); }
   catch(e){ console.warn("Não consegui salvar backup local dos flashcards:", e); }
+  saveLastGoodHistoryBackup(clean, options.reason || "write");
   invalidateSyncSummaryCache();
   invalidateProgrammedRuntimeCaches();
   return clean;
 }
 function rememberLocalCardEvent(event){
-  const merged = writeLocalCardHistory(mergeHistoryEvents(readLocalCardHistory(), [event]));
+  clearExplicitHistoryReset();
+  const merged = writeLocalCardHistory(mergeHistoryEvents(readLocalCardHistory(), [event]), { reason:"new-card-event" });
   if(isOnlineMode) ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, [event]);
   invalidateProgrammedRuntimeCaches();
   return merged;
+}
+function restoreHistorySafetyBackup(){
+  const backup = readLastGoodHistoryBackup();
+  if(!backup.length){ showToast("Não encontrei backup local de histórico neste aparelho.", "warn", 5200); return; }
+  clearExplicitHistoryReset();
+  const merged = writeLocalCardHistory(mergeHistoryEvents(readLocalCardHistory(), ONLINE_HISTORY, backup), { reason:"manual-restore" });
+  if(isOnlineMode) ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, merged);
+  HISTORY_UNION_CACHE = null;
+  renderDailyGoalWidget();
+  if(activeTab === "goals") renderGoalsPage();
+  if(activeTab === "db") renderSummary("db-summary");
+  renderSyncPanel();
+  showToast(`Histórico local recuperado: ${merged.length} evento(s). Agora use Sincronizar agora para reenviar o que faltar.`, "success", 7000);
 }
 function getHistory(options={}){
   // A meta diária usa sempre a união do Supabase com o backup local.
@@ -2087,7 +2222,7 @@ function getActiveCardHistory(){
   return getHistory({includeOrphans:false});
 }
 window.addEventListener("storage", (ev) => {
-  if(ev.key === DB_KEY || ev.key === CARD_PENDING_SYNC_KEY || ev.key === QUESTION_LOCAL_KEY || ev.key === CARD_ORPHAN_SYNC_KEY){
+  if(ev.key === DB_KEY || ev.key === CARD_HISTORY_LAST_GOOD_KEY || ev.key === CARD_PENDING_SYNC_KEY || ev.key === QUESTION_LOCAL_KEY || ev.key === CARD_ORPHAN_SYNC_KEY){
     LOCAL_HISTORY_CACHE = null;
     invalidateProgrammedRuntimeCaches();
     invalidateSyncSummaryCache();
@@ -2097,7 +2232,7 @@ window.addEventListener("storage", (ev) => {
   }
 });
 function setHistory(hist){
-  const merged = writeLocalCardHistory(hist || []);
+  const merged = writeLocalCardHistory(hist || [], { reason:"set-history" });
   if(isOnlineMode) ONLINE_HISTORY = merged;
   invalidateProgrammedRuntimeCaches();
 }
@@ -3960,7 +4095,6 @@ function openQuestionImageModal(event){
   img.src = q.imagem_questao;
   img.alt = `Imagem ampliada da questão ${q.numero}`;
   if(title) title.textContent = `${q.assunto} · Questão ${q.numero}`;
-  backdrop.classList.remove("answer-image-modal");
   backdrop.classList.add("show");
   document.body.style.overflow = "hidden";
 }
@@ -3968,7 +4102,7 @@ function closeQuestionImageModal(event){
   if(event) event.stopPropagation();
   const backdrop = document.getElementById("q-img-modal-backdrop");
   const img = document.getElementById("q-img-modal-img");
-  if(backdrop) backdrop.classList.remove("show", "answer-image-modal");
+  if(backdrop) backdrop.classList.remove("show");
   if(img) img.removeAttribute("src");
   document.body.style.overflow = "";
 }
@@ -4282,6 +4416,33 @@ function monthStats(){
   return calcPeriodStats(startOfLocalMonth(now), endOfLocalMonth(now));
 }
 
+function readGoalSnapshot(){
+  try{ return JSON.parse(localStorage.getItem(GOAL_SNAPSHOT_KEY) || "null"); }
+  catch(e){ return null; }
+}
+function saveGoalSnapshot(streak, dayCounts){
+  if(!streak || !dayCounts) return;
+  const totalEvents = Array.from(dayCounts.values()).reduce((a,b) => a + b, 0);
+  if(!totalEvents && !streak.best && !streak.current) return;
+  const todayKey = dateKeyLocal(new Date());
+  const payload = {
+    version: 1,
+    saved_at: new Date().toISOString(),
+    today_key: todayKey,
+    today_count: dayCounts.get(todayKey) || 0,
+    current: Number(streak.current || 0),
+    best: Number(streak.best || 0),
+    total_days: dayCounts.size,
+    total_events: totalEvents
+  };
+  try{
+    const old = readGoalSnapshot();
+    if(old?.best && old.best > payload.best) payload.best = old.best;
+    if(old?.total_events && old.total_events > payload.total_events) payload.total_events = old.total_events;
+    localStorage.setItem(GOAL_SNAPSHOT_KEY, JSON.stringify(payload));
+  }catch(e){ console.warn("Não consegui salvar snapshot da sequência:", e); }
+}
+
 function calcStreaks(){
   const dayCounts = new Map();
   getGoalHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
@@ -4309,7 +4470,15 @@ function calcStreaks(){
     best = Math.max(best, run);
     prev = d;
   });
-  return { current, best, dayCounts };
+  const snap = readGoalSnapshot();
+  if(snap?.best && Number(snap.best) > best) best = Number(snap.best);
+  const todayKey = dateKeyLocal(new Date());
+  if(current === 0 && snap?.today_key === todayKey && Number(snap.current || 0) > 0 && dayCounts.size === 0){
+    current = Number(snap.current || 0);
+  }
+  const result = { current, best, dayCounts };
+  saveGoalSnapshot(result, dayCounts);
+  return result;
 }
 
 function goalProgress(total, target){
@@ -4591,9 +4760,1197 @@ function openGoalsPage(){
 }
 
 
+// Controle de progresso da bibliografia
+const READING_PROGRESS_KEY = "flashpratico_reading_progress_v1";
+const READING_PROGRESS_VERSION = 7;
+// Totais preenchidos pela lista detalhada de publicações informada pelo usuário.
+// Soma por seção:
+// I 810 + II 1599 + III 2121 + IV 1482 + V 1066 + VI 372 + VII 1761 = 9211 páginas.
+// Agora todas as publicações das seções II a VII também entram com número de páginas.
+// O total geral é calculado automaticamente pela soma das publicações.
+const DEFAULT_READING_SECTIONS = [
+  {
+    "id": "sec1",
+    "number": 1,
+    "title": "MANOBRABILIDADE DO NAVIO",
+    "targetPages": 810,
+    "items": [
+      {
+        "id": "sec1_001",
+        "title": "Practical Ship Hydrodynamics",
+        "pages": 159
+      },
+      {
+        "id": "sec1_002",
+        "title": "Princípios de Hidrodinâmica e a Ação das Ondas",
+        "pages": 75
+      },
+      {
+        "id": "sec1_003",
+        "title": "Ship Resistance and Flow",
+        "pages": 112
+      },
+      {
+        "id": "sec1_004",
+        "title": "A.601(15)",
+        "pages": 5
+      },
+      {
+        "id": "sec1_005",
+        "title": "Manobrabilidade do Navio do Século 21",
+        "pages": 219
+      },
+      {
+        "id": "sec1_006",
+        "title": "MSC.1-Circ.1053",
+        "pages": 21
+      },
+      {
+        "id": "sec1_007",
+        "title": "MSC.1-Circ.1228",
+        "pages": 8
+      },
+      {
+        "id": "sec1_008",
+        "title": "MSC.137(76)",
+        "pages": 8
+      },
+      {
+        "id": "sec1_009",
+        "title": "Naval Shiphandling cap. 2",
+        "pages": 28
+      },
+      {
+        "id": "sec1_010",
+        "title": "PNA vol. 2",
+        "pages": 104
+      },
+      {
+        "id": "sec1_011",
+        "title": "PNA vol. 3",
+        "pages": 71
+      }
+    ]
+  },
+  {
+    "id": "sec2",
+    "number": 2,
+    "title": "ARTE NAVAL",
+    "targetPages": 1599,
+    "items": [
+      {
+        "id": "sec2_001",
+        "title": "SOLAS Regulation V/23.3.3",
+        "pages": 2
+      },
+      {
+        "id": "sec2_002",
+        "title": "Theory and Practices of Marine Pilotage",
+        "pages": 120
+      },
+      {
+        "id": "sec2_003",
+        "title": "Tug Use in Port — Hensen",
+        "pages": 242
+      },
+      {
+        "id": "sec2_004",
+        "title": "A.1045(27)",
+        "pages": 9
+      },
+      {
+        "id": "sec2_005",
+        "title": "Estabilidade dos Rebocadores",
+        "pages": 14
+      },
+      {
+        "id": "sec2_006",
+        "title": "Mooring and Anchoring Ships Vol. 1",
+        "pages": 42
+      },
+      {
+        "id": "sec2_007",
+        "title": "A.1045(27)",
+        "pages": 9
+      },
+      {
+        "id": "sec2_008",
+        "title": "A.1108(29)",
+        "pages": 4
+      },
+      {
+        "id": "sec2_009",
+        "title": "Arte Naval — Volume 1",
+        "pages": 316
+      },
+      {
+        "id": "sec2_010",
+        "title": "Arte Naval — Volume 2",
+        "pages": 286
+      },
+      {
+        "id": "sec2_011",
+        "title": "MSC.1/Circ.1428/Rev.1",
+        "pages": 5
+      },
+      {
+        "id": "sec2_012",
+        "title": "Rebocadores Portuários",
+        "pages": 126
+      },
+      {
+        "id": "sec2_013",
+        "title": "Regulation V 23.3.3",
+        "pages": 2
+      },
+      {
+        "id": "sec2_014",
+        "title": "Ship Dimensions and Data for Design of Marine Infrastructure",
+        "pages": 14
+      },
+      {
+        "id": "sec2_015",
+        "title": "Shiphandling for the Mariner",
+        "pages": 408
+      }
+    ]
+  },
+  {
+    "id": "sec3",
+    "number": 3,
+    "title": "NAVEGAÇÃO EM ÁGUAS RESTRITAS",
+    "targetPages": 2121,
+    "items": [
+      {
+        "id": "sec3_001",
+        "title": "NORMAM-601",
+        "pages": 151
+      },
+      {
+        "id": "sec3_002",
+        "title": "Navegação Integrada 2026",
+        "pages": 199
+      },
+      {
+        "id": "sec3_003",
+        "title": "NORMAM-202 — Cap. 11",
+        "pages": 14
+      },
+      {
+        "id": "sec3_004",
+        "title": "NORMAM-511",
+        "pages": 77
+      },
+      {
+        "id": "sec3_005",
+        "title": "AIS Resolution A.1106(29)",
+        "pages": 19
+      },
+      {
+        "id": "sec3_006",
+        "title": "Bridge Team Management",
+        "pages": 56
+      },
+      {
+        "id": "sec3_007",
+        "title": "COLREG — Consolidated 2018",
+        "pages": 30
+      },
+      {
+        "id": "sec3_008",
+        "title": "ICS Bridge Procedures Guide — 6th edition",
+        "pages": 72
+      },
+      {
+        "id": "sec3_009",
+        "title": "Marine Pilotage — caps. 5, 6 e 13",
+        "pages": 46
+      },
+      {
+        "id": "sec3_010",
+        "title": "Miguens — Vol. 1",
+        "pages": 543
+      },
+      {
+        "id": "sec3_011",
+        "title": "Miguens — Vol. 3",
+        "pages": 187
+      },
+      {
+        "id": "sec3_012",
+        "title": "MSC.1/Circ.738/Rev.2",
+        "pages": 1
+      },
+      {
+        "id": "sec3_013",
+        "title": "MSC.1/Circ.1580",
+        "pages": 21
+      },
+      {
+        "id": "sec3_014",
+        "title": "MSC.192(79)",
+        "pages": 34
+      },
+      {
+        "id": "sec3_015",
+        "title": "MSC.530(106)",
+        "pages": 30
+      },
+      {
+        "id": "sec3_016",
+        "title": "Navegação Integrada 2026",
+        "pages": 199
+      },
+      {
+        "id": "sec3_017",
+        "title": "NORMAM-202 — Cap. 11",
+        "pages": 14
+      },
+      {
+        "id": "sec3_018",
+        "title": "NORMAM-501",
+        "pages": 147
+      },
+      {
+        "id": "sec3_019",
+        "title": "NORMAM-511",
+        "pages": 77
+      },
+      {
+        "id": "sec3_020",
+        "title": "NORMAM-602",
+        "pages": 119
+      },
+      {
+        "id": "sec3_021",
+        "title": "ripeam_colreg_consolidada_com_emd_dez2013",
+        "pages": 40
+      },
+      {
+        "id": "sec3_022",
+        "title": "SOLAS 2024 CAP 5",
+        "pages": 45
+      }
+    ]
+  },
+  {
+    "id": "sec4",
+    "number": 4,
+    "title": "LEGISLAÇÃO E REGULAMENTAÇÃO",
+    "targetPages": 1482,
+    "items": [
+      {
+        "id": "sec4_001",
+        "title": "A.960(23)",
+        "pages": 13
+      },
+      {
+        "id": "sec4_002",
+        "title": "COLREG-Consolidated-2018 (1)",
+        "pages": 62
+      },
+      {
+        "id": "sec4_003",
+        "title": "DECRETO Nº 2.256",
+        "pages": 7
+      },
+      {
+        "id": "sec4_004",
+        "title": "DECRETO Nº 12.481",
+        "pages": 6
+      },
+      {
+        "id": "sec4_005",
+        "title": "DECRETO Nº 12.725",
+        "pages": 128
+      },
+      {
+        "id": "sec4_006",
+        "title": "glossario-das-forcas-armadas-5-ed-2015",
+        "pages": 294
+      },
+      {
+        "id": "sec4_007",
+        "title": "L7642",
+        "pages": 2
+      },
+      {
+        "id": "sec4_008",
+        "title": "L7652",
+        "pages": 7
+      },
+      {
+        "id": "sec4_009",
+        "title": "L9432",
+        "pages": 9
+      },
+      {
+        "id": "sec4_010",
+        "title": "Lcp97",
+        "pages": 3
+      },
+      {
+        "id": "sec4_011",
+        "title": "Lei 14.813",
+        "pages": 4
+      },
+      {
+        "id": "sec4_012",
+        "title": "lei-2180pdf",
+        "pages": 23
+      },
+      {
+        "id": "sec4_013",
+        "title": "Lei12815",
+        "pages": 8
+      },
+      {
+        "id": "sec4_014",
+        "title": "lesta9537",
+        "pages": 9
+      },
+      {
+        "id": "sec4_015",
+        "title": "normam 201 cap V",
+        "pages": 7
+      },
+      {
+        "id": "sec4_016",
+        "title": "normam-112",
+        "pages": 24
+      },
+      {
+        "id": "sec4_017",
+        "title": "normam-204",
+        "pages": 378
+      },
+      {
+        "id": "sec4_018",
+        "title": "normam-302",
+        "pages": 63
+      },
+      {
+        "id": "sec4_019",
+        "title": "normam-311",
+        "pages": 137
+      },
+      {
+        "id": "sec4_020",
+        "title": "NORMAM-601",
+        "pages": 150
+      },
+      {
+        "id": "sec4_021",
+        "title": "NORMAM-602 - MOD.1",
+        "pages": 119
+      },
+      {
+        "id": "sec4_022",
+        "title": "Portaria 37 MB",
+        "pages": 6
+      },
+      {
+        "id": "sec4_023",
+        "title": "rlesta2596",
+        "pages": 11
+      },
+      {
+        "id": "sec4_024",
+        "title": "salvamarresumo",
+        "pages": 12
+      }
+    ]
+  },
+  {
+    "id": "sec5",
+    "number": 5,
+    "title": "METEOROLOGIA E OCEANOGRAFIA",
+    "targetPages": 1066,
+    "items": [
+      {
+        "id": "sec5_001",
+        "title": "Meteorologia Nocoes Basicas (Completo)",
+        "pages": 180
+      },
+      {
+        "id": "sec5_002",
+        "title": "meteorologia-4-ed",
+        "pages": 496
+      },
+      {
+        "id": "sec5_003",
+        "title": "Meteorologia-nocoes-basicas_DEG",
+        "pages": 40
+      },
+      {
+        "id": "sec5_004",
+        "title": "Miguens cap 45",
+        "pages": 86
+      },
+      {
+        "id": "sec5_005",
+        "title": "NORMAM-701",
+        "pages": 31
+      },
+      {
+        "id": "sec5_006",
+        "title": "Princípios de Hidrodinâmica e a Ação das Ondas",
+        "pages": 187
+      },
+      {
+        "id": "sec5_007",
+        "title": "Use of hydrometeo information for port access and operations",
+        "pages": 46
+      }
+    ]
+  },
+  {
+    "id": "sec6",
+    "number": 6,
+    "title": "COMUNICAÇÕES",
+    "targetPages": 372,
+    "items": [
+      {
+        "id": "sec6_001",
+        "title": "EROG",
+        "pages": 191
+      },
+      {
+        "id": "sec6_002",
+        "title": "IMO SMCP A.918(22)",
+        "pages": 106
+      },
+      {
+        "id": "sec6_003",
+        "title": "international_code_of_signals_2005 select",
+        "pages": 75
+      }
+    ]
+  },
+  {
+    "id": "sec7",
+    "number": 7,
+    "title": "CONHECIMENTOS GERAIS",
+    "targetPages": 1761,
+    "items": [
+      {
+        "id": "sec7_001",
+        "title": "FAL.6-Circ.14-Rev.2",
+        "pages": 70
+      },
+      {
+        "id": "sec7_002",
+        "title": "livro-planejamento-portuario",
+        "pages": 100
+      },
+      {
+        "id": "sec7_003",
+        "title": "harbour approach channels",
+        "pages": 121
+      },
+      {
+        "id": "sec7_004",
+        "title": "normam-224",
+        "pages": 27
+      },
+      {
+        "id": "sec7_005",
+        "title": "MSC.1-Circ.1598",
+        "pages": 62
+      },
+      {
+        "id": "sec7_006",
+        "title": "Shiphandling the beautiful game_Final_3_",
+        "pages": 29
+      },
+      {
+        "id": "sec7_007",
+        "title": "Declaração Universal dos Direitos Humanos",
+        "pages": 5
+      },
+      {
+        "id": "sec7_008",
+        "title": "d2508",
+        "pages": 2
+      },
+      {
+        "id": "sec7_009",
+        "title": "Economia maritima - Martin Stopford",
+        "pages": 891
+      },
+      {
+        "id": "sec7_010",
+        "title": "PIMENTA_Direito_Processual_Maritimo_sem_metadados",
+        "pages": 454
+      }
+    ]
+  }
+];
+
+function cloneReadingDefaults(){
+  return DEFAULT_READING_SECTIONS.map(sec => ({
+    ...sec,
+    targetPages: Math.max(0, Number(sec.targetPages || 0)),
+    items: (sec.items || []).map(item => ({...item, read:0, done:false}))
+  }));
+}
+
+function readingSectionItemPages(sec){
+  return (sec.items || []).reduce((sum, item) => sum + Math.max(0, Number(item.pages || 0)), 0);
+}
+
+function readingSectionTargetPages(sec){
+  return Math.max(0, Number(sec?.targetPages || 0));
+}
+
+function readingSectionTotalPages(sec){
+  return Math.max(readingSectionItemPages(sec), readingSectionTargetPages(sec));
+}
+
+function readingNumber(value){
+  return Math.round(Number(value || 0)).toLocaleString("pt-BR");
+}
+
+function mergeDefaultReadingItems(sec, def){
+  const existingItems = Array.isArray(sec.items) ? sec.items : [];
+  const byId = new Map(existingItems.map(item => [String(item.id || ""), item]));
+  const byTitle = new Map(existingItems.map(item => [readingNormalizeTitle(item.title), item]));
+  const placeholderItems = existingItems.filter(item => {
+    const title = String(item.title || "");
+    return String(item.id || "").endsWith("_total") || /^total da se[cç][aã]o/i.test(title) || /detalhar publica/i.test(title);
+  });
+  const merged = (def.items || []).map(defItem => {
+    const old = byId.get(String(defItem.id || "")) || byTitle.get(readingNormalizeTitle(defItem.title));
+    const pages = old && Number(old.pages || 0) > 0 ? Math.max(0, Number(old.pages || 0)) : Math.max(0, Number(defItem.pages || 0));
+    const oldRead = old ? readingItemReadPages(old) : 0;
+    const read = pages > 0 ? Math.min(pages, oldRead) : oldRead;
+    return {...defItem, pages, read, done: pages > 0 && read >= pages};
+  });
+  const usedKeys = new Set(merged.map(item => readingNormalizeTitle(item.title)));
+  const usedIds = new Set((def.items || []).map(item => String(item.id || "")));
+  existingItems.forEach(item => {
+    const normalizedTitle = readingNormalizeTitle(item.title);
+    const isPlaceholder = placeholderItems.includes(item);
+    if(isPlaceholder) return;
+    // Quando a lista padrão muda, um item antigo pode ter o mesmo ID,
+    // mas título diferente. Nesse caso ele já foi migrado acima e não
+    // deve voltar como duplicata zerada.
+    if(usedIds.has(String(item.id || ""))) return;
+    if(usedKeys.has(normalizedTitle)) return;
+    // Evita carregar linhas antigas zeradas de versões anteriores da aba Progresso.
+    if(Math.max(0, Number(item.pages || 0)) <= 0 && readingItemReadPages(item) <= 0) return;
+    merged.push({...item});
+    usedKeys.add(normalizedTitle);
+  });
+  placeholderItems.forEach(item => {
+    const pages = Math.max(0, Number(item.pages || 0));
+    const read = readingItemReadPages(item);
+    // A linha antiga "Total da seção" era apenas estrutural. Só vira item visível
+    // se o usuário já tinha registrado páginas lidas nela.
+    if(read > 0){
+      merged.push({
+        id:`${sec.id || def.id}_progresso_anterior`,
+        title:"Progresso anterior informado na seção",
+        pages,
+        read:pages > 0 ? Math.min(pages, read) : read,
+        done:pages > 0 && read >= pages
+      });
+    }
+  });
+  sec.items = merged;
+  return sec;
+}
+
+function migrateReadingPlanIfNeeded(plan){
+  if(!plan || typeof plan !== "object") return plan;
+  const defaultsByNumber = new Map(DEFAULT_READING_SECTIONS.map(sec => [Number(sec.number), sec]));
+  const existingByNumber = new Map((plan.sections || []).map(sec => [Number(sec.number), sec]));
+  const sections = [];
+  DEFAULT_READING_SECTIONS.forEach(def => {
+    const existing = existingByNumber.get(Number(def.number));
+    const sec = existing ? {...existing} : {id:def.id, number:def.number, title:def.title, items:[]};
+    sec.id = String(sec.id || def.id);
+    sec.number = Number(sec.number || def.number);
+    sec.title = cleanLabel(sec.title || def.title, def.title);
+    sec.targetPages = Math.max(0, Number(def.targetPages || sec.targetPages || 0));
+    const defaultItemKeys = new Set((def.items || []).map(item => String(item.id || "")));
+    const existingItems = Array.isArray(sec.items) ? sec.items : [];
+    const hasAllDefaults = (def.items || []).every(defItem => {
+      const key = readingNormalizeTitle(defItem.title);
+      return existingItems.some(item => String(item.id || "") === String(defItem.id || "") || readingNormalizeTitle(item.title) === key);
+    });
+    const hasPlaceholder = existingItems.some(item => String(item.id || "").endsWith("_total") || /^total da se[cç][aã]o/i.test(String(item.title || "")) || /detalhar publica/i.test(String(item.title || "")));
+    if(!hasAllDefaults || hasPlaceholder || Number(plan.version || 1) < READING_PROGRESS_VERSION){
+      mergeDefaultReadingItems(sec, def);
+    } else {
+      sec.items = existingItems.map(item => ({...item}));
+    }
+    sections.push(sec);
+  });
+  (plan.sections || []).forEach(sec => {
+    if(!defaultsByNumber.has(Number(sec.number))) sections.push(sec);
+  });
+  plan.sections = sections.sort((a,b) => Number(a.number) - Number(b.number));
+  plan.version = READING_PROGRESS_VERSION;
+  return plan;
+}
+
+function normalizeReadingPlan(raw){
+  const base = {version:READING_PROGRESS_VERSION, targetDate:"", sections: cloneReadingDefaults(), updatedAt: new Date().toISOString()};
+  if(!raw || typeof raw !== "object") return base;
+  const sections = Array.isArray(raw.sections) && raw.sections.length ? raw.sections : base.sections;
+  const defaultsByNumber = new Map(DEFAULT_READING_SECTIONS.map(sec => [Number(sec.number), sec]));
+  const normalized = {
+    version: Number(raw.version || 1),
+    targetDate: String(raw.targetDate || ""),
+    sections: sections.map((sec, sidx) => {
+      const number = Number(sec.number || sidx + 1);
+      const def = defaultsByNumber.get(number);
+      return {
+        id: String(sec.id || def?.id || `sec${sidx+1}`),
+        number,
+        title: cleanLabel(sec.title, def?.title || `SEÇÃO ${sidx+1}`),
+        targetPages: Math.max(0, Number(def?.targetPages || sec.targetPages || 0)),
+        items: (Array.isArray(sec.items) ? sec.items : []).map((item, iidx) => {
+          const pages = Math.max(0, Number(item.pages || 0));
+          const rawRead = Math.max(0, Number(item.read || 0));
+          const done = pages > 0 && !!item.done;
+          const read = pages > 0 ? (done ? pages : Math.min(pages, rawRead)) : rawRead;
+          return {
+            id: String(item.id || `${sec.id || "sec"+(sidx+1)}_${iidx+1}_${Date.now()}`),
+            title: cleanLabel(item.title || item.name, "Nova publicação"),
+            pages,
+            read,
+            done: pages > 0 && (done || read >= pages)
+          };
+        })
+      };
+    }),
+    updatedAt: String(raw.updatedAt || new Date().toISOString())
+  };
+  return migrateReadingPlanIfNeeded(normalized);
+}
+
+function getReadingProgress(){
+  try{
+    const raw = localStorage.getItem(READING_PROGRESS_KEY);
+    if(!raw) return normalizeReadingPlan(null);
+    return normalizeReadingPlan(JSON.parse(raw));
+  }catch(err){
+    console.warn("Erro ao ler progresso de leitura:", err);
+    return normalizeReadingPlan(null);
+  }
+}
+
+function saveReadingProgressData(data){
+  const normalized = normalizeReadingPlan({...data, updatedAt: new Date().toISOString()});
+  localStorage.setItem(READING_PROGRESS_KEY, JSON.stringify(normalized));
+  return normalized;
+}
+
+function readingItemReadPages(item){
+  const total = Math.max(0, Number(item.pages || 0));
+  const rawRead = Math.max(0, Number(item.read || 0));
+  if(total > 0){
+    if(item.done) return total;
+    return Math.min(total, rawRead);
+  }
+  // Publicações ainda sem total individual continuam podendo receber páginas lidas.
+  // A seção mantém o total de referência, então essas páginas lidas entram no
+  // progresso sem alterar indevidamente o total geral da bibliografia.
+  return rawRead;
+}
+
+function readingTotals(data){
+  let total = 0, read = 0, items = 0, doneItems = 0;
+  (data.sections || []).forEach(sec => {
+    const sectionTotal = readingSectionTotalPages(sec);
+    let sectionRead = 0;
+    (sec.items || []).forEach(item => {
+      const pages = Math.max(0, Number(item.pages || 0));
+      const readPages = readingItemReadPages(item);
+      sectionRead += readPages;
+      items++;
+      if(pages > 0 && readPages >= pages) doneItems++;
+    });
+    total += sectionTotal;
+    read += Math.min(sectionTotal, sectionRead);
+  });
+  const remaining = Math.max(0, total - read);
+  const pct = total ? Math.round((read / total) * 100) : 0;
+  return {total, read, remaining, pct, items, doneItems};
+}
+
+function localDateKey(date=new Date()){
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function daysUntilReadingTarget(targetDate){
+  if(!targetDate) return null;
+  const todayKey = localDateKey();
+  const today = new Date(todayKey + "T00:00:00");
+  const target = new Date(String(targetDate) + "T00:00:00");
+  if(Number.isNaN(target.getTime())) return null;
+  const diff = Math.floor((target.getTime() - today.getTime()) / 86400000) + 1;
+  return Math.max(0, diff);
+}
+
+function renderReadingProgress(){
+  const data = getReadingProgress();
+  const totals = readingTotals(data);
+  const targetInput = document.getElementById("reading-target-date");
+  if(targetInput) targetInput.value = data.targetDate || "";
+  const summary = document.getElementById("reading-summary-grid");
+  if(summary){
+    summary.innerHTML = `
+      <div class="reading-stat"><div class="reading-stat-n" style="color:var(--accent2)">${readingNumber(totals.total)}</div><div class="reading-stat-l">páginas totais</div></div>
+      <div class="reading-stat"><div class="reading-stat-n" style="color:var(--green)">${readingNumber(totals.read)}</div><div class="reading-stat-l">páginas lidas</div></div>
+      <div class="reading-stat"><div class="reading-stat-n" style="color:var(--amber)">${readingNumber(totals.remaining)}</div><div class="reading-stat-l">páginas restantes</div></div>
+      <div class="reading-stat"><div class="reading-stat-n">${totals.pct}%</div><div class="reading-stat-l">progresso geral</div></div>
+    `;
+  }
+  renderReadingPaceBox(data, totals);
+  renderReadingSections(data);
+}
+
+function renderReadingPaceBox(data, totals){
+  const box = document.getElementById("reading-pace-box");
+  if(!box) return;
+  const days = daysUntilReadingTarget(data.targetDate);
+  if(!data.targetDate){
+    box.innerHTML = `Defina uma data-alvo para calcular quantas páginas precisa ler por dia. Restam <strong>${readingNumber(totals.remaining)}</strong> página${totals.remaining === 1 ? "" : "s"}.`;
+    return;
+  }
+  if(days === null){
+    box.innerHTML = `Data inválida. Escolha novamente a data para terminar a leitura.`;
+    return;
+  }
+  if(totals.remaining <= 0){
+    box.innerHTML = `Leitura concluída: <strong>${readingNumber(totals.read)}</strong> / <strong>${readingNumber(totals.total)}</strong> páginas.`;
+    return;
+  }
+  if(days <= 0){
+    box.innerHTML = `Prazo vencido. Ainda restam <strong>${readingNumber(totals.remaining)}</strong> página${totals.remaining === 1 ? "" : "s"}.`;
+    return;
+  }
+  const perDay = Math.ceil(totals.remaining / days);
+  box.innerHTML = `Faltam <strong>${readingNumber(totals.remaining)}</strong> página${totals.remaining === 1 ? "" : "s"} em <strong>${days}</strong> dia${days === 1 ? "" : "s"}. Ritmo necessário: <strong>${readingNumber(perDay)} páginas/dia</strong>.`;
+}
+
+function readingSectionUnallocatedPages(sec){
+  const target = readingSectionTargetPages(sec);
+  const itemPages = readingSectionItemPages(sec);
+  return Math.max(0, target - itemPages);
+}
+
+function readingUnknownItemsCount(sec){
+  return (sec.items || []).filter(item => Math.max(0, Number(item.pages || 0)) <= 0).length;
+}
+
+let READING_ROW_UPDATE_TIMER = null;
+let READING_ROW_UPDATE_SEQ = 0;
+
+function readingRowValuesFromElement(el){
+  const row = el?.closest?.(".reading-row");
+  return {
+    title: row?.querySelector?.(".reading-title-input")?.value ?? "",
+    pages: row?.querySelector?.(".reading-pages-input")?.value ?? "",
+    read: row?.querySelector?.(".reading-read-input")?.value ?? "",
+    done: !!row?.querySelector?.(".reading-done-input")?.checked
+  };
+}
+
+function readingCssEscape(value){
+  const text = String(value ?? "");
+  if(window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(text);
+  return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\A ");
+}
+
+function readingFocusSnapshot(){
+  const active = document.activeElement;
+  if(!active || !active.closest || !active.closest(".reading-row")) return null;
+  const row = active.closest(".reading-row");
+  const cls = ["reading-title-input", "reading-pages-input", "reading-read-input", "reading-done-input"].find(c => active.classList.contains(c));
+  if(!cls) return null;
+  return {
+    sectionId: row.getAttribute("data-section-id"),
+    itemId: row.getAttribute("data-item-id"),
+    cls,
+    start: typeof active.selectionStart === "number" ? active.selectionStart : null,
+    end: typeof active.selectionEnd === "number" ? active.selectionEnd : null
+  };
+}
+
+function readingRestoreFocus(snapshot){
+  if(!snapshot) return;
+  requestAnimationFrame(() => {
+    const row = document.querySelector(`.reading-row[data-section-id="${readingCssEscape(snapshot.sectionId || "")}"][data-item-id="${readingCssEscape(snapshot.itemId || "")}"]`);
+    const el = row?.querySelector?.(`.${snapshot.cls}`);
+    if(!el) return;
+    el.focus({preventScroll:true});
+    if(typeof snapshot.start === "number" && typeof el.setSelectionRange === "function"){
+      const len = String(el.value || "").length;
+      el.setSelectionRange(Math.min(snapshot.start, len), Math.min(snapshot.end ?? snapshot.start, len));
+    }
+  });
+}
+
+function readingQueueUpdateItemFromRow(sectionId, itemId, field, el){
+  const values = readingRowValuesFromElement(el);
+  const seq = ++READING_ROW_UPDATE_SEQ;
+  if(READING_ROW_UPDATE_TIMER) clearTimeout(READING_ROW_UPDATE_TIMER);
+  READING_ROW_UPDATE_TIMER = setTimeout(() => {
+    if(seq !== READING_ROW_UPDATE_SEQ) return;
+    readingApplyItemRowValues(sectionId, itemId, field, values, {preserveFocus:true, showWarnings:false});
+  }, 450);
+}
+
+function readingUpdateItemFromRow(sectionId, itemId, field, el){
+  if(READING_ROW_UPDATE_TIMER) clearTimeout(READING_ROW_UPDATE_TIMER);
+  READING_ROW_UPDATE_SEQ++;
+  const values = readingRowValuesFromElement(el);
+  readingApplyItemRowValues(sectionId, itemId, field, values, {preserveFocus:true, showWarnings:true});
+}
+
+function renderReadingSections(data){
+  const wrap = document.getElementById("reading-sections");
+  if(!wrap) return;
+  wrap.innerHTML = (data.sections || []).map(sec => {
+    const itemTotal = readingSectionItemPages(sec);
+    const total = readingSectionTotalPages(sec);
+    const read = Math.min(total, (sec.items || []).reduce((sum, item) => sum + readingItemReadPages(item), 0));
+    const remaining = Math.max(0, total - read);
+    const pct = total ? Math.round((read / total) * 100) : 0;
+    const unallocated = readingSectionUnallocatedPages(sec);
+    const unknownItems = readingUnknownItemsCount(sec);
+    const unallocatedPill = unallocated > 0
+      ? `<span class="reading-pill" title="Soma das páginas ainda não distribuídas entre as publicações desta seção">${readingNumber(unallocated)} sem distribuir</span>`
+      : "";
+    const unknownPill = unknownItems > 0
+      ? `<span class="reading-pill" title="Publicações com campo Páginas ainda zerado">${unknownItems} sem páginas</span>`
+      : "";
+    const rows = (sec.items || []).map(item => readingItemRowHtml(sec.id, item)).join("");
+    return `
+      <div class="reading-section">
+        <div class="reading-section-head">
+          <div style="min-width:0; flex:1 1 auto;">
+            <div class="reading-section-name"><span>Seção ${sec.number}</span> — ${escapeHtml(sec.title)}</div>
+            <div class="reading-progress-track"><div class="reading-progress-fill" style="width:${Math.max(0, Math.min(100, pct))}%"></div></div>
+          </div>
+          <div class="reading-section-meta">
+            <span class="reading-pill">${readingNumber(read)}/${readingNumber(total)} páginas</span>
+            <span class="reading-pill">${readingNumber(remaining)} restantes</span>
+            <span class="reading-pill ${pct >= 100 ? "good" : ""}">${pct}%</span>
+            ${unallocatedPill}
+            ${unknownPill}
+          </div>
+        </div>
+        <div class="reading-table">${rows || `<div class="old-exam-empty">Nenhuma publicação nesta seção.</div>`}</div>
+        <div class="reading-section-actions">
+          <button class="mini-btn" onclick='readingAddItem(${JSON.stringify(sec.id)})'>Adicionar publicação</button>
+          <button class="mini-btn" onclick='readingMarkSectionDone(${JSON.stringify(sec.id)})'>Marcar seção como lida</button>
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+function readingItemRowHtml(sectionId, item){
+  const total = Math.max(0, Number(item.pages || 0));
+  const read = readingItemReadPages(item);
+  const done = total > 0 && read >= total;
+  const missingPages = total <= 0;
+  return `
+    <div class="reading-row" data-section-id="${escapeHtml(sectionId)}" data-item-id="${escapeHtml(item.id)}">
+      <div>
+        <div class="reading-row-label">Publicação</div>
+        <input class="reading-title-input" type="text" value="${escapeHtml(item.title)}" oninput='readingQueueUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "title", this)' onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "title", this)'>
+      </div>
+      <div>
+        <div class="reading-row-label">Páginas</div>
+        <input class="reading-pages-input" type="number" min="0" step="1" inputmode="numeric" value="${total || ""}" placeholder="0" oninput='readingQueueUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "pages", this)' onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "pages", this)'>
+      </div>
+      <div>
+        <div class="reading-row-label">Lidas</div>
+        <input class="reading-read-input" type="number" min="0" step="1" inputmode="numeric" value="${read || ""}" placeholder="0" ${done ? "disabled" : ""} oninput='readingQueueUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "read", this)' onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "read", this)'>
+      </div>
+      <label class="reading-check" title="${missingPages ? "Informe o total de páginas ou preencha Lidas antes de marcar como lida." : "Marcar publicação como lida."}"><input class="reading-done-input" type="checkbox" ${done ? "checked" : ""} onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "done", this)'> Li tudo</label>
+      <button class="reading-remove" title="Remover publicação" onclick='readingRemoveItem(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)})'>×</button>
+    </div>
+  `;
+}
+
+function withReadingItem(sectionId, itemId, updater){
+  const data = getReadingProgress();
+  const sec = data.sections.find(s => s.id === sectionId);
+  if(!sec) return data;
+  const item = (sec.items || []).find(i => i.id === itemId);
+  if(!item) return data;
+  updater(item, sec, data);
+  return saveReadingProgressData(data);
+}
+
+function readingApplyItemRowValues(sectionId, itemId, field, values, options={}){
+  let needsPageTotalToast = false;
+  const focus = options.preserveFocus ? readingFocusSnapshot() : null;
+  withReadingItem(sectionId, itemId, (item, sec) => {
+    const title = cleanLabel(values.title, "Nova publicação");
+    const pages = Math.max(0, Math.round(Number(values.pages || 0)));
+    const rawRead = Math.max(0, Math.round(Number(values.read || 0)));
+    const checked = !!values.done;
+
+    item.title = title;
+
+    if(field === "done" && checked && pages <= 0){
+      if(rawRead > 0){
+        item.pages = rawRead;
+        item.read = rawRead;
+        item.done = true;
+        return;
+      }
+      const unknownItems = (sec.items || []).filter(it => Math.max(0, Number(it.pages || 0)) <= 0);
+      const unallocated = readingSectionUnallocatedPages(sec);
+      if(unknownItems.length === 1 && unallocated > 0){
+        item.pages = unallocated;
+        item.read = unallocated;
+        item.done = true;
+        return;
+      }
+      item.pages = 0;
+      item.read = 0;
+      item.done = false;
+      needsPageTotalToast = true;
+      return;
+    }
+
+    item.pages = pages;
+    if(pages > 0){
+      item.read = checked ? pages : Math.min(rawRead, pages);
+      item.done = checked || item.read >= pages;
+      if(item.done) item.read = pages;
+    } else {
+      item.read = rawRead;
+      item.done = false;
+    }
+  });
+  renderReadingProgress();
+  readingRestoreFocus(focus);
+  if(needsPageTotalToast && options.showWarnings !== false){
+    showToast("Informe o total de páginas dessa publicação ou preencha 'Lidas' antes de marcar ‘Li tudo’.", "warn", 5200);
+  }
+}
+
+function readingUpdateItem(sectionId, itemId, field, value){
+  withReadingItem(sectionId, itemId, (item) => {
+    if(field === "title") item.title = cleanLabel(value, "Nova publicação");
+    if(field === "pages"){
+      const pages = Math.max(0, Math.round(Number(value || 0)));
+      item.pages = pages;
+      item.read = pages > 0 ? Math.min(pages, Math.max(0, Number(item.read || 0))) : Math.max(0, Number(item.read || 0));
+      item.done = pages > 0 && item.read >= pages;
+    }
+    if(field === "read"){
+      const read = Math.max(0, Math.round(Number(value || 0)));
+      const pages = Math.max(0, Number(item.pages || 0));
+      item.read = pages > 0 ? Math.min(read, pages) : read;
+      item.done = pages > 0 && item.read >= pages;
+    }
+    if(field === "done"){
+      const pages = Math.max(0, Number(item.pages || 0));
+      const checked = !!value;
+      item.done = checked && pages > 0;
+      if(item.done) item.read = pages;
+    }
+  });
+  renderReadingProgress();
+}
+
+function readingAddItem(sectionId){
+  const data = getReadingProgress();
+  const sec = data.sections.find(s => s.id === sectionId);
+  if(!sec) return;
+  sec.items = sec.items || [];
+  sec.items.push({id:`${sectionId}_${Date.now()}_${Math.random().toString(16).slice(2)}`, title:"Nova publicação", pages:0, read:0, done:false});
+  saveReadingProgressData(data);
+  renderReadingProgress();
+}
+
+function readingRemoveItem(sectionId, itemId){
+  const data = getReadingProgress();
+  const sec = data.sections.find(s => s.id === sectionId);
+  if(!sec) return;
+  sec.items = (sec.items || []).filter(item => item.id !== itemId);
+  saveReadingProgressData(data);
+  renderReadingProgress();
+}
+
+function readingMarkSectionDone(sectionId){
+  const data = getReadingProgress();
+  const sec = data.sections.find(s => s.id === sectionId);
+  if(!sec) return;
+  sec.items = sec.items || [];
+  const balanceId = `${sectionId}_balance`;
+  const target = readingSectionTargetPages(sec);
+  const otherTotal = sec.items
+    .filter(item => item.id !== balanceId)
+    .reduce((sum, item) => sum + Math.max(0, Number(item.pages || 0)), 0);
+  const balancePages = Math.max(0, target - otherTotal);
+  let balance = sec.items.find(item => item.id === balanceId);
+  if(balancePages > 0){
+    if(!balance){
+      balance = {id:balanceId, title:"Páginas não distribuídas da seção", pages:balancePages, read:0, done:false};
+      sec.items.push(balance);
+    }
+    balance.pages = balancePages;
+  } else {
+    sec.items = sec.items.filter(item => item.id !== balanceId);
+  }
+  (sec.items || []).forEach(item => {
+    item.done = true;
+    item.read = Math.max(0, Number(item.pages || 0));
+  });
+  saveReadingProgressData(data);
+  renderReadingProgress();
+}
+
+function saveReadingTargetDate(){
+  const data = getReadingProgress();
+  data.targetDate = document.getElementById("reading-target-date")?.value || "";
+  saveReadingProgressData(data);
+  renderReadingProgress();
+}
+
+function resetReadingProgress(){
+  showConfirmToast("Zerar todo o progresso de leitura e voltar ao modelo inicial?", () => {
+    localStorage.removeItem(READING_PROGRESS_KEY);
+    renderReadingProgress();
+    showToast("Progresso de leitura zerado.", "success");
+  }, {tone:"danger", confirmText:"Zerar"});
+}
+
+function exportReadingProgress(){
+  const data = getReadingProgress();
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "flashpratico_progresso_leitura.json";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+function toggleReadingImportPanel(force){
+  const panel = document.getElementById("reading-import-panel");
+  if(!panel) return;
+  const open = typeof force === "boolean" ? force : !panel.classList.contains("open");
+  panel.classList.toggle("open", open);
+}
+
+function readingNormalizeTitle(title){
+  return String(title || "")
+    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase().replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function parseReadingPlanText(text){
+  const defaultsByNum = new Map(DEFAULT_READING_SECTIONS.map(sec => [Number(sec.number), sec]));
+  const sections = [];
+  let current = null;
+  const lines = String(text || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const ensureSection = (num, title) => {
+    let sec = sections.find(s => Number(s.number) === Number(num));
+    if(!sec){
+      const def = defaultsByNum.get(Number(num));
+      sec = {id: def?.id || `sec${num}`, number:Number(num), title: cleanLabel(title || def?.title, `SEÇÃO ${num}`), targetPages: Math.max(0, Number(def?.targetPages || 0)), items:[]};
+      sections.push(sec);
+    } else if(title) {
+      sec.title = cleanLabel(title, sec.title);
+    }
+    current = sec;
+    return sec;
+  };
+  for(const rawLine of lines){
+    let line = rawLine.replace(/\s+/g, " ").trim();
+    if(!line) continue;
+    const header = line.match(/^(?:se[cç][aã]o\s*)?(\d+)\s*[\-–—]\s*(.+)$/i);
+    const romanHeader = !header ? line.match(/^(I|II|III|IV|V|VI|VII)\s*[\-–—]\s*(.+)$/i) : null;
+    if(header || romanHeader){
+      const romanMap = {I:1, II:2, III:3, IV:4, V:5, VI:6, VII:7};
+      const num = header ? Number(header[1]) : romanMap[String(romanHeader[1]).toUpperCase()];
+      const title = header ? header[2] : romanHeader[2];
+      ensureSection(num, title.replace(/total.*$/i, "").trim());
+      continue;
+    }
+    if(/^publica[cç][aã]o\s+p[aá]ginas?$/i.test(line) || /^p[aá]ginas?$/i.test(line)) continue;
+    if(/^total\s+/i.test(line)) continue;
+    const item = line.match(/^(.+?)\s+(\d{1,5})\s*(?:p[aá]ginas?)?\.?$/i);
+    if(item && current){
+      const title = cleanLabel(item[1].replace(/[\t;]+/g, " "), "Publicação");
+      const pages = Math.max(0, Number(item[2] || 0));
+      if(title && pages >= 0) current.items.push({id:`${current.id}_${slugify(title)}_${sections.length}_${current.items.length}`, title, pages, read:0, done:false});
+    }
+  }
+  const out = cloneReadingDefaults().map(sec => ({...sec, items:[]}));
+  sections.forEach(sec => {
+    const idx = out.findIndex(s => Number(s.number) === Number(sec.number));
+    const def = defaultsByNum.get(Number(sec.number));
+    const normalized = {...sec, targetPages: Math.max(0, Number(sec.targetPages || def?.targetPages || 0)), items: sec.items || []};
+    if(idx >= 0) out[idx] = normalized;
+    else out.push(normalized);
+  });
+  out.forEach(sec => {
+    if(!sec.items || !sec.items.length){
+      const def = defaultsByNum.get(Number(sec.number));
+      sec.items = def ? def.items.map(item => ({...item, read:0, done:false})) : [];
+    }
+  });
+  return out.sort((a,b) => Number(a.number) - Number(b.number));
+}
+
+function importReadingPlanFromText(){
+  const area = document.getElementById("reading-import-text");
+  const text = area?.value || "";
+  if(!text.trim()){
+    showToast("Cole o levantamento antes de importar.", "warn");
+    return;
+  }
+  const previous = getReadingProgress();
+  const previousByKey = new Map();
+  (previous.sections || []).forEach(sec => (sec.items || []).forEach(item => {
+    previousByKey.set(`${sec.number}|||${readingNormalizeTitle(item.title)}`, item);
+  }));
+  const importedSections = parseReadingPlanText(text);
+  let importedItems = 0;
+  importedSections.forEach(sec => {
+    sec.items = (sec.items || []).map(item => {
+      const old = previousByKey.get(`${sec.number}|||${readingNormalizeTitle(item.title)}`);
+      const pages = Math.max(0, Number(item.pages || 0));
+      const oldRead = old ? readingItemReadPages(old) : 0;
+      const read = pages > 0 ? Math.min(pages, oldRead) : oldRead;
+      importedItems++;
+      return {...item, pages, read, done: pages > 0 && read >= pages};
+    });
+  });
+  if(!importedItems){
+    showToast("Não encontrei publicações com número de páginas no texto colado.", "error", 5200);
+    return;
+  }
+  saveReadingProgressData({version:1, targetDate: previous.targetDate || "", sections: importedSections});
+  toggleReadingImportPanel(false);
+  renderReadingProgress();
+  showToast(`Levantamento importado: ${importedItems} publicação${importedItems === 1 ? "" : "ões"}.`, "success");
+}
+
+
 function showTab(tab){
   activeTab = tab;
-  ["study","programmed","diag","questions","oldexams","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
+  ["study","programmed","diag","questions","oldexams","progress","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
   const studyDisplay = tab === "study" || tab === "programmed";
   const dailyGoal = document.getElementById("daily-goal-widget");
   if(dailyGoal) dailyGoal.style.display = studyDisplay ? "block" : "none";
@@ -4605,6 +5962,7 @@ function showTab(tab){
   document.getElementById("diagnostic-screen").style.display = tab === "diag" ? "block" : "none";
   document.getElementById("questions-screen").style.display = tab === "questions" ? "block" : "none";
   document.getElementById("old-exams-screen").style.display = tab === "oldexams" ? "block" : "none";
+  document.getElementById("progress-screen").style.display = tab === "progress" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
   document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
   if(tab === "study" || tab === "programmed") renderDailyGoalWidget();
@@ -4612,6 +5970,7 @@ function showTab(tab){
   if(tab === "diag") buildDashboard("all");
   if(tab === "questions") showQuestionList();
   if(tab === "oldexams") renderOldExamList();
+  if(tab === "progress") renderReadingProgress();
   if(tab === "db") renderSummary("db-summary");
   if(tab === "arch") renderArchivedCards();
 }
@@ -5437,100 +6796,6 @@ function setCardActionButtonsDisabled(disabled){
   });
 }
 
-
-// v65 — ajusta imagens do verso ao espaço disponível do flashcard.
-// Não força 100% da largura: a imagem respeita simultaneamente largura e altura máximas.
-function fitVisibleAnswerImages(){
-  const backBody = document.querySelector(".card-back .card-body");
-  if(!backBody) return;
-
-  const imgs = Array.from(backBody.querySelectorAll("#a-text img, .answer-text img, .answer-card-img, #a-img"))
-    .filter(img => img && img.closest('[style*="display:none"]') === null && img.offsetParent !== null);
-
-  if(!imgs.length) return;
-
-  const bodyRect = backBody.getBoundingClientRect();
-  const availableWidth = Math.max(120, Math.floor(bodyRect.width - 14));
-  const usableHeight = Math.max(140, Math.floor(bodyRect.height - 18));
-  const visibleCount = Math.max(1, imgs.length);
-  const textOnly = (document.getElementById("a-text")?.innerText || "").trim();
-  const hasSubstantialText = textOnly.length > 80;
-
-  const perImageRatio = visibleCount > 1 ? 0.34 : (hasSubstantialText ? 0.46 : 0.74);
-  const screenLimit = Math.floor(window.innerHeight * (window.innerWidth <= 520 ? 0.36 : 0.44));
-  const hardLimit = window.innerWidth <= 520 ? 280 : 360;
-  const dynamicMaxHeight = Math.max(130, Math.min(hardLimit, screenLimit, Math.floor(usableHeight * perImageRatio)));
-
-  imgs.forEach(img => {
-    img.removeAttribute("width");
-    img.removeAttribute("height");
-
-    const naturalW = img.naturalWidth || 0;
-    const naturalH = img.naturalHeight || 0;
-    const ratio = naturalW > 0 && naturalH > 0 ? naturalW / naturalH : 1.6;
-
-    // Maior largura possível sem ultrapassar a altura máxima.
-    // Isso aumenta imagens pequenas no card, mas sem cortar nem criar rolagem horizontal.
-    let targetWidth = Math.floor(Math.min(availableWidth, dynamicMaxHeight * ratio));
-    targetWidth = Math.max(120, targetWidth);
-
-    img.style.width = targetWidth + "px";
-    img.style.height = "auto";
-    img.style.maxWidth = "100%";
-    img.style.maxHeight = dynamicMaxHeight + "px";
-    img.style.objectFit = "contain";
-  });
-}
-
-function openAnswerImageModalFromElement(event){
-  if(event) event.stopPropagation();
-  const source = event?.currentTarget || event?.target;
-  if(!source) return;
-  const src = source.currentSrc || source.src;
-  if(!src) return;
-
-  const backdrop = document.getElementById("q-img-modal-backdrop");
-  const img = document.getElementById("q-img-modal-img");
-  const title = document.getElementById("q-img-modal-title");
-  if(!backdrop || !img) return;
-
-  img.src = src;
-  img.alt = source.alt || "Imagem ampliada da resposta";
-  if(title) title.textContent = "Imagem da resposta";
-  backdrop.classList.add("show", "answer-image-modal");
-  document.body.style.overflow = "hidden";
-}
-
-function prepareResponsiveAnswerImages(){
-  const backBody = document.querySelector(".card-back .card-body");
-  if(!backBody) return;
-
-  const imgs = Array.from(backBody.querySelectorAll("#a-text img, .answer-text img, .answer-card-img, #a-img"));
-  imgs.forEach(img => {
-    img.removeAttribute("width");
-    img.removeAttribute("height");
-    img.loading = "lazy";
-    img.decoding = "async";
-    img.classList.add("answer-img-clickable");
-    img.onclick = openAnswerImageModalFromElement;
-    img.onload = () => {
-      fitVisibleAnswerImages();
-      setTimeout(fitVisibleAnswerImages, 80);
-    };
-  });
-
-  fitVisibleAnswerImages();
-  setTimeout(fitVisibleAnswerImages, 80);
-  setTimeout(fitVisibleAnswerImages, 250);
-}
-
-if(!window.__answerImagesResponsiveResizeHandler){
-  window.__answerImagesResponsiveResizeHandler = true;
-  window.addEventListener("resize", () => setTimeout(fitVisibleAnswerImages, 60));
-  window.addEventListener("orientationchange", () => setTimeout(fitVisibleAnswerImages, 250));
-}
-
-
 function showCard(){
   CARD_ANSWER_LOCK = false;
   setCardActionButtonsDisabled(false);
@@ -5564,7 +6829,6 @@ function showCard(){
     srcEl.style.display = srcText ? 'inline-flex' : 'none';
   }
   setFormattedAnswer('a-text', c.a);
-  prepareResponsiveAnswerImages();
 
   updateProgress();
   updateStudyTitle();
@@ -5577,7 +6841,6 @@ function flipCard(){
   isFlipped = !isFlipped;
   document.getElementById('card').classList.toggle('flipped', isFlipped);
   document.getElementById('btn-row').style.display = isFlipped ? 'flex' : 'none';
-  if(isFlipped) setTimeout(fitVisibleAnswerImages, 80);
 }
 
 async function answer(type){
@@ -6005,15 +7268,27 @@ async function resetHistory(){
       REMOTE_CARD_RESPONSE_IDS = new Set();
       REMOTE_CARD_RESPONSE_KEYS = new Set();
       REVIEW_STATE = new Map();
+      clearHistorySafetyBackups();
+      markExplicitHistoryReset();
+      LOCAL_HISTORY_CACHE = [];
+      HISTORY_UNION_CACHE = null;
+      HISTORY_ACTIVE_CACHE = null;
       invalidateStudyIdentityCaches();
       setSyncStatus("Histórico e revisão espaçada apagados no Supabase.");
     } else {
       localStorage.removeItem(DB_KEY);
+      clearHistorySafetyBackups();
+      markExplicitHistoryReset();
+      LOCAL_HISTORY_CACHE = [];
+      HISTORY_UNION_CACHE = null;
+      HISTORY_ACTIVE_CACHE = null;
     }
     invalidateStudyIdentityCaches();
     invalidateSyncSummaryCache();
     buildDashboard("all");
     renderSummary("db-summary");
+    renderDailyGoalWidget();
+    if(activeTab === "goals") renderGoalsPage();
     showToast("Histórico apagado.", "success");
   }, {confirmText:"Apagar", tone:"danger"});
 }
@@ -6062,6 +7337,215 @@ async function resetTopicHistory(publicacao, assunto){
   }, {confirmText:"Zerar", tone:"danger"});
 }
 
+
+function parseFlashPraticoBackupText(text){
+  const data = JSON.parse(text);
+  const rawHistory = Array.isArray(data) ? data : data.history;
+  if(!Array.isArray(rawHistory)) throw new Error("Arquivo sem campo history válido.");
+  const history = mergeHistoryEvents(rawHistory)
+    .filter(ev => ev && ev.card_id && ev.result && ev.ts)
+    .map(ev => ({
+      ...ev,
+      user_id: currentUser?.id || ev.user_id || null,
+      result: String(ev.result),
+      card_id: String(ev.card_id)
+    }));
+  if(!history.length) throw new Error("O JSON não contém eventos de histórico válidos.");
+  const reviewState = Array.isArray(data?.review_state) ? data.review_state : [];
+  return { data, history, reviewState };
+}
+
+function normalizeBackupReviewRow(row){
+  if(!row) return null;
+  const card_id = row.card_id || row.cardId || row.id;
+  if(!card_id) return null;
+  return {
+    user_id: currentUser?.id || row.user_id || null,
+    card_id: String(card_id),
+    acertos_seguidos: Number(row.acertos_seguidos || 0),
+    intervalo_dias: Number(row.intervalo_dias || 0),
+    proxima_revisao: row.proxima_revisao || null,
+    ultima_revisao: row.ultima_revisao || null,
+    ultimo_resultado: row.ultimo_resultado || row.result || null,
+    total_acertos: Number(row.total_acertos || 0),
+    total_erros: Number(row.total_erros || 0),
+    total_dificeis: Number(row.total_dificeis || 0),
+    total_pulos: Number(row.total_pulos || 0),
+    updated_at: row.updated_at || new Date().toISOString()
+  };
+}
+
+function calcStreaksFromEvents(events){
+  const dayCounts = new Map();
+  (events || []).filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
+    const key = dateKeyLocal(ev.ts);
+    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+  });
+  const today = startOfLocalDay(new Date());
+  let current = 0;
+  const cursor = new Date(today);
+  while(dayCounts.get(dateKeyLocal(cursor)) > 0){
+    current++;
+    cursor.setDate(cursor.getDate() - 1);
+  }
+  const keys = Array.from(dayCounts.keys()).sort();
+  let best = 0, run = 0, prev = null;
+  keys.forEach(key => {
+    const d = new Date(key + "T00:00:00");
+    if(prev){
+      const diffDays = Math.round((d - prev) / 86400000);
+      run = diffDays === 1 ? run + 1 : 1;
+    } else {
+      run = 1;
+    }
+    best = Math.max(best, run);
+    prev = d;
+  });
+  return { current, best, dayCounts };
+}
+
+function saveGoalSnapshotFromEvents(events){
+  const streak = calcStreaksFromEvents(events || []);
+  saveGoalSnapshot(streak, streak.dayCounts);
+  return streak;
+}
+
+function applyReviewStateBackup(reviewRows, replace=true){
+  const cleanRows = (reviewRows || []).map(normalizeBackupReviewRow).filter(Boolean);
+  if(replace) REVIEW_STATE = new Map();
+  cleanRows.forEach(row => REVIEW_STATE.set(cardIdKey(row.card_id), row));
+  invalidateStudyIdentityCaches();
+  invalidateProgrammedRuntimeCaches();
+  return cleanRows;
+}
+
+function refreshAfterHistoryRestore(){
+  HISTORY_UNION_CACHE = null;
+  HISTORY_ACTIVE_CACHE = null;
+  invalidateSyncSummaryCache();
+  invalidateProgrammedRuntimeCaches();
+  invalidateStudyIdentityCaches();
+  renderDailyGoalWidget();
+  renderSyncPanel();
+  if(activeTab === "goals") renderGoalsPage();
+  if(activeTab === "db") renderSummary("db-summary");
+  if(activeTab === "diag") buildDashboard("all");
+  if(currentStudy?.mode === "programmed") pruneProgrammedDeckAfterDataRefresh();
+}
+
+async function upsertReviewStateRowsToSupabase(rows){
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient || !REVIEW_TABLE_READY) return 0;
+  const clean = (rows || []).map(normalizeBackupReviewRow).filter(Boolean).map(row => ({...row, user_id: currentUser.id}));
+  let sent = 0;
+  for(let i = 0; i < clean.length; i += 400){
+    const chunk = clean.slice(i, i + 400);
+    const { error } = await supabaseClient
+      .from("estado_cards_usuario")
+      .upsert(chunk, { onConflict:"user_id,card_id" });
+    if(error){
+      console.warn("Não consegui restaurar estado de revisão no Supabase:", error);
+      REVIEW_TABLE_READY = false;
+      break;
+    }
+    sent += chunk.length;
+  }
+  return sent;
+}
+
+async function replaceRemoteHistoryWithBackup(history, reviewRows){
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return { synced:0, orphaned:0, reviewSynced:0, skipped:true };
+  setSyncStatus("restaurando JSON: apagando histórico remoto desta conta...");
+  const delResp = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
+  if(delResp.error) throw delResp.error;
+  if(REVIEW_TABLE_READY){
+    const delReview = await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
+    if(delReview.error) console.warn("Não consegui apagar estado de revisão remoto antes da restauração:", delReview.error);
+  }
+  REMOTE_CARD_RESPONSE_IDS = new Set();
+  REMOTE_CARD_RESPONSE_KEYS = new Set();
+
+  let synced = 0, orphaned = 0, duplicated = 0;
+  const clean = mergeHistoryEvents(history || []).map(ev => ({...ev, user_id: currentUser.id}));
+  for(let i = 0; i < clean.length; i += 350){
+    const chunk = clean.slice(i, i + 350);
+    setSyncStatus(`restaurando JSON: enviando ${Math.min(i + chunk.length, clean.length)} / ${clean.length} eventos...`);
+    const res = await insertCardResponseEvents(chunk);
+    synced += Number(res.synced || 0);
+    orphaned += Number(res.orphaned || 0);
+    duplicated += Number(res.duplicated || 0);
+  }
+  const reviewSynced = await upsertReviewStateRowsToSupabase(reviewRows || []);
+  try { await loadResponsesFromSupabase({ silent:true }); } catch(e){ console.warn("Histórico remoto restaurado, mas não consegui recarregar:", e); }
+  try { if(REVIEW_TABLE_READY) await loadReviewStateFromSupabase(); } catch(e){ console.warn("Não consegui recarregar estado de revisão após restauração:", e); }
+  return { synced, orphaned, duplicated, reviewSynced, skipped:false };
+}
+
+async function applyFullJsonBackupRestore(history, reviewRows, options={}){
+  const replaceRemote = !!options.replaceRemote;
+  const historyForUser = mergeHistoryEvents(history || []).map(ev => ({...ev, user_id: currentUser?.id || ev.user_id || null}));
+  if(!historyForUser.length) throw new Error("Backup sem histórico válido.");
+  clearExplicitHistoryReset();
+
+  // Primeiro restaura localmente, antes de qualquer ida à nuvem.
+  // Assim a meta, a sequência e o histórico voltam imediatamente na tela.
+  ONLINE_HISTORY = historyForUser;
+  writeLocalCardHistory(historyForUser, { allowShrink:true, reason:"json-full-restore" });
+  const reviewClean = applyReviewStateBackup(reviewRows || [], true);
+  saveGoalSnapshotFromEvents(historyForUser);
+  refreshAfterHistoryRestore();
+
+  let remote = { synced:0, orphaned:0, reviewSynced:0, skipped:true };
+  if(replaceRemote){
+    remote = await replaceRemoteHistoryWithBackup(historyForUser, reviewClean);
+  } else if(isOnlineMode && currentUser?.id && supabaseClient){
+    // Mescla na nuvem sem apagar nada. Útil quando o usuário só quer recuperar o que falta.
+    const pending = historyForUser.map(ev => ({...ev, user_id: currentUser.id}));
+    let synced = 0, orphaned = 0;
+    for(let i = 0; i < pending.length; i += 350){
+      const res = await insertCardResponseEvents(pending.slice(i, i + 350));
+      synced += Number(res.synced || 0);
+      orphaned += Number(res.orphaned || 0);
+    }
+    const reviewSynced = await upsertReviewStateRowsToSupabase(reviewClean);
+    remote = { synced, orphaned, reviewSynced, skipped:false };
+    try { await loadResponsesFromSupabase({ silent:true }); } catch(e){ console.warn("Não consegui recarregar histórico após mesclar backup:", e); }
+  }
+
+  refreshAfterHistoryRestore();
+  return { local:historyForUser.length, review:reviewClean.length, remote };
+}
+
+function restoreFullJsonBackup(event){
+  const file = event.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = async () => {
+    try{
+      const { data, history, reviewState } = parseFlashPraticoBackupText(reader.result);
+      const answered = history.filter(ev => isAnsweredResult(ev.result)).length;
+      const first = history[0]?.ts ? new Date(history[0].ts).toLocaleDateString() : "—";
+      const last = history[history.length - 1]?.ts ? new Date(history[history.length - 1].ts).toLocaleDateString() : "—";
+      const remoteText = isOnlineMode && currentUser?.id
+        ? "\n\nTambém vou SUBSTITUIR o histórico remoto desta conta no Supabase por esse JSON. Os flashcards não serão apagados."
+        : "\n\nComo não há sessão online ativa, a restauração será local neste aparelho.";
+      showConfirmToast(
+        `Restaurar backup completo?\n\nEventos no JSON: ${history.length}\nRespostas efetivas: ${answered}\nEstado de revisão: ${reviewState.length}\nPeríodo: ${first} até ${last}${remoteText}`,
+        async () => {
+          const res = await applyFullJsonBackupRestore(history, reviewState, { replaceRemote: !!(isOnlineMode && currentUser?.id) });
+          setSyncStatus(`JSON restaurado: ${res.local} evento(s) locais, ${res.remote.synced || 0} enviado(s), ${res.remote.orphaned || 0} órfão(s).`);
+          showToast(`JSON restaurado. Eventos locais: ${res.local}. Enviados ao Supabase: ${res.remote.synced || 0}.`, "success", 8000);
+        },
+        {confirmText:"Restaurar", cancelText:"Cancelar", tone:"danger"}
+      );
+    }catch(err){
+      console.error(err);
+      showToast("Não consegui restaurar esse JSON: " + (err.message || "erro desconhecido"), "error", 7000);
+    }
+  };
+  reader.readAsText(file);
+  event.target.value = "";
+}
+
 function exportHistory(){
   const payload = {
     app:"FlashPratico",
@@ -6090,27 +7574,34 @@ function importHistory(event){
       const data = JSON.parse(reader.result);
       const incoming = Array.isArray(data) ? data : data.history;
       if(!Array.isArray(incoming)) throw new Error("Formato inválido");
-      const clean = incoming.filter(e => e && e.card_id && e.result && e.ts);
+      const clean = mergeHistoryEvents(incoming.filter(e => e && e.card_id && e.result && e.ts));
+      if(!clean.length) throw new Error("O JSON não contém eventos válidos.");
+
+      // A importação comum agora também restaura localmente primeiro.
+      // Antes, ela podia depender só do Supabase e não mudar nada na tela quando a nuvem/cache estava inconsistente.
+      const localMerged = mergeHistoryEvents(getHistory(), clean.map(e => ({...e, user_id: currentUser?.id || e.user_id || null})));
+      ONLINE_HISTORY = localMerged;
+      writeLocalCardHistory(localMerged, { reason:"json-merge-import" });
+      if(Array.isArray(data?.review_state)) applyReviewStateBackup(data.review_state, false);
+      saveGoalSnapshotFromEvents(localMerged);
+      refreshAfterHistoryRestore();
+
       if(isOnlineMode && currentUser){
         if(!REMOTE_CARD_RESPONSE_KEYS || !REMOTE_CARD_RESPONSE_KEYS.size){
-          try { await loadResponsesFromSupabase(); } catch(e){ console.warn("Não consegui carregar histórico remoto antes da importação:", e); }
+          try { await loadResponsesFromSupabase({ silent:true }); } catch(e){ console.warn("Não consegui carregar histórico remoto antes da importação:", e); }
         }
-        const normalized = clean.map(normalizeCardHistoryEvent).filter(Boolean);
+        const normalized = clean.map(normalizeCardHistoryEvent).filter(Boolean).map(e => ({...e, user_id: currentUser.id}));
         const pendingImport = normalized
           .filter(e => !REMOTE_CARD_RESPONSE_KEYS.has(cardResponseKeyFromEvent(e)));
         if(pendingImport.length){
           const result = await insertCardResponseEvents(pendingImport);
           if(result.orphaned) showToast(`${result.orphaned} evento(s) importado(s) referem-se a cards que não existem mais e ficaram como órfãos locais.`, "warn", 6500);
         }
-        await loadResponsesFromSupabase();
-        setSyncStatus("Histórico importado para o Supabase.");
-      } else {
-        const merged = [...getHistory(), ...clean];
-        const unique = new Map(merged.map(e => [e.id || (e.card_id+e.result+e.ts), e]));
-        setHistory(Array.from(unique.values()));
+        await loadResponsesFromSupabase({ silent:true });
+        setSyncStatus("Histórico importado/mesclado com o Supabase.");
       }
-      renderSummary("db-summary");
-      showToast("Histórico importado com sucesso.", "success");
+      refreshAfterHistoryRestore();
+      showToast(`Histórico importado: ${clean.length} evento(s) lido(s) do JSON.`, "success", 6500);
     }catch(err){ console.error(err); showToast("Não consegui importar esse arquivo JSON: " + (err.message || "erro desconhecido"), "error", 6000); }
   };
   reader.readAsText(file);
@@ -6320,6 +7811,7 @@ async function startAuthenticatedApp(){
         if(activeTab === "diag") buildDashboard("all");
         if(activeTab === "db") renderSummary("db-summary");
         if(activeTab === "goals") renderGoalsPage();
+        if(activeTab === "progress") renderReadingProgress();
         setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${archivedCards().length} arquivados.`);
       }catch(bgError){
         console.error("Erro no carregamento em segundo plano:", bgError);
@@ -6360,6 +7852,18 @@ window.nextQuestionCard = nextQuestionCard;
 window.selectCat = selectCat;
 window.startSmartStudy = smartStudy;
 window.resetTopicHistory = resetTopicHistory;
+window.restoreHistorySafetyBackup = restoreHistorySafetyBackup;
+window.restoreFullJsonBackup = restoreFullJsonBackup;
+window.renderReadingProgress = renderReadingProgress;
+window.saveReadingTargetDate = saveReadingTargetDate;
+window.readingUpdateItem = readingUpdateItem;
+window.readingAddItem = readingAddItem;
+window.readingRemoveItem = readingRemoveItem;
+window.readingMarkSectionDone = readingMarkSectionDone;
+window.resetReadingProgress = resetReadingProgress;
+window.exportReadingProgress = exportReadingProgress;
+window.toggleReadingImportPanel = toggleReadingImportPanel;
+window.importReadingPlanFromText = importReadingPlanFromText;
 
 initApp().catch(error => {
   console.error("Erro no initApp:", error);
