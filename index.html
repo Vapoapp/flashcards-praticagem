@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v57 - proteção de histórico</title>
-<!-- versão v58: restauração completa por JSON + proteção contra perda aparente de histórico/meta/streak -->
+<title>Flashcards — Praticagem v61 - backup compacto</title>
+<!-- versão v61: backup compacto/minificado + restauração completa por JSON + proteção de histórico/meta/streak -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -939,7 +939,9 @@
       <div class="summary-grid" id="db-summary"></div>
       <div class="db-actions">
         <button class="mini-btn" onclick="smartStudy()">Estudar</button>
-        <button class="mini-btn" onclick="exportHistory()">Exportar histórico</button>
+        <button class="mini-btn" onclick="exportHistory()">Exportar compacto</button>
+        <button class="mini-btn" onclick="exportFullHistory()">Exportar completo</button>
+        <button class="mini-btn" onclick="showBackupSizeEstimate()">Tamanho do backup</button>
         <button class="mini-btn" onclick="restoreHistorySafetyBackup()">Recuperar histórico local</button>
         <button class="mini-btn logout-btn" onclick="logoutSupabase()">Sair da conta</button>
         <button class="mini-btn" onclick="document.getElementById('import-file').click()">Importar histórico</button>
@@ -7338,9 +7340,213 @@ async function resetTopicHistory(publicacao, assunto){
 }
 
 
+const BACKUP_RESULT_TO_CODE = { right:"r", wrong:"w", skip:"s", hard:"h", difficult:"h" };
+const BACKUP_CODE_TO_RESULT = { r:"right", w:"wrong", s:"skip", h:"hard", right:"right", wrong:"wrong", skip:"skip", hard:"hard", difficult:"hard" };
+const COMPACT_HISTORY_SCHEMA = ["card_id", "result_code", "ts", "logical_key"];
+const COMPACT_REVIEW_SCHEMA = ["card_id", "acertos_seguidos", "intervalo_dias", "proxima_revisao", "ultima_revisao", "ultimo_resultado", "total_acertos", "total_erros", "total_dificeis", "total_pulos", "updated_at"];
+
+function backupResultCode(result){
+  const key = String(result || "").toLowerCase();
+  return BACKUP_RESULT_TO_CODE[key] || key || "";
+}
+function backupFullResult(code){
+  const key = String(code || "").toLowerCase();
+  return BACKUP_CODE_TO_RESULT[key] || key || "";
+}
+function backupDateStamp(){
+  return new Date().toISOString().slice(0,10);
+}
+function downloadJsonPayload(payload, filename, pretty=false){
+  const json = JSON.stringify(payload, null, pretty ? 2 : 0);
+  const blob = new Blob([json], {type:"application/json"});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return blob.size;
+}
+function formatBackupBytes(bytes){
+  const n = Number(bytes || 0);
+  if(n < 1024) return `${n} B`;
+  if(n < 1024 * 1024) return `${(n/1024).toFixed(1)} KB`;
+  return `${(n/1024/1024).toFixed(2)} MB`;
+}
+function loadedCardMapForBackup(){
+  return new Map((CARDS || []).map(c => [cardIdKey(c), c]));
+}
+function buildBackupCardCatalog(history, reviewRows){
+  const cardMap = loadedCardMapForBackup();
+  const byEvent = new Map();
+  (history || []).forEach(ev => {
+    const id = cardIdKey(ev?.card_id);
+    if(id && !byEvent.has(id)) byEvent.set(id, ev);
+  });
+  const ids = new Set();
+  (history || []).forEach(ev => { const id = cardIdKey(ev?.card_id); if(id) ids.add(id); });
+  (reviewRows || []).forEach(row => { const id = cardIdKey(row?.card_id); if(id) ids.add(id); });
+  const catalog = {};
+  ids.forEach(id => {
+    const card = cardMap.get(id) || {};
+    const ev = byEvent.get(id) || {};
+    const pub = cleanLabel(card.publicacao || card.cat || ev.publicacao, "");
+    const assunto = cleanLabel(card.assunto || card.topic || ev.assunto, "");
+    const diff = String(card.diff || "");
+    const src = cleanLabel(card.src || card.publicacao || ev.publicacao, "");
+    if(pub || assunto || diff || src) catalog[id] = [pub, assunto, diff, src];
+  });
+  return catalog;
+}
+function catalogInfoForCard(catalog, cardId){
+  const entry = catalog?.[cardIdKey(cardId)];
+  if(Array.isArray(entry)){
+    return { publicacao:entry[0] || "", assunto:entry[1] || "", diff:entry[2] || "", src:entry[3] || "" };
+  }
+  if(entry && typeof entry === "object"){
+    return { publicacao:entry.publicacao || entry.pub || "", assunto:entry.assunto || entry.topic || "", diff:entry.diff || "", src:entry.src || "" };
+  }
+  return { publicacao:"", assunto:"", diff:"", src:"" };
+}
+function compactHistoryEvent(ev){
+  const row = [cardIdKey(ev?.card_id), backupResultCode(ev?.result), String(ev?.ts || "")];
+  const key = String(ev?.logical_key || "").trim();
+  if(key) row.push(key);
+  return row;
+}
+function compactReviewRow(row){
+  const r = normalizeBackupReviewRow(row);
+  if(!r) return null;
+  return [
+    cardIdKey(r.card_id),
+    Number(r.acertos_seguidos || 0),
+    Number(r.intervalo_dias || 0),
+    r.proxima_revisao || null,
+    r.ultima_revisao || null,
+    backupResultCode(r.ultimo_resultado || ""),
+    Number(r.total_acertos || 0),
+    Number(r.total_erros || 0),
+    Number(r.total_dificeis || 0),
+    Number(r.total_pulos || 0),
+    r.updated_at || null
+  ];
+}
+function expandCompactHistoryRows(rows, catalog={}){
+  const cardMap = loadedCardMapForBackup();
+  return (rows || []).map(row => {
+    let card_id = "", result = "", ts = "", logical_key = "";
+    if(Array.isArray(row)){
+      card_id = row[0];
+      result = backupFullResult(row[1]);
+      ts = row[2];
+      logical_key = row[3] || "";
+    } else if(row && typeof row === "object"){
+      card_id = row.c || row.card_id || row.cardId;
+      result = backupFullResult(row.r || row.result || row.resultado);
+      ts = row.t || row.ts || row.created_at || row.updated_at;
+      logical_key = row.k || row.logical_key || row.study_key || row.card_key || "";
+    }
+    if(!card_id || !result || !ts) return null;
+    const idKey = cardIdKey(card_id);
+    const card = cardMap.get(idKey) || {};
+    const info = catalogInfoForCard(catalog, idKey);
+    return {
+      id: makeClientId(),
+      user_id: currentUser?.id || null,
+      card_id: idKey,
+      publicacao: cleanLabel(info.publicacao || card.publicacao || card.cat, "Geral"),
+      assunto: cleanLabel(info.assunto || card.assunto || card.topic, "Geral"),
+      logical_key: String(logical_key || (card.id ? studySessionKey(card) : "")).trim(),
+      result,
+      ts: String(ts)
+    };
+  }).filter(Boolean);
+}
+function expandCompactReviewRows(rows){
+  return (rows || []).map(row => {
+    if(Array.isArray(row)){
+      return {
+        card_id: cardIdKey(row[0]),
+        acertos_seguidos: Number(row[1] || 0),
+        intervalo_dias: Number(row[2] || 0),
+        proxima_revisao: row[3] || null,
+        ultima_revisao: row[4] || null,
+        ultimo_resultado: backupFullResult(row[5] || "") || null,
+        total_acertos: Number(row[6] || 0),
+        total_erros: Number(row[7] || 0),
+        total_dificeis: Number(row[8] || 0),
+        total_pulos: Number(row[9] || 0),
+        updated_at: row[10] || new Date().toISOString()
+      };
+    }
+    return row;
+  }).filter(Boolean);
+}
+function backupLooksCompactHistory(data, rows){
+  if(String(data?.format || "").toLowerCase().includes("compact")) return true;
+  if(Array.isArray(data?.h)) return true;
+  return Array.isArray(rows) && rows.some(Array.isArray);
+}
+function extractBackupHistoryRows(data){
+  if(Array.isArray(data)) return data;
+  const rawHistory = Array.isArray(data?.h) ? data.h : data?.history;
+  if(!Array.isArray(rawHistory)) throw new Error("Arquivo sem campo history válido.");
+  if(backupLooksCompactHistory(data, rawHistory)) return expandCompactHistoryRows(rawHistory, data?.catalog || data?.cards || {});
+  return rawHistory;
+}
+function extractBackupReviewRows(data){
+  const rawReview = Array.isArray(data?.rs) ? data.rs : (Array.isArray(data?.review_state) ? data.review_state : []);
+  if(!Array.isArray(rawReview)) return [];
+  if(String(data?.format || "").toLowerCase().includes("compact") || rawReview.some(Array.isArray)) return expandCompactReviewRows(rawReview);
+  return rawReview;
+}
+function buildFullHistoryPayload(){
+  return {
+    app:"FlashPratico",
+    version:3,
+    format:"full-v3",
+    exported_at:new Date().toISOString(),
+    history:getHistory(),
+    review_state:Array.from(REVIEW_STATE.values())
+  };
+}
+function buildCompactHistoryPayload(){
+  const history = getHistory();
+  const reviewRows = Array.from(REVIEW_STATE.values()).map(normalizeBackupReviewRow).filter(Boolean);
+  return {
+    app:"FlashPratico",
+    version:3,
+    format:"compact-v1",
+    exported_at:new Date().toISOString(),
+    schema:{
+      history:COMPACT_HISTORY_SCHEMA,
+      review_state:COMPACT_REVIEW_SCHEMA,
+      result_codes:{r:"right", w:"wrong", s:"skip", h:"hard"}
+    },
+    catalog:buildBackupCardCatalog(history, reviewRows),
+    history:history.map(compactHistoryEvent),
+    review_state:reviewRows.map(compactReviewRow).filter(Boolean)
+  };
+}
+function showBackupSizeEstimate(){
+  try{
+    const fullJson = JSON.stringify(buildFullHistoryPayload());
+    const compactJson = JSON.stringify(buildCompactHistoryPayload());
+    const full = new Blob([fullJson], {type:"application/json"}).size;
+    const compact = new Blob([compactJson], {type:"application/json"}).size;
+    const reduction = full ? Math.round((1 - compact/full) * 100) : 0;
+    showToast(`Backup compacto: ${formatBackupBytes(compact)}. Backup completo minificado: ${formatBackupBytes(full)}. Redução estimada: ${reduction}%.`, "info", 8000);
+  }catch(err){
+    console.error(err);
+    showToast("Não consegui estimar o tamanho do backup: " + (err.message || err), "error", 6000);
+  }
+}
+
 function parseFlashPraticoBackupText(text){
   const data = JSON.parse(text);
-  const rawHistory = Array.isArray(data) ? data : data.history;
+  const rawHistory = extractBackupHistoryRows(data);
   if(!Array.isArray(rawHistory)) throw new Error("Arquivo sem campo history válido.");
   const history = mergeHistoryEvents(rawHistory)
     .filter(ev => ev && ev.card_id && ev.result && ev.ts)
@@ -7351,7 +7557,7 @@ function parseFlashPraticoBackupText(text){
       card_id: String(ev.card_id)
     }));
   if(!history.length) throw new Error("O JSON não contém eventos de histórico válidos.");
-  const reviewState = Array.isArray(data?.review_state) ? data.review_state : [];
+  const reviewState = extractBackupReviewRows(data);
   return { data, history, reviewState };
 }
 
@@ -7547,22 +7753,15 @@ function restoreFullJsonBackup(event){
 }
 
 function exportHistory(){
-  const payload = {
-    app:"FlashPratico",
-    version:2,
-    exported_at:new Date().toISOString(),
-    history:getHistory(),
-    review_state:Array.from(REVIEW_STATE.values())
-  };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = "flashpratico_historico.json";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  URL.revokeObjectURL(url);
+  const payload = buildCompactHistoryPayload();
+  const size = downloadJsonPayload(payload, `flashpratico_backup_compacto_${backupDateStamp()}.json`, false);
+  showToast(`Backup compacto exportado (${formatBackupBytes(size)}). O importador desta versão também aceita backups antigos.`, "success", 6500);
+}
+
+function exportFullHistory(){
+  const payload = buildFullHistoryPayload();
+  const size = downloadJsonPayload(payload, `flashpratico_backup_completo_${backupDateStamp()}.json`, false);
+  showToast(`Backup completo exportado (${formatBackupBytes(size)}). Use este formato apenas para emergência/auditoria máxima.`, "success", 6500);
 }
 
 function importHistory(event){
@@ -7571,10 +7770,8 @@ function importHistory(event){
   const reader = new FileReader();
   reader.onload = async () => {
     try{
-      const data = JSON.parse(reader.result);
-      const incoming = Array.isArray(data) ? data : data.history;
-      if(!Array.isArray(incoming)) throw new Error("Formato inválido");
-      const clean = mergeHistoryEvents(incoming.filter(e => e && e.card_id && e.result && e.ts));
+      const { data, history, reviewState } = parseFlashPraticoBackupText(reader.result);
+      const clean = history;
       if(!clean.length) throw new Error("O JSON não contém eventos válidos.");
 
       // A importação comum agora também restaura localmente primeiro.
@@ -7582,7 +7779,7 @@ function importHistory(event){
       const localMerged = mergeHistoryEvents(getHistory(), clean.map(e => ({...e, user_id: currentUser?.id || e.user_id || null})));
       ONLINE_HISTORY = localMerged;
       writeLocalCardHistory(localMerged, { reason:"json-merge-import" });
-      if(Array.isArray(data?.review_state)) applyReviewStateBackup(data.review_state, false);
+      if(Array.isArray(reviewState) && reviewState.length) applyReviewStateBackup(reviewState, false);
       saveGoalSnapshotFromEvents(localMerged);
       refreshAfterHistoryRestore();
 
