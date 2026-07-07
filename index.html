@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v62 - importantes</title>
-<!-- versão v62: botão estrela + aba Importantes com regra do Programado + proteção de histórico/meta/streak -->
+<title>Flashcards — Praticagem v63 - sem barra modo</title>
+<!-- versão v63: remove barra visual "Modo" mantendo lógica do Programado, Importantes, meta e histórico -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -727,6 +727,128 @@
   }
 
 
+  /* v63: remove a barra visual "Modo", mantendo o elemento no DOM para o JavaScript. */
+  #study-title { display: none !important; }
+
+
+  /* ZOOM UNIVERSAL DE IMAGENS DOS FLASHCARDS */
+  .card-img,
+  .answer-text img,
+  .answer-card-img,
+  .auto-quiz-photo-wrap img {
+    cursor: zoom-in;
+  }
+  .image-zoom-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 22000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+    background: rgba(0,0,0,.86);
+  }
+  .image-zoom-backdrop.show { display: flex; }
+  .image-zoom-modal {
+    width: min(1180px, 100%);
+    height: min(94dvh, 940px);
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 18px;
+    overflow: hidden;
+    box-shadow: 0 24px 90px rgba(0,0,0,.65);
+    display: flex;
+    flex-direction: column;
+  }
+  .image-zoom-head {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .image-zoom-title {
+    min-width: 0;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 900;
+    line-height: 1.35;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .image-zoom-controls {
+    flex: 0 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .image-zoom-btn {
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+    color: var(--text);
+    min-width: 36px;
+    height: 34px;
+    border-radius: 11px;
+    font-size: 14px;
+    font-weight: 950;
+    cursor: pointer;
+  }
+  .image-zoom-btn:active { transform: scale(.96); }
+  .image-zoom-close { font-size: 22px; line-height: 1; }
+  .image-zoom-body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow: hidden;
+    background: #101010;
+    position: relative;
+    touch-action: none;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .image-zoom-body img {
+    max-width: 96%;
+    max-height: 96%;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    background: #fff;
+    border-radius: 10px;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+    transform-origin: center center;
+    cursor: grab;
+    will-change: transform;
+  }
+  .image-zoom-body img.dragging { cursor: grabbing; }
+  .image-zoom-help {
+    position: absolute;
+    left: 50%;
+    bottom: 10px;
+    transform: translateX(-50%);
+    color: rgba(255,255,255,.78);
+    background: rgba(0,0,0,.42);
+    border: 1px solid rgba(255,255,255,.14);
+    border-radius: 999px;
+    padding: 5px 10px;
+    font-size: 11px;
+    font-weight: 800;
+    pointer-events: none;
+    white-space: nowrap;
+  }
+  @media (max-width: 620px) {
+    .image-zoom-backdrop { padding: 7px; }
+    .image-zoom-modal { height: 95dvh; border-radius: 14px; }
+    .image-zoom-head { padding: 8px; }
+    .image-zoom-title { font-size: 11px; }
+    .image-zoom-btn { min-width: 34px; height: 32px; }
+    .image-zoom-help { font-size: 10px; max-width: 92%; overflow:hidden; text-overflow:ellipsis; }
+  }
+
 </style>
 </head>
 <body>
@@ -1155,6 +1277,28 @@
       </div>
     </div>
   </div>
+
+
+
+  <!-- UNIVERSAL IMAGE ZOOM MODAL -->
+  <div class="image-zoom-backdrop" id="image-zoom-backdrop" onclick="closeImageZoomModal(event)">
+    <div class="image-zoom-modal" role="dialog" aria-modal="true" aria-labelledby="image-zoom-title" onclick="event.stopPropagation()">
+      <div class="image-zoom-head">
+        <div class="image-zoom-title" id="image-zoom-title">Imagem</div>
+        <div class="image-zoom-controls">
+          <button class="image-zoom-btn" type="button" onclick="zoomImageModal(-0.25, event)" aria-label="Diminuir zoom">−</button>
+          <button class="image-zoom-btn" type="button" onclick="resetImageZoom(event)" aria-label="Resetar zoom">100%</button>
+          <button class="image-zoom-btn" type="button" onclick="zoomImageModal(0.25, event)" aria-label="Aumentar zoom">+</button>
+          <button class="image-zoom-btn image-zoom-close" type="button" onclick="closeImageZoomModal(event)" aria-label="Fechar">×</button>
+        </div>
+      </div>
+      <div class="image-zoom-body" id="image-zoom-body">
+        <img id="image-zoom-img" alt="Imagem ampliada" draggable="false">
+        <div class="image-zoom-help">Use +/−, duplo clique, arraste ou faça pinça para dar zoom</div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- COMPARE MODAL -->
   <div class="compare-modal-backdrop" id="compare-modal-backdrop" onclick="closeCompareModal(event)">
@@ -4128,27 +4272,237 @@ function showQuestionCard(){
   if(source) source.textContent = `${q.fonte || "PDF"} · ${q.assunto} · questão ${q.numero}`;
 }
 
-function openQuestionImageModal(event){
-  if(event) event.stopPropagation();
-  const q = questionDeck[questionIdx];
-  if(!q || !q.imagem_questao) return;
-  const backdrop = document.getElementById("q-img-modal-backdrop");
-  const img = document.getElementById("q-img-modal-img");
-  const title = document.getElementById("q-img-modal-title");
+
+
+// Zoom universal para imagens de flashcards, questões e imagens embutidas em respostas.
+const IMAGE_ZOOM = {
+  scale: 1,
+  x: 0,
+  y: 0,
+  dragging: false,
+  lastX: 0,
+  lastY: 0,
+  pointers: new Map(),
+  pinchStartDistance: 0,
+  pinchStartScale: 1
+};
+
+function clampNumber(value, min, max){
+  const n = Number(value);
+  if(!Number.isFinite(n)) return min;
+  return Math.max(min, Math.min(max, n));
+}
+
+function imageZoomElements(){
+  return {
+    backdrop: document.getElementById("image-zoom-backdrop"),
+    body: document.getElementById("image-zoom-body"),
+    img: document.getElementById("image-zoom-img"),
+    title: document.getElementById("image-zoom-title")
+  };
+}
+
+function updateImageZoomTransform(){
+  const { img } = imageZoomElements();
+  if(!img) return;
+  img.style.transform = `translate(${IMAGE_ZOOM.x}px, ${IMAGE_ZOOM.y}px) scale(${IMAGE_ZOOM.scale})`;
+}
+
+function resetImageZoom(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  IMAGE_ZOOM.scale = 1;
+  IMAGE_ZOOM.x = 0;
+  IMAGE_ZOOM.y = 0;
+  updateImageZoomTransform();
+}
+
+function zoomImageModal(delta, event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const next = clampNumber(IMAGE_ZOOM.scale + Number(delta || 0), 0.5, 6);
+  if(next <= 1.01){
+    IMAGE_ZOOM.scale = 1;
+    IMAGE_ZOOM.x = 0;
+    IMAGE_ZOOM.y = 0;
+  } else {
+    IMAGE_ZOOM.scale = next;
+  }
+  updateImageZoomTransform();
+}
+
+function setImageZoomScale(nextScale){
+  const next = clampNumber(nextScale, 0.5, 6);
+  if(next <= 1.01){
+    IMAGE_ZOOM.scale = 1;
+    IMAGE_ZOOM.x = 0;
+    IMAGE_ZOOM.y = 0;
+  } else {
+    IMAGE_ZOOM.scale = next;
+  }
+  updateImageZoomTransform();
+}
+
+function openImageZoomModalFromSrc(src, title="Imagem", alt="Imagem ampliada"){
+  const url = String(src || "").trim();
+  if(!url) return;
+  const { backdrop, img, title: titleEl } = imageZoomElements();
   if(!backdrop || !img) return;
-  img.src = q.imagem_questao;
-  img.alt = `Imagem ampliada da questão ${q.numero}`;
-  if(title) title.textContent = `${q.assunto} · Questão ${q.numero}`;
+  img.src = url;
+  img.alt = alt || title || "Imagem ampliada";
+  if(titleEl) titleEl.textContent = title || "Imagem";
+  IMAGE_ZOOM.pointers.clear();
+  IMAGE_ZOOM.dragging = false;
+  img.classList.remove("dragging");
+  resetImageZoom();
   backdrop.classList.add("show");
   document.body.style.overflow = "hidden";
 }
+
+function openImageZoomModal(event, title){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const img = event?.currentTarget || event?.target;
+  if(!img) return;
+  const src = img.currentSrc || img.src || img.getAttribute("src") || "";
+  const label = title || img.getAttribute("data-zoom-title") || img.getAttribute("alt") || img.getAttribute("title") || "Imagem";
+  openImageZoomModalFromSrc(src, label, img.getAttribute("alt") || label);
+}
+
+function closeImageZoomModal(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const { backdrop, img } = imageZoomElements();
+  if(backdrop) backdrop.classList.remove("show");
+  if(img){
+    img.removeAttribute("src");
+    img.classList.remove("dragging");
+  }
+  IMAGE_ZOOM.pointers.clear();
+  IMAGE_ZOOM.dragging = false;
+  document.body.style.overflow = "";
+}
+
+function prepareZoomableImages(root, defaultTitle="Imagem do flashcard"){
+  if(!root) return;
+  const imgs = root.matches && root.matches("img") ? [root] : Array.from(root.querySelectorAll ? root.querySelectorAll("img") : []);
+  imgs.forEach(img => {
+    if(!img) return;
+    img.classList.add("zoomable-image");
+    img.style.cursor = "zoom-in";
+    if(!img.getAttribute("title")) img.setAttribute("title", "Clique para ampliar");
+    if(!img.getAttribute("data-zoom-title")) img.setAttribute("data-zoom-title", img.getAttribute("alt") || defaultTitle || "Imagem");
+    img.onclick = function(ev){ openImageZoomModal(ev, img.getAttribute("data-zoom-title") || defaultTitle); };
+  });
+}
+
+function imageZoomPointerDistance(){
+  const pts = Array.from(IMAGE_ZOOM.pointers.values());
+  if(pts.length < 2) return 0;
+  const dx = pts[0].clientX - pts[1].clientX;
+  const dy = pts[0].clientY - pts[1].clientY;
+  return Math.hypot(dx, dy);
+}
+
+function setupImageZoomInteractions(){
+  const { backdrop, body, img } = imageZoomElements();
+  if(!backdrop || !body || !img || window.__flashImageZoomReady) return;
+  window.__flashImageZoomReady = true;
+
+  body.addEventListener("wheel", function(ev){
+    if(!backdrop.classList.contains("show")) return;
+    ev.preventDefault();
+    const delta = ev.deltaY < 0 ? 0.25 : -0.25;
+    zoomImageModal(delta, ev);
+  }, { passive:false });
+
+  body.addEventListener("dblclick", function(ev){
+    if(!backdrop.classList.contains("show")) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if(IMAGE_ZOOM.scale > 1.01) resetImageZoom();
+    else setImageZoomScale(2);
+  });
+
+  body.addEventListener("pointerdown", function(ev){
+    if(!backdrop.classList.contains("show")) return;
+    ev.preventDefault();
+    body.setPointerCapture?.(ev.pointerId);
+    IMAGE_ZOOM.pointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY });
+    if(IMAGE_ZOOM.pointers.size === 2){
+      IMAGE_ZOOM.pinchStartDistance = imageZoomPointerDistance();
+      IMAGE_ZOOM.pinchStartScale = IMAGE_ZOOM.scale;
+      IMAGE_ZOOM.dragging = false;
+      img.classList.remove("dragging");
+      return;
+    }
+    IMAGE_ZOOM.dragging = true;
+    IMAGE_ZOOM.lastX = ev.clientX;
+    IMAGE_ZOOM.lastY = ev.clientY;
+    img.classList.add("dragging");
+  });
+
+  body.addEventListener("pointermove", function(ev){
+    if(!backdrop.classList.contains("show")) return;
+    if(!IMAGE_ZOOM.pointers.has(ev.pointerId)) return;
+    ev.preventDefault();
+    IMAGE_ZOOM.pointers.set(ev.pointerId, { clientX: ev.clientX, clientY: ev.clientY });
+    if(IMAGE_ZOOM.pointers.size >= 2){
+      const dist = imageZoomPointerDistance();
+      if(IMAGE_ZOOM.pinchStartDistance > 0){
+        setImageZoomScale(IMAGE_ZOOM.pinchStartScale * (dist / IMAGE_ZOOM.pinchStartDistance));
+      }
+      return;
+    }
+    if(!IMAGE_ZOOM.dragging || IMAGE_ZOOM.scale <= 1.01) return;
+    IMAGE_ZOOM.x += ev.clientX - IMAGE_ZOOM.lastX;
+    IMAGE_ZOOM.y += ev.clientY - IMAGE_ZOOM.lastY;
+    IMAGE_ZOOM.lastX = ev.clientX;
+    IMAGE_ZOOM.lastY = ev.clientY;
+    updateImageZoomTransform();
+  });
+
+  function endPointer(ev){
+    IMAGE_ZOOM.pointers.delete(ev.pointerId);
+    if(IMAGE_ZOOM.pointers.size < 2){
+      IMAGE_ZOOM.pinchStartDistance = 0;
+      IMAGE_ZOOM.pinchStartScale = IMAGE_ZOOM.scale;
+    }
+    if(IMAGE_ZOOM.pointers.size === 0){
+      IMAGE_ZOOM.dragging = false;
+      img.classList.remove("dragging");
+    }
+  }
+  body.addEventListener("pointerup", endPointer);
+  body.addEventListener("pointercancel", endPointer);
+  body.addEventListener("pointerleave", function(ev){
+    if(IMAGE_ZOOM.pointers.has(ev.pointerId)) endPointer(ev);
+  });
+
+  document.addEventListener("keydown", function(ev){
+    if(!backdrop.classList.contains("show")) return;
+    if(ev.key === "Escape") closeImageZoomModal(ev);
+    else if(ev.key === "+" || ev.key === "=") zoomImageModal(0.25, ev);
+    else if(ev.key === "-") zoomImageModal(-0.25, ev);
+    else if(ev.key === "0") resetImageZoom(ev);
+  });
+}
+
+if(document.readyState === "loading"){
+  document.addEventListener("DOMContentLoaded", setupImageZoomInteractions);
+} else {
+  setupImageZoomInteractions();
+}
+
+function openQuestionImageModal(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const q = questionDeck[questionIdx];
+  if(!q || !q.imagem_questao) return;
+  openImageZoomModalFromSrc(q.imagem_questao, `${q.assunto} · Questão ${q.numero}`, `Imagem da questão ${q.numero}`);
+}
 function closeQuestionImageModal(event){
-  if(event) event.stopPropagation();
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  closeImageZoomModal(event);
   const backdrop = document.getElementById("q-img-modal-backdrop");
   const img = document.getElementById("q-img-modal-img");
   if(backdrop) backdrop.classList.remove("show");
   if(img) img.removeAttribute("src");
-  document.body.style.overflow = "";
 }
 if(!window.__questionImageZoomKeyHandler){
   window.__questionImageZoomKeyHandler = true;
@@ -6499,6 +6853,9 @@ function setCardImage(prefix, url, caption){
   if(url){
     img.src = url;
     img.alt = caption || "Imagem do flashcard";
+    img.title = "Clique para ampliar";
+    img.setAttribute("data-zoom-title", caption || (prefix === "q" ? "Imagem da pergunta" : "Imagem da resposta"));
+    img.onclick = function(ev){ openImageZoomModal(ev, img.getAttribute("data-zoom-title") || "Imagem do flashcard"); };
     wrap.style.display = "flex";
     if(cap){
       cap.textContent = caption || "";
@@ -6506,6 +6863,9 @@ function setCardImage(prefix, url, caption){
     }
   } else {
     img.removeAttribute("src");
+    img.removeAttribute("title");
+    img.removeAttribute("data-zoom-title");
+    img.onclick = null;
     img.alt = "";
     wrap.style.display = "none";
     if(cap){ cap.textContent = ""; cap.style.display = "none"; }
@@ -6733,6 +7093,7 @@ function setFormattedAnswer(elementId, raw){
   if(!el) return;
   el.innerHTML = formatFlashcardAnswerHTML(raw);
   el.classList.add("formatted-answer");
+  prepareZoomableImages(el, "Imagem da resposta");
 }
 
 function plainTextFromHtml(raw){
@@ -6913,7 +7274,8 @@ function renderAutoQuiz(quiz){
   if(feedback) feedback.textContent = "";
   if(photoWrap){
     photoWrap.classList.remove("show");
-    photoWrap.innerHTML = quiz.images.map(src => `<img src="${escapeHtml(src)}" alt="Imagem do flashcard">`).join("");
+    photoWrap.innerHTML = quiz.images.map(src => `<img src="${escapeHtml(src)}" alt="Imagem do flashcard" data-zoom-title="Imagem do flashcard">`).join("");
+    prepareZoomableImages(photoWrap, "Imagem do flashcard");
   }
   if(photoBtn) photoBtn.style.display = quiz.images.length ? "inline-flex" : "none";
 }
