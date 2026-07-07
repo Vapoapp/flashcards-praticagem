@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Flashcards — Praticagem v63 - sem barra modo</title>
-<!-- versão v63: remove barra visual "Modo" mantendo lógica do Programado, Importantes, meta e histórico -->
+<!-- versão v66: Importantes auditado com sincronização por tabela, deduplicação e diagnóstico + zoom de imagens + sem barra visual Modo -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -1062,6 +1062,8 @@
         </div>
         <div class="db-actions">
           <button class="mini-btn sync-now-btn" id="sync-now-btn" onclick="forceSyncNow()">Sincronizar agora</button>
+          <button class="mini-btn" onclick="syncImportantNow()">Sincronizar importantes</button>
+          <button class="mini-btn" onclick="diagnoseImportantSync()">Diagnóstico importantes</button>
           <button class="mini-btn" onclick="renderSyncPanel()">Atualizar painel</button>
           <button class="mini-btn" onclick="showOrphanCardEvents()">Ver órfãos</button>
           <button class="mini-btn danger-btn" onclick="clearOrphanCardSync()">Limpar órfãos</button>
@@ -1393,6 +1395,10 @@ const CARD_HISTORY_LAST_GOOD_KEY = "flashpratico_history_last_good_v1";
 const CARD_HISTORY_RESET_MARK_KEY = "flashpratico_history_reset_marker_v1";
 const GOAL_SNAPSHOT_KEY = "flashpratico_goal_snapshot_v1";
 const IMPORTANT_CARDS_KEY = "flashpratico_important_cards_v1";
+const IMPORTANT_CARDS_LAST_GOOD_KEY = "flashpratico_important_cards_last_good_v1";
+const IMPORTANT_PENDING_SYNC_KEY = "flashpratico_important_pending_sync_v1";
+const IMPORTANT_AUTH_METADATA_KEY = "flashpratico_important_cards";
+const IMPORTANT_AUTH_METADATA_UPDATED_KEY = "flashpratico_important_cards_updated_at";
 const CARD_PENDING_SYNC_KEY = "flashpratico_card_pending_sync_v1";
 const CARD_ORPHAN_SYNC_KEY = "flashpratico_card_orphan_sync_v1";
 let LAST_SYNC_AT = null;
@@ -1427,6 +1433,7 @@ let ARCHIVED_CARDS = new Set();
 let IMPORTANT_CARDS = new Set();
 let ARCHIVE_TABLE_READY = true;
 let IMPORTANT_TABLE_READY = true;
+let IMPORTANT_SYNC_BUSY = false;
 let REVIEW_TABLE_READY = true;
 let isOnlineMode = true;
 const MIN_SAMPLE = 5;
@@ -1765,22 +1772,153 @@ function isArchived(card){ return ARCHIVED_CARDS.has(card.id); }
 function visibleCards(cards = CARDS){ return cards.filter(c => !isArchived(c)); }
 function archivedCards(){ return CARDS.filter(c => isArchived(c)); }
 function importantStorageKey(){ return currentUser?.id ? `${IMPORTANT_CARDS_KEY}_${currentUser.id}` : IMPORTANT_CARDS_KEY; }
-function readLocalImportantCards(){
+function importantLastGoodStorageKey(){ return currentUser?.id ? `${IMPORTANT_CARDS_LAST_GOOD_KEY}_${currentUser.id}` : IMPORTANT_CARDS_LAST_GOOD_KEY; }
+function importantPendingStorageKey(){ return currentUser?.id ? `${IMPORTANT_PENDING_SYNC_KEY}_${currentUser.id}` : IMPORTANT_PENDING_SYNC_KEY; }
+function normalizeImportantId(value){
+  // v66: aceitar todos os formatos que apareceram nas versões anteriores,
+  // no backup e na tabela: string, card, row {card_id}, row compacto {c}.
+  if(value && typeof value === "object"){
+    const candidate = value.card_id ?? value.cardId ?? value.id ?? value.c ?? value.key ?? "";
+    return cardIdKey(candidate).trim();
+  }
+  return cardIdKey(value).trim();
+}
+function importantSetFromValue(value){
+  const ids = new Set();
+  const add = v => { const id = normalizeImportantId(v); if(id) ids.add(id); };
+  if(Array.isArray(value)) value.forEach(add);
+  else if(value instanceof Set) value.forEach(add);
+  else if(value && typeof value === "object"){
+    if(value.card_id || value.cardId || value.id || value.c) add(value);
+    else if(Array.isArray(value.ids)) value.ids.forEach(add);
+    else if(Array.isArray(value.cards)) value.cards.forEach(add);
+    else Object.keys(value).forEach(k => { if(value[k]) add(k); });
+  }
+  else add(value);
+  return ids;
+}
+function readImportantSetFromStorage(key){
   try{
-    const raw = localStorage.getItem(importantStorageKey());
-    const arr = JSON.parse(raw || "[]");
-    return new Set(Array.isArray(arr) ? arr.map(String).filter(Boolean) : []);
+    const raw = localStorage.getItem(key);
+    if(raw === null) return { exists:false, set:new Set() };
+    return { exists:true, set:importantSetFromValue(JSON.parse(raw || "[]")) };
   }catch(error){
     console.warn("Não foi possível ler importantes locais:", error);
-    return new Set();
+    return { exists:false, set:new Set() };
   }
 }
-function writeLocalImportantCards(){
-  try{ localStorage.setItem(importantStorageKey(), JSON.stringify([...IMPORTANT_CARDS])); }
-  catch(error){ console.warn("Não foi possível salvar importantes locais:", error); }
+function mergeImportantSets(...sets){
+  const out = new Set();
+  sets.forEach(set => importantSetFromValue(set).forEach(id => out.add(id)));
+  return out;
+}
+function importantIdsFromUserMetadata(user=currentUser){
+  const meta = user?.user_metadata || {};
+  return mergeImportantSets(meta[IMPORTANT_AUTH_METADATA_KEY], meta.flashpratico_importantes, meta.important_cards);
+}
+function importantTimestampMs(ts){
+  const n = Date.parse(ts || "");
+  return Number.isFinite(n) ? n : 0;
+}
+function putImportantState(map, cardId, marked=true, updated_at="1970-01-01T00:00:00.000Z", source="local", priority=0){
+  const id = normalizeImportantId(cardId);
+  if(!id) return map;
+  const ms = importantTimestampMs(updated_at);
+  const prev = map.get(id);
+  if(!prev || ms > prev.ms || (ms === prev.ms && priority >= prev.priority)){
+    map.set(id, { id, marked:!!marked, updated_at:updated_at || null, ms, source, priority });
+  }
+  return map;
+}
+function importantStateMapFromIds(ids, source="local", updated_at="1970-01-01T00:00:00.000Z", priority=0){
+  const map = new Map();
+  importantSetFromValue(ids).forEach(id => putImportantState(map, id, true, updated_at, source, priority));
+  return map;
+}
+function mergeImportantStateMaps(...maps){
+  const out = new Map();
+  maps.forEach(map => {
+    if(!map) return;
+    if(map instanceof Map) map.forEach(row => putImportantState(out, row.id, row.marked, row.updated_at, row.source, row.priority));
+    else importantSetFromValue(map).forEach(id => putImportantState(out, id, true, "1970-01-01T00:00:00.000Z", "set", 0));
+  });
+  return out;
+}
+function importantSetFromStateMap(map){
+  const out = new Set();
+  (map || new Map()).forEach(row => { if(row?.marked) out.add(row.id); });
+  return out;
+}
+function readLocalImportantCards(){
+  const current = readImportantSetFromStorage(importantStorageKey());
+  const lastGood = readImportantSetFromStorage(importantLastGoodStorageKey());
+  const legacy = currentUser?.id ? readImportantSetFromStorage(IMPORTANT_CARDS_KEY) : { exists:false, set:new Set() };
+
+  // Segurança: se já existe chave local desta conta, ela prevalece sobre o backup antigo.
+  // Se a chave local não existe, recupera de lastGood e da chave global de versões antigas.
+  const base = current.exists ? current.set : mergeImportantSets(lastGood.set, legacy.set);
+  return mergeImportantSets(base, importantIdsFromUserMetadata());
+}
+function writeLocalImportantCards(options={}){
+  try{
+    const ids = [...IMPORTANT_CARDS].map(normalizeImportantId).filter(Boolean);
+    localStorage.setItem(importantStorageKey(), JSON.stringify(ids));
+    if(ids.length || options.allowEmptyLastGood) localStorage.setItem(importantLastGoodStorageKey(), JSON.stringify(ids));
+  }catch(error){ console.warn("Não foi possível salvar importantes locais:", error); }
+}
+function readImportantPendingOps(){
+  try{
+    const raw = localStorage.getItem(importantPendingStorageKey());
+    const arr = JSON.parse(raw || "[]");
+    if(!Array.isArray(arr)) return [];
+    return readImportantPendingOpsFromArray(arr);
+  }catch(error){
+    console.warn("Não foi possível ler pendências de importantes:", error);
+    return [];
+  }
+}
+function writeImportantPendingOps(ops){
+  try{
+    localStorage.setItem(importantPendingStorageKey(), JSON.stringify(readImportantPendingOpsFromArray(ops)));
+    invalidateSyncSummaryCache();
+  }catch(error){ console.warn("Não foi possível salvar pendências de importantes:", error); }
+}
+function readImportantPendingOpsFromArray(ops){
+  const byCard = new Map();
+  (Array.isArray(ops) ? ops : []).forEach(op => {
+    const card_id = normalizeImportantId(op?.card_id || op?.cardId || op?.id || op?.c);
+    if(!card_id) return;
+    const clean = { id:String(op?.event_id || op?.op_id || op?.id || makeClientId()), card_id, marked:!!op?.marked, updated_at:op?.updated_at || op?.ts || new Date().toISOString() };
+    const prev = byCard.get(card_id);
+    if(!prev || importantTimestampMs(clean.updated_at) >= importantTimestampMs(prev.updated_at)) byCard.set(card_id, clean);
+  });
+  return [...byCard.values()].sort((a,b) => importantTimestampMs(a.updated_at) - importantTimestampMs(b.updated_at));
+}
+function queueImportantSync(card_id, marked, updated_at=new Date().toISOString()){
+  const id = normalizeImportantId(card_id);
+  if(!id) return null;
+  const ops = readImportantPendingOps().filter(op => op.card_id !== id);
+  const op = { event_id:makeClientId(), card_id:id, marked:!!marked, updated_at };
+  ops.push(op);
+  writeImportantPendingOps(ops);
+  return op;
+}
+function clearImportantPendingOp(card_id){
+  const id = normalizeImportantId(card_id);
+  if(!id) return;
+  writeImportantPendingOps(readImportantPendingOps().filter(op => op.card_id !== id));
+}
+function importantPendingStateMap(){
+  const map = new Map();
+  readImportantPendingOps().forEach(op => putImportantState(map, op.card_id, op.marked, op.updated_at, "pending", 100));
+  return map;
+}
+function applyImportantPendingToSet(set){
+  const state = mergeImportantStateMaps(importantStateMapFromIds(set, "local", "1970-01-01T00:00:00.000Z", 0), importantPendingStateMap());
+  return importantSetFromStateMap(state);
 }
 function isImportantCard(card){
-  const id = cardIdKey(card);
+  const id = normalizeImportantId(card);
   return !!id && IMPORTANT_CARDS.has(id);
 }
 function importantCards(){ return visibleCards(CARDS).filter(isImportantCard); }
@@ -2019,10 +2157,11 @@ function syncSummary(){
   const orphanCardPending = orphanCardSyncCount();
   const cardPending = queuedCardPending + missingCardPending;
   const questionPending = localQuestionPendingCount();
+  const importantPending = readImportantPendingOps().length;
   const localCards = readLocalCardHistory().length;
   const localQuestions = readLocalQuestionResponses().length;
-  const totalPending = cardPending + questionPending;
-  const result = { cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, totalPending, localCards, localQuestions, localTotal: localCards + localQuestions };
+  const totalPending = cardPending + questionPending + importantPending;
+  const result = { cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, importantPending, totalPending, localCards, localQuestions, localTotal: localCards + localQuestions };
   SYNC_SUMMARY_CACHE = result;
   SYNC_SUMMARY_CACHE_AT = now;
   return result;
@@ -2060,9 +2199,10 @@ function renderSyncPanel(){
   if(msg){
     const last = LAST_SYNC_AT ? ` Última sincronização: ${LAST_SYNC_AT.toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit", second:"2-digit"})}.` : "";
     const details = summary.missingCardPending ? ` ${summary.missingCardPending} flashcard(s) antigo(s) salvo(s) localmente ainda não constam no Supabase.` : "";
+    const important = summary.importantPending ? ` ${summary.importantPending} marcação(ões) de importante aguardam sincronização.` : "";
     const orphan = summary.orphanCardPending ? ` ${summary.orphanCardPending} evento(s) local(is) referem-se a cards que não existem mais na tabela cards; eles continuam contando na meta local, mas não podem subir para a tabela respostas por causa da chave estrangeira.` : "";
     msg.textContent = summary.totalPending
-      ? `Há respostas salvas neste aparelho aguardando envio.${details}${orphan}${last}`
+      ? `Há dados salvos neste aparelho aguardando envio.${details}${important}${orphan}${last}`
       : `Nenhuma pendência local detectada.${orphan}${last}`;
   }
 }
@@ -6489,56 +6629,247 @@ function updateImportantButtons(card){
   });
 }
 
-async function loadImportantFromSupabase(){
-  IMPORTANT_CARDS = readLocalImportantCards();
-  IMPORTANT_TABLE_READY = true;
-  renderImportantTabCount();
-  if(!(isOnlineMode && currentUser && supabaseClient)) return;
-  setSyncStatus("carregando importantes...");
-  let query = supabaseClient
-    .from("flashcard_importantes")
-    .select("user_id, card_id, marked_at")
-    .order("marked_at", { ascending:false });
-  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
-  const { data, error } = await query;
-  if(error){
-    console.warn("Tabela de importantes ainda não disponível:", error);
+async function refreshImportantUserMetadata(){
+  if(!supabaseClient || !currentUser?.id) return new Set();
+  try{
+    const { data, error } = await supabaseClient.auth.getUser();
+    if(error) throw error;
+    if(data?.user) currentUser = data.user;
+    return importantIdsFromUserMetadata(currentUser);
+  }catch(error){
+    console.warn("Não consegui carregar importantes do Supabase Auth:", error);
+    return importantIdsFromUserMetadata(currentUser);
+  }
+}
+async function syncImportantUserMetadata(){
+  if(!supabaseClient || !currentUser?.id) return false;
+  const ids = [...IMPORTANT_CARDS].map(normalizeImportantId).filter(Boolean);
+  const { data, error } = await supabaseClient.auth.updateUser({
+    data: {
+      [IMPORTANT_AUTH_METADATA_KEY]: ids,
+      [IMPORTANT_AUTH_METADATA_UPDATED_KEY]: new Date().toISOString()
+    }
+  });
+  if(error) throw error;
+  if(data?.user) currentUser = data.user;
+  return true;
+}
+function remoteImportantStateMapFromRows(rows){
+  const map = new Map();
+  (rows || []).forEach(row => {
+    const id = normalizeImportantId(row?.card_id || row?.cardId || row?.id);
+    if(!id) return;
+    const hasMarked = Object.prototype.hasOwnProperty.call(row || {}, "marked");
+    const marked = !hasMarked || row.marked !== false;
+    const ts = row?.updated_at || row?.marked_at || row?.created_at || "1970-01-01T00:00:00.000Z";
+    putImportantState(map, id, marked, ts, "table", 20);
+  });
+  return map;
+}
+function remoteImportantSetFromRows(rows){
+  return importantSetFromStateMap(remoteImportantStateMapFromRows(rows));
+}
+async function fetchImportantRowsFromSupabase(){
+  return await fetchSupabasePages((from, to) => {
+    let query = supabaseClient
+      .from("flashcard_importantes")
+      .select("user_id,card_id,marked,marked_at,updated_at")
+      .order("updated_at", { ascending:false, nullsFirst:false })
+      .range(from, to);
+    if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+    return query;
+  }, 1000, 50000);
+}
+async function syncImportantOpToSupabase(op){
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return false;
+  const card_id = normalizeImportantId(op?.card_id || op?.cardId || op?.id);
+  if(!card_id) return true;
+  const ts = op.updated_at || op.ts || new Date().toISOString();
+  try{
+    const { error } = await supabaseClient
+      .from("flashcard_importantes")
+      .upsert({
+        user_id: currentUser.id,
+        card_id,
+        marked: !!op.marked,
+        marked_at: op.marked ? ts : null,
+        updated_at: ts
+      }, { onConflict:"user_id,card_id" });
+    if(error) throw error;
+    IMPORTANT_TABLE_READY = true;
+    return true;
+  }catch(modernError){
+    console.warn("Não foi possível sincronizar importante na tabela flashcard_importantes:", modernError);
     IMPORTANT_TABLE_READY = false;
-    setSyncStatus("Importantes salvos localmente. Rode a migração de importantes no Supabase para sincronizar entre aparelhos.");
-    renderImportantTabCount();
+    return false;
+  }
+}
+async function syncImportantPendingToSupabase(){
+  const pending = readImportantPendingOps();
+  if(!pending.length) return { synced:0, skipped:0 };
+  let synced = 0, skipped = 0;
+  for(const op of pending){
+    const ok = await syncImportantOpToSupabase(op);
+    if(ok){ clearImportantPendingOp(op.card_id); synced++; }
+    else skipped++;
+  }
+  renderSyncPanel();
+  return { synced, skipped };
+}
+async function syncImportantMissingToSupabase(remoteState=new Map()){
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return 0;
+  let sent = 0;
+  for(const id of IMPORTANT_CARDS){
+    const remote = remoteState.get(id);
+    if(remote?.marked) continue;
+    const ok = await syncImportantOpToSupabase({ card_id:id, marked:true, updated_at:new Date().toISOString() });
+    if(ok) sent++;
+  }
+  return sent;
+}
+function buildImportantLocalStateMap(){
+  const current = readImportantSetFromStorage(importantStorageKey());
+  const lastGood = readImportantSetFromStorage(importantLastGoodStorageKey());
+  const legacy = currentUser?.id ? readImportantSetFromStorage(IMPORTANT_CARDS_KEY) : { exists:false, set:new Set() };
+  const base = current.exists ? current.set : mergeImportantSets(lastGood.set, legacy.set);
+  return mergeImportantStateMaps(
+    importantStateMapFromIds(base, "local", "1970-01-01T00:00:00.000Z", 0),
+    importantStateMapFromIds(importantIdsFromUserMetadata(), "metadata", "1970-01-02T00:00:00.000Z", 1),
+    importantPendingStateMap()
+  );
+}
+async function loadImportantFromSupabase(){
+  const localState = buildImportantLocalStateMap();
+  IMPORTANT_CARDS = importantSetFromStateMap(localState);
+  writeLocalImportantCards();
+  renderImportantTabCount();
+
+  if(!(isOnlineMode && currentUser && supabaseClient)){
+    syncImportantUi();
     return;
   }
-  IMPORTANT_CARDS = new Set((data || []).map(row => String(row.card_id || "")).filter(Boolean));
-  writeLocalImportantCards();
+
+  setSyncStatus("carregando importantes...");
+  let metaSet = new Set();
+  try{ metaSet = await refreshImportantUserMetadata(); }
+  catch(error){ console.warn("Metadados de importantes não carregaram:", error); }
+
+  let remoteState = new Map();
+  try{
+    const rows = await fetchImportantRowsFromSupabase();
+    remoteState = remoteImportantStateMapFromRows(rows || []);
+    IMPORTANT_TABLE_READY = true;
+  }catch(error){
+    console.warn("Tabela de importantes indisponível ou sem migração v66:", error);
+    IMPORTANT_TABLE_READY = false;
+    setSyncStatus("Importantes protegidos localmente. Rode o SQL v66 se a sincronização entre aparelhos não aparecer.");
+  }
+
+  const finalState = mergeImportantStateMaps(
+    localState,
+    importantStateMapFromIds(metaSet, "metadata", "1970-01-02T00:00:00.000Z", 1),
+    remoteState,
+    importantPendingStateMap()
+  );
+  IMPORTANT_CARDS = importantSetFromStateMap(finalState);
+  writeLocalImportantCards({ allowEmptyLastGood:true });
   syncImportantUi();
+
+  try{
+    await syncImportantPendingToSupabase();
+    if(IMPORTANT_TABLE_READY) await syncImportantMissingToSupabase(remoteState);
+  }catch(error){
+    console.warn("Não consegui enviar todos os importantes à tabela:", error);
+  }
+
+  try{ await syncImportantUserMetadata(); }
+  catch(error){ console.warn("Não consegui salvar importantes no perfil da conta:", error); }
+
+  syncImportantUi();
+}
+async function syncImportantNow(){
+  if(IMPORTANT_SYNC_BUSY) return;
+  if(!currentUser?.id || !supabaseClient){ showToast("Você precisa estar logado para sincronizar importantes.", "warn"); return; }
+  IMPORTANT_SYNC_BUSY = true;
+  const before = IMPORTANT_CARDS.size;
+  try{
+    await loadImportantFromSupabase();
+    const pending = readImportantPendingOps().length;
+    setSyncStatus(`Importantes sincronizados: ${before} → ${IMPORTANT_CARDS.size}. Pendências: ${pending}.`);
+    showToast(`Importantes sincronizados: ${before} → ${IMPORTANT_CARDS.size}.`, pending ? "warn" : "success", 5200);
+  }catch(error){
+    console.error("Falha ao sincronizar importantes:", error);
+    setSyncStatus("falha ao sincronizar importantes: " + (error.message || error));
+    showToast("Falha ao sincronizar importantes: " + (error.message || error), "error", 6500);
+  }finally{
+    IMPORTANT_SYNC_BUSY = false;
+    renderSyncPanel();
+  }
+}
+async function diagnoseImportantSync(){
+  const local = readImportantSetFromStorage(importantStorageKey());
+  const lastGood = readImportantSetFromStorage(importantLastGoodStorageKey());
+  const legacy = currentUser?.id ? readImportantSetFromStorage(IMPORTANT_CARDS_KEY) : { exists:false, set:new Set() };
+  const pending = readImportantPendingOps();
+  const metaSet = importantIdsFromUserMetadata(currentUser);
+  const lines = [
+    `Conta: ${currentUser?.email || "não logado"}`,
+    `Memória atual: ${IMPORTANT_CARDS.size}`,
+    `Local desta conta: ${local.exists ? local.set.size : "sem chave"}`,
+    `Backup local lastGood: ${lastGood.exists ? lastGood.set.size : "sem chave"}`,
+    `Legado/global: ${legacy.exists ? legacy.set.size : "sem chave"}`,
+    `Pendências locais: ${pending.length}`,
+    `Perfil/Auth metadata: ${metaSet.size}`
+  ];
+  if(currentUser?.id && supabaseClient){
+    try{
+      const rows = await fetchImportantRowsFromSupabase();
+      const state = remoteImportantStateMapFromRows(rows || []);
+      const marked = [...state.values()].filter(r => r.marked).length;
+      const unmarked = [...state.values()].filter(r => !r.marked).length;
+      lines.push(`Tabela Supabase: ${marked} marcados / ${unmarked} removidos / ${rows.length} linha(s)`);
+      IMPORTANT_TABLE_READY = true;
+    }catch(error){
+      lines.push(`Tabela Supabase: ERRO — ${error.message || error}`);
+      IMPORTANT_TABLE_READY = false;
+    }
+  }
+  showConfirmToast(lines.join("\n"), () => {}, { confirmText:"OK", cancelText:"Fechar", tone: IMPORTANT_TABLE_READY ? "success" : "warn" });
 }
 
 async function setImportantCard(card, marked){
   if(!card) return false;
   const id = cardIdKey(card);
   if(!id) return false;
+  const ts = new Date().toISOString();
   if(marked) IMPORTANT_CARDS.add(id);
   else IMPORTANT_CARDS.delete(id);
   writeLocalImportantCards();
+  const pendingOp = queueImportantSync(id, marked, ts);
   syncImportantUi();
 
-  if(isOnlineMode && currentUser && IMPORTANT_TABLE_READY){
+  let tableOk = false;
+  let metaOk = false;
+  if(isOnlineMode && currentUser && supabaseClient){
     try{
-      const op = marked
-        ? supabaseClient.from("flashcard_importantes").upsert({ user_id: currentUser.id, card_id: id, marked_at: new Date().toISOString() }, { onConflict:"user_id,card_id" })
-        : supabaseClient.from("flashcard_importantes").delete().eq("user_id", currentUser.id).eq("card_id", id);
-      const { error } = await op;
-      if(error) throw error;
-      setSyncStatus(marked ? "Card marcado como importante." : "Card removido dos importantes.");
+      tableOk = await syncImportantOpToSupabase(pendingOp);
+      if(tableOk) clearImportantPendingOp(id);
     }catch(error){
-      console.warn("Não foi possível sincronizar importante no Supabase:", error);
-      IMPORTANT_TABLE_READY = false;
-      setSyncStatus("Importante salvo localmente. Rode a migração de importantes no Supabase para sincronizar entre aparelhos.");
-      showToast("A estrela foi salva neste aparelho. Para sincronizar entre celular e computador, rode a migração de Importantes no Supabase.", "warn", 6200);
+      console.warn("Não foi possível sincronizar importante na tabela:", error);
     }
+    try{ metaOk = await syncImportantUserMetadata(); }
+    catch(error){ console.warn("Não foi possível sincronizar importante no perfil:", error); }
+  }
+
+  if(tableOk || metaOk){
+    setSyncStatus(marked ? "Card marcado como importante e sincronizado." : "Card removido dos importantes e sincronizado.");
+  }else if(isOnlineMode && currentUser){
+    setSyncStatus("Importante salvo neste aparelho; sincronização pendente.");
+    showToast("A estrela foi salva neste aparelho. Use Sincronizar agora; se não aparecer no outro aparelho, rode a migração SQL de Importantes.", "warn", 6200);
   }else{
     setSyncStatus(marked ? "Card marcado como importante neste aparelho." : "Card removido dos importantes neste aparelho.");
   }
+  renderSyncPanel();
   return true;
 }
 
@@ -8017,14 +8348,23 @@ function extractBackupReviewRows(data){
   if(String(data?.format || "").toLowerCase().includes("compact") || rawReview.some(Array.isArray)) return expandCompactReviewRows(rawReview);
   return rawReview;
 }
+function extractBackupImportantCards(data){
+  const raw = Array.isArray(data?.important_cards) ? data.important_cards
+    : Array.isArray(data?.im) ? data.im
+    : Array.isArray(data?.important) ? data.important
+    : Array.isArray(data?.favoritos) ? data.favoritos
+    : [];
+  return [...importantSetFromValue(raw)];
+}
 function buildFullHistoryPayload(){
   return {
     app:"FlashPratico",
-    version:3,
-    format:"full-v3",
+    version:4,
+    format:"full-v4",
     exported_at:new Date().toISOString(),
     history:getHistory(),
-    review_state:Array.from(REVIEW_STATE.values())
+    review_state:Array.from(REVIEW_STATE.values()),
+    important_cards:[...IMPORTANT_CARDS]
   };
 }
 function buildCompactHistoryPayload(){
@@ -8032,17 +8372,19 @@ function buildCompactHistoryPayload(){
   const reviewRows = Array.from(REVIEW_STATE.values()).map(normalizeBackupReviewRow).filter(Boolean);
   return {
     app:"FlashPratico",
-    version:3,
-    format:"compact-v1",
+    version:4,
+    format:"compact-v2",
     exported_at:new Date().toISOString(),
     schema:{
       history:COMPACT_HISTORY_SCHEMA,
       review_state:COMPACT_REVIEW_SCHEMA,
+      important_cards:"array de card_id marcados com estrela",
       result_codes:{r:"right", w:"wrong", s:"skip", h:"hard"}
     },
     catalog:buildBackupCardCatalog(history, reviewRows),
     history:history.map(compactHistoryEvent),
-    review_state:reviewRows.map(compactReviewRow).filter(Boolean)
+    review_state:reviewRows.map(compactReviewRow).filter(Boolean),
+    important_cards:[...IMPORTANT_CARDS]
   };
 }
 function showBackupSizeEstimate(){
@@ -8073,7 +8415,8 @@ function parseFlashPraticoBackupText(text){
     }));
   if(!history.length) throw new Error("O JSON não contém eventos de histórico válidos.");
   const reviewState = extractBackupReviewRows(data);
-  return { data, history, reviewState };
+  const importantCards = extractBackupImportantCards(data);
+  return { data, history, reviewState, importantCards };
 }
 
 function normalizeBackupReviewRow(row){
@@ -8173,6 +8516,21 @@ async function upsertReviewStateRowsToSupabase(rows){
   return sent;
 }
 
+async function applyImportedImportantCards(importantIds){
+  const imported = importantSetFromValue(importantIds || []);
+  if(!imported.size) return { imported:0, synced:0, skipped:0 };
+  IMPORTANT_CARDS = mergeImportantSets(readLocalImportantCards(), IMPORTANT_CARDS, imported);
+  writeLocalImportantCards();
+  imported.forEach(id => queueImportantSync(id, true, new Date().toISOString()));
+  syncImportantUi();
+  let sync = { synced:0, skipped:0 };
+  if(isOnlineMode && currentUser?.id && supabaseClient){
+    try{ sync = await syncImportantPendingToSupabase(); }catch(e){ console.warn("Não consegui sincronizar importantes importados na tabela:", e); }
+    try{ await syncImportantUserMetadata(); }catch(e){ console.warn("Não consegui sincronizar importantes importados no perfil:", e); }
+  }
+  return { imported: imported.size, synced:sync.synced || 0, skipped:sync.skipped || 0 };
+}
+
 async function replaceRemoteHistoryWithBackup(history, reviewRows){
   if(!isOnlineMode || !currentUser?.id || !supabaseClient) return { synced:0, orphaned:0, reviewSynced:0, skipped:true };
   setSyncStatus("restaurando JSON: apagando histórico remoto desta conta...");
@@ -8212,10 +8570,11 @@ async function applyFullJsonBackupRestore(history, reviewRows, options={}){
   ONLINE_HISTORY = historyForUser;
   writeLocalCardHistory(historyForUser, { allowShrink:true, reason:"json-full-restore" });
   const reviewClean = applyReviewStateBackup(reviewRows || [], true);
+  const importantRestore = await applyImportedImportantCards(options.importantCards || []);
   saveGoalSnapshotFromEvents(historyForUser);
   refreshAfterHistoryRestore();
 
-  let remote = { synced:0, orphaned:0, reviewSynced:0, skipped:true };
+  let remote = { synced:0, orphaned:0, reviewSynced:0, skipped:true, importantSynced: importantRestore.synced || 0 };
   if(replaceRemote){
     remote = await replaceRemoteHistoryWithBackup(historyForUser, reviewClean);
   } else if(isOnlineMode && currentUser?.id && supabaseClient){
@@ -8232,8 +8591,10 @@ async function applyFullJsonBackupRestore(history, reviewRows, options={}){
     try { await loadResponsesFromSupabase({ silent:true }); } catch(e){ console.warn("Não consegui recarregar histórico após mesclar backup:", e); }
   }
 
+  remote.importantImported = importantRestore.imported || 0;
+  remote.importantSynced = Math.max(Number(remote.importantSynced || 0), Number(importantRestore.synced || 0));
   refreshAfterHistoryRestore();
-  return { local:historyForUser.length, review:reviewClean.length, remote };
+  return { local:historyForUser.length, review:reviewClean.length, important:importantRestore.imported || 0, remote };
 }
 
 function restoreFullJsonBackup(event){
@@ -8242,7 +8603,7 @@ function restoreFullJsonBackup(event){
   const reader = new FileReader();
   reader.onload = async () => {
     try{
-      const { data, history, reviewState } = parseFlashPraticoBackupText(reader.result);
+      const { data, history, reviewState, importantCards } = parseFlashPraticoBackupText(reader.result);
       const answered = history.filter(ev => isAnsweredResult(ev.result)).length;
       const first = history[0]?.ts ? new Date(history[0].ts).toLocaleDateString() : "—";
       const last = history[history.length - 1]?.ts ? new Date(history[history.length - 1].ts).toLocaleDateString() : "—";
@@ -8250,11 +8611,11 @@ function restoreFullJsonBackup(event){
         ? "\n\nTambém vou SUBSTITUIR o histórico remoto desta conta no Supabase por esse JSON. Os flashcards não serão apagados."
         : "\n\nComo não há sessão online ativa, a restauração será local neste aparelho.";
       showConfirmToast(
-        `Restaurar backup completo?\n\nEventos no JSON: ${history.length}\nRespostas efetivas: ${answered}\nEstado de revisão: ${reviewState.length}\nPeríodo: ${first} até ${last}${remoteText}`,
+        `Restaurar backup completo?\n\nEventos no JSON: ${history.length}\nRespostas efetivas: ${answered}\nEstado de revisão: ${reviewState.length}\nImportantes no JSON: ${importantCards.length}\nPeríodo: ${first} até ${last}${remoteText}`,
         async () => {
-          const res = await applyFullJsonBackupRestore(history, reviewState, { replaceRemote: !!(isOnlineMode && currentUser?.id) });
+          const res = await applyFullJsonBackupRestore(history, reviewState, { replaceRemote: !!(isOnlineMode && currentUser?.id), importantCards });
           setSyncStatus(`JSON restaurado: ${res.local} evento(s) locais, ${res.remote.synced || 0} enviado(s), ${res.remote.orphaned || 0} órfão(s).`);
-          showToast(`JSON restaurado. Eventos locais: ${res.local}. Enviados ao Supabase: ${res.remote.synced || 0}.`, "success", 8000);
+          showToast(`JSON restaurado. Eventos locais: ${res.local}. Importantes restaurados: ${res.important || 0}. Enviados ao Supabase: ${res.remote.synced || 0}.`, "success", 8000);
         },
         {confirmText:"Restaurar", cancelText:"Cancelar", tone:"danger"}
       );
@@ -8285,7 +8646,7 @@ function importHistory(event){
   const reader = new FileReader();
   reader.onload = async () => {
     try{
-      const { data, history, reviewState } = parseFlashPraticoBackupText(reader.result);
+      const { data, history, reviewState, importantCards } = parseFlashPraticoBackupText(reader.result);
       const clean = history;
       if(!clean.length) throw new Error("O JSON não contém eventos válidos.");
 
@@ -8295,6 +8656,7 @@ function importHistory(event){
       ONLINE_HISTORY = localMerged;
       writeLocalCardHistory(localMerged, { reason:"json-merge-import" });
       if(Array.isArray(reviewState) && reviewState.length) applyReviewStateBackup(reviewState, false);
+      const importantImport = await applyImportedImportantCards(importantCards || []);
       saveGoalSnapshotFromEvents(localMerged);
       refreshAfterHistoryRestore();
 
@@ -8313,7 +8675,7 @@ function importHistory(event){
         setSyncStatus("Histórico importado/mesclado com o Supabase.");
       }
       refreshAfterHistoryRestore();
-      showToast(`Histórico importado: ${clean.length} evento(s) lido(s) do JSON.`, "success", 6500);
+      showToast(`Histórico importado: ${clean.length} evento(s) lido(s) do JSON. Importantes importados: ${importantImport.imported || 0}.`, "success", 6500);
     }catch(err){ console.error(err); showToast("Não consegui importar esse arquivo JSON: " + (err.message || "erro desconhecido"), "error", 6000); }
   };
   reader.readAsText(file);
