@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v63 - sem barra modo</title>
-<!-- versão v66: Importantes auditado com sincronização por tabela, deduplicação e diagnóstico + zoom de imagens + sem barra visual Modo -->
+<title>Flashcards — Praticagem v66 - sem Quiz A/B em Lights and Shapes</title>
+<!-- versão v66.1: desativa Quiz A/B automático apenas para cards Lights and Shapes com imagem na pergunta; mantém Programado/meta/revisão sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -7561,8 +7561,28 @@ function autoQuizTextDistractor(text){
   return null;
 }
 
+function isLightsAndShapesCard(card){
+  if(!card) return false;
+  const haystack = [
+    card.publicacao,
+    card.src,
+    card.assunto,
+    card.topic,
+    card.cat
+  ].map(v => String(v || "").toLowerCase()).join(" ");
+  return haystack.includes("lights and shapes");
+}
+
 function buildAutoQuiz(card){
   if(!card) return null;
+
+  // Lights and Shapes: a pergunta é visual (image_q_url) e a resposta é identificação textual.
+  // Nesse baralho, o Quiz A/B automático atrapalha porque cria alternativas quase iguais.
+  // Desativa apenas esses cards, sem afetar Programado, meta diária ou os demais flashcards.
+  if(isLightsAndShapesCard(card) && String(card.image_q_url || "").trim()){
+    return null;
+  }
+
   const answerText = plainTextFromHtml(card.a || "");
   if(!autoQuizAnswerIsShort(answerText)) return null;
   const dist = autoQuizNumberDistractor(answerText) || autoQuizTextDistractor(answerText);
