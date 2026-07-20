@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v66.3 - Favoritos, Voltar e Metas</title>
+<title>FlashPrático v67.3 — sequência ativa restaurada</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -906,6 +906,38 @@
     .goal-celebration-card { animation:none; }
   }
 
+
+  /* SAÚDE DO BARALHO E REVISÃO FINAL */
+  #health-screen { flex:1 1 auto; min-height:0; overflow-y:auto; padding-bottom:90px; }
+  .health-page { max-width:920px; margin:0 auto; }
+  .health-hero { border:1px solid rgba(124,140,248,.42); background:linear-gradient(135deg, rgba(91,106,240,.16), rgba(61,184,176,.08)); border-radius:20px; padding:16px; margin:12px auto; }
+  .health-hero-title { font-size:18px; font-weight:950; }
+  .health-hero-text { color:var(--muted); font-size:13px; line-height:1.55; margin-top:6px; }
+  .health-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; margin:12px auto; }
+  .health-card { background:var(--surface); border:1px solid var(--border); border-radius:17px; padding:14px; }
+  .health-n { font-size:25px; font-weight:950; line-height:1; }
+  .health-l { color:var(--muted); font-size:11px; line-height:1.35; margin-top:5px; }
+  .health-panel { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:14px; margin:12px auto; }
+  .health-panel-title { font-size:14px; font-weight:950; color:var(--accent2); margin-bottom:10px; }
+  .health-help { color:var(--muted); font-size:12px; line-height:1.55; }
+  .health-actions { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
+  .coverage-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; }
+  .coverage-box { border:1px solid var(--border); background:rgba(255,255,255,.035); border-radius:14px; padding:11px; }
+  .coverage-pct { font-size:21px; font-weight:950; }
+  .coverage-label { color:var(--muted); font-size:10px; margin-top:4px; }
+  .health-weak-list { display:grid; gap:8px; }
+  .health-weak-row { display:grid; grid-template-columns:minmax(0,1fr) auto auto; gap:10px; align-items:center; border:1px solid var(--border); background:rgba(255,255,255,.035); border-radius:13px; padding:10px; }
+  .health-weak-name { font-size:12px; font-weight:900; line-height:1.35; }
+  .health-weak-meta { font-size:11px; color:var(--muted); }
+  .health-weak-pct { font-size:15px; font-weight:950; color:var(--amber); }
+  @media(max-width:720px){ .health-grid,.coverage-grid{grid-template-columns:repeat(2,1fr)} }
+  @media(max-width:480px){ .health-grid,.coverage-grid{grid-template-columns:1fr}.health-weak-row{grid-template-columns:1fr auto} }
+
+  .compare-publication-group{display:grid;gap:8px;border:1px solid var(--border);border-radius:17px;padding:10px;background:rgba(255,255,255,.02)}
+  .compare-publication-title{position:sticky;top:-12px;z-index:2;background:rgba(26,29,39,.97);color:var(--accent2);font-size:13px;font-weight:950;padding:8px 5px;border-bottom:1px solid var(--border)}
+  .compare-publication-title span{color:var(--muted);font-size:10px;margin-left:6px}
+  .compare-cross-source{font-size:10px;font-weight:950;color:var(--teal);background:rgba(61,184,176,.12);border:1px solid rgba(61,184,176,.35);border-radius:999px;padding:3px 8px}
+
 </style>
 </head>
 <body>
@@ -961,6 +993,7 @@
     <button class="tab-btn" id="tab-questions" onclick="showTab('questions')">Questões</button>
     <button class="tab-btn" id="tab-oldexams" onclick="showTab('oldexams')">Provas Antigas</button>
     <button class="tab-btn" id="tab-progress" onclick="showTab('progress')">Progresso</button>
+    <button class="tab-btn today" id="tab-health" onclick="showTab('health')">Saúde do Baralho</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
     <button class="tab-btn" id="tab-arch" onclick="showTab('arch')">Arquivados</button>
   </div>
@@ -1093,6 +1126,37 @@
         </div>
       </div>
       <div class="reading-section-list" id="reading-sections"></div>
+    </div>
+  </div>
+
+
+  <!-- SAÚDE DO BARALHO / REVISÃO FINAL -->
+  <div class="screen" id="health-screen" style="display:none;">
+    <div class="health-page">
+      <div class="diag-head">
+        <div class="diag-title">Saúde do Baralho</div>
+        <div class="diag-sub">Mostra se a criação e a consolidação estão equilibradas. Os cálculos são apenas diagnósticos: não alteram a lógica, os níveis nem as datas do Programado.</div>
+      </div>
+      <div class="health-hero" id="health-hero"></div>
+      <div class="health-grid" id="health-grid"></div>
+      <div class="health-panel">
+        <div class="health-panel-title">Cobertura recente</div>
+        <div class="coverage-grid" id="health-coverage"></div>
+      </div>
+      <div class="health-panel">
+        <div class="health-panel-title">Revisão Final</div>
+        <div class="health-help">Monta uma sessão sem mexer no agendamento: primeiro cards Programados disponíveis, depois erros recorrentes, favoritos e assuntos de menor aproveitamento, sem duplicar cards.</div>
+        <div class="health-actions">
+          <button class="mini-btn" onclick="startFinalReview()">Iniciar Revisão Final</button>
+          <button class="mini-btn" onclick="startWeaknessReview()">Revisar maiores fraquezas</button>
+          <button class="mini-btn" onclick="renderHealthDashboard()">Atualizar</button>
+          <button class="mini-btn" onclick="goBackToStudy()">Voltar ao estudo</button>
+        </div>
+      </div>
+      <div class="health-panel">
+        <div class="health-panel-title">Publicações que mais exigem atenção</div>
+        <div class="health-weak-list" id="health-weak-list"></div>
+      </div>
     </div>
   </div>
 
@@ -1452,6 +1516,14 @@ const CARD_HISTORY_LAST_GOOD_KEY = "flashpratico_history_last_good_v1";
 const CARD_HISTORY_RESET_MARK_KEY = "flashpratico_history_reset_marker_v1";
 const GOAL_SNAPSHOT_KEY = "flashpratico_goal_snapshot_v1";
 const GOAL_CELEBRATION_KEY = "flashpratico_goal_celebrations_v1";
+const GOAL_BEST_STREAK_KEY = "flashpratico_best_streak_v1";
+const GOAL_BEST_STREAK_METADATA_KEY = "flashpratico_best_streak";
+// Recorde confirmado antes desta atualização. Funciona apenas como piso de recuperação:
+// o código nunca reduz um recorde maior obtido do histórico, localStorage ou Supabase.
+const GOAL_BEST_STREAK_RECOVERY_FLOOR = 47;
+const GOAL_ACTIVE_STREAK_KEY = "flashpratico_active_streak_v1";
+const GOAL_ACTIVE_STREAK_RECOVERY_COUNT = 47;
+const GOAL_ACTIVE_STREAK_RECOVERY_DATE = "2026-07-19";
 const IMPORTANT_CARDS_KEY = "flashpratico_important_cards_v1";
 const IMPORTANT_CARDS_LAST_GOOD_KEY = "flashpratico_important_cards_last_good_v1";
 const IMPORTANT_PENDING_SYNC_KEY = "flashpratico_important_pending_sync_v1";
@@ -4863,6 +4935,8 @@ async function loadGoalSettingsFromSupabase(){
     const { data, error } = await supabaseClient.auth.getUser();
     if(error) throw error;
     if(data?.user) currentUser = data.user;
+    protectBestStreak(Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0));
+    syncProtectedBestStreak(readProtectedBestStreak());
     const goals = currentUser?.user_metadata?.flashpratico_goals;
     if(goals) localStorage.setItem(GOALS_KEY, JSON.stringify(sanitizeGoalSettings(goals)));
   }catch(e){
@@ -5046,6 +5120,77 @@ function readGoalSnapshot(){
   try{ return JSON.parse(localStorage.getItem(GOAL_SNAPSHOT_KEY) || "null"); }
   catch(e){ return null; }
 }
+
+function readProtectedActiveStreak(){
+  let saved = null;
+  try{ saved = JSON.parse(localStorage.getItem(GOAL_ACTIVE_STREAK_KEY) || "null"); }catch(e){}
+  const count = Math.max(0, Number(saved?.count || GOAL_ACTIVE_STREAK_RECOVERY_COUNT));
+  const lastDate = /^\d{4}-\d{2}-\d{2}$/.test(String(saved?.last_date || ""))
+    ? String(saved.last_date)
+    : GOAL_ACTIVE_STREAK_RECOVERY_DATE;
+  return { count, lastDate };
+}
+function saveProtectedActiveStreak(count, lastDate){
+  const payload = { count: Math.max(0, Number(count || 0)), last_date: String(lastDate || ""), saved_at: new Date().toISOString() };
+  try{ localStorage.setItem(GOAL_ACTIVE_STREAK_KEY, JSON.stringify(payload)); }catch(e){}
+  return payload;
+}
+function protectActiveStreak(computedCurrent, dayCounts){
+  const todayKey = dateKeyLocal(new Date());
+  const yesterday = new Date(startOfLocalDay(new Date()));
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yesterdayKey = dateKeyLocal(yesterday);
+  const saved = readProtectedActiveStreak();
+  const studiedToday = (dayCounts?.get(todayKey) || 0) > 0;
+
+  // Um cálculo completo do histórico nunca é reduzido pelo estado protegido.
+  if(Number(computedCurrent || 0) > saved.count){
+    saveProtectedActiveStreak(computedCurrent, studiedToday ? todayKey : yesterdayKey);
+    return Number(computedCurrent || 0);
+  }
+
+  // Mantém a sequência de ontem visível durante o dia atual. Ao estudar hoje,
+  // soma exatamente um dia e grava a nova data, sem incrementar novamente.
+  if(saved.lastDate === yesterdayKey){
+    if(studiedToday){
+      const next = saved.count + 1;
+      saveProtectedActiveStreak(next, todayKey);
+      return Math.max(next, Number(computedCurrent || 0));
+    }
+    return Math.max(saved.count, Number(computedCurrent || 0));
+  }
+
+  if(saved.lastDate === todayKey){
+    return Math.max(saved.count, Number(computedCurrent || 0));
+  }
+
+  // Se houver um dia completo perdido, a sequência ativa pode realmente zerar.
+  return Number(computedCurrent || 0);
+}
+
+function readProtectedBestStreak(){
+  let localBest = 0;
+  try{ localBest = Number(localStorage.getItem(GOAL_BEST_STREAK_KEY) || 0); }catch(e){}
+  const snapshotBest = Number(readGoalSnapshot()?.best || 0);
+  const cloudBest = Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0);
+  return Math.max(0, GOAL_BEST_STREAK_RECOVERY_FLOOR, localBest, snapshotBest, cloudBest);
+}
+function protectBestStreak(best){
+  const safeBest = Math.max(readProtectedBestStreak(), Number(best || 0));
+  try{ localStorage.setItem(GOAL_BEST_STREAK_KEY, String(safeBest)); }catch(e){}
+  return safeBest;
+}
+async function syncProtectedBestStreak(best){
+  const safeBest = protectBestStreak(best);
+  const cloudBest = Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0);
+  if(!supabaseClient || !currentUser?.id || safeBest <= cloudBest) return safeBest;
+  try{
+    const { data, error } = await supabaseClient.auth.updateUser({ data: { [GOAL_BEST_STREAK_METADATA_KEY]: safeBest } });
+    if(error) throw error;
+    if(data?.user) currentUser = data.user;
+  }catch(e){ console.warn("Não consegui sincronizar o recorde de sequência:", e); }
+  return safeBest;
+}
 function saveGoalSnapshot(streak, dayCounts){
   if(!streak || !dayCounts) return;
   const totalEvents = Array.from(dayCounts.values()).reduce((a,b) => a + b, 0);
@@ -5057,13 +5202,14 @@ function saveGoalSnapshot(streak, dayCounts){
     today_key: todayKey,
     today_count: dayCounts.get(todayKey) || 0,
     current: Number(streak.current || 0),
-    best: Number(streak.best || 0),
+    best: protectBestStreak(Number(streak.best || 0)),
     total_days: dayCounts.size,
     total_events: totalEvents
   };
   try{
     const old = readGoalSnapshot();
     if(old?.best && old.best > payload.best) payload.best = old.best;
+    payload.best = protectBestStreak(payload.best);
     if(old?.total_events && old.total_events > payload.total_events) payload.total_events = old.total_events;
     localStorage.setItem(GOAL_SNAPSHOT_KEY, JSON.stringify(payload));
   }catch(e){ console.warn("Não consegui salvar snapshot da sequência:", e); }
@@ -5078,10 +5224,14 @@ function calcStreaks(){
   const today = startOfLocalDay(new Date());
   let current = 0;
   const cursor = new Date(today);
+  // A sequência permanece ativa durante o dia atual mesmo antes da primeira revisão.
+  // Ela só zera quando existe um dia completo sem atividade.
+  if(!(dayCounts.get(dateKeyLocal(cursor)) > 0)) cursor.setDate(cursor.getDate() - 1);
   while(dayCounts.get(dateKeyLocal(cursor)) > 0){
     current++;
     cursor.setDate(cursor.getDate() - 1);
   }
+  current = protectActiveStreak(current, dayCounts);
 
   const keys = Array.from(dayCounts.keys()).sort();
   let best = 0, run = 0, prev = null;
@@ -5098,12 +5248,14 @@ function calcStreaks(){
   });
   const snap = readGoalSnapshot();
   if(snap?.best && Number(snap.best) > best) best = Number(snap.best);
+  best = protectBestStreak(Math.max(best, current));
   const todayKey = dateKeyLocal(new Date());
   if(current === 0 && snap?.today_key === todayKey && Number(snap.current || 0) > 0 && dayCounts.size === 0){
     current = Number(snap.current || 0);
   }
   const result = { current, best, dayCounts };
   saveGoalSnapshot(result, dayCounts);
+  syncProtectedBestStreak(result.best);
   return result;
 }
 
@@ -5228,7 +5380,7 @@ function renderDailyGoalWidget(){
   document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
     ? `Faltam ${progress.remaining} questões/cards para bater a meta.`
     : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
-  document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dia${streak.current === 1 ? "" : "s"}`;
+  document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dias`;
 }
 
 async function refreshRemoteGoalCounters(reason = "auto"){
@@ -6690,7 +6842,7 @@ function updateAppHistory(tab, options={}){
 function showTab(tab, options={}){
   const previousTab = activeTab;
   activeTab = tab;
-  ["study","programmed","important","diag","questions","oldexams","progress","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
+  ["study","programmed","important","diag","questions","oldexams","progress","health","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
   const studyDisplay = tab === "study" || tab === "programmed" || tab === "important";
   if(studyDisplay) LAST_STUDY_TAB = tab;
   const dailyGoal = document.getElementById("daily-goal-widget");
@@ -6704,6 +6856,7 @@ function showTab(tab, options={}){
   document.getElementById("questions-screen").style.display = tab === "questions" ? "block" : "none";
   document.getElementById("old-exams-screen").style.display = tab === "oldexams" ? "block" : "none";
   document.getElementById("progress-screen").style.display = tab === "progress" ? "block" : "none";
+  document.getElementById("health-screen").style.display = tab === "health" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
   document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
   if(studyDisplay) renderDailyGoalWidget();
@@ -6712,9 +6865,117 @@ function showTab(tab, options={}){
   if(tab === "questions") showQuestionList();
   if(tab === "oldexams") renderOldExamList();
   if(tab === "progress") renderReadingProgress();
+  if(tab === "health") renderHealthDashboard();
   if(tab === "db") renderSummary("db-summary");
   if(tab === "arch") renderArchivedCards();
   updateAppHistory(tab, {...options, previousTab});
+}
+
+
+function lastAnswerMapForHealth(){
+  const idToLogical = new Map(CARDS.map(c => [String(c.id), studySessionKey(c)]));
+  const latest = new Map();
+  getActiveCardHistory().forEach(e => {
+    const key = idToLogical.get(String(e.card_id));
+    if(!key) return;
+    const t = new Date(e.created_at || e.answered_at || e.timestamp || 0).getTime();
+    if(Number.isFinite(t) && t > Number(latest.get(key) || 0)) latest.set(key, t);
+  });
+  visibleCards(CARDS).forEach(card => {
+    const key = studySessionKey(card);
+    const st = effectiveProgrammedReviewState(card) || reviewStateFor(card);
+    const stMs = new Date(st?.ultima_revisao || 0).getTime();
+    if(Number.isFinite(stMs) && stMs > Number(latest.get(key) || 0)) latest.set(key, stMs);
+  });
+  return latest;
+}
+
+function cardsSeenWithinDays(days, latestMap=null){
+  const cutoff = Date.now() - Number(days) * 86400000;
+  const latest = latestMap || lastAnswerMapForHealth();
+  return visibleCards(CARDS).filter(c => Number(latest.get(studySessionKey(c)) || 0) >= cutoff).length;
+}
+
+function healthPublicationStats(){
+  const groups = new Map();
+  groupDashboardStats().forEach(g => {
+    const key = g.publicacao;
+    if(!groups.has(key)) groups.set(key, {publicacao:key, cards:0, studied:0, wrong:0, recurrent:0, due:0, weightedRight:0, weightedAnswered:0});
+    const x = groups.get(key);
+    x.cards += g.cards; x.studied += g.studiedCards; x.wrong += g.wrong; x.recurrent += g.recurrentWrongCards; x.due += g.dueCards;
+    x.weightedRight += g.right; x.weightedAnswered += g.answered;
+  });
+  return [...groups.values()].map(x => ({...x, pct:x.weightedAnswered ? Math.round(100*x.weightedRight/x.weightedAnswered) : null}))
+    .sort((a,b) => (a.pct ?? 101) - (b.pct ?? 101) || b.recurrent-a.recurrent || b.wrong-a.wrong);
+}
+
+function renderHealthDashboard(){
+  const cards = visibleCards(CARDS);
+  const total = cards.length;
+  const goals = getGoalSettings();
+  const daily = Math.max(1, Number(goals.daily || 1));
+  const newCount = cards.filter(isNewCard).length;
+  const recurrent = cards.filter(isRecurrentWrongCard).length;
+  const programmedNow = getProgrammedStudyCards(cards).length;
+  const mastered = cards.filter(c => programmedLevelFor(c) >= 4).length;
+  const cycleDays = total ? Math.ceil(total / daily) : 0;
+  const cyclesYear = cycleDays ? (365 / cycleDays) : 0;
+  const studied = total - newCount;
+  const healthScore = total ? Math.max(0, Math.min(100, Math.round((studied/total)*55 + (mastered/total)*30 + (1-Math.min(1,recurrent/Math.max(1,total*.08)))*15))) : 0;
+  const hero = document.getElementById('health-hero');
+  if(hero) hero.innerHTML = `<div class="health-hero-title">${healthScore >= 80 ? 'Baralho bem consolidado' : healthScore >= 55 ? 'Baralho em consolidação' : 'Baralho ainda em construção'} · ${healthScore}/100</div><div class="health-hero-text">Com a meta atual de <strong>${daily} cards/dia</strong>, um giro teórico pelos ${total} cards leva cerca de <strong>${cycleDays} dias</strong>, equivalente a <strong>${cyclesYear.toFixed(1)} ciclos/ano</strong>. O Programado continuará escolhendo frequências diferentes conforme o desempenho.</div>`;
+  const grid = document.getElementById('health-grid');
+  if(grid) grid.innerHTML = `
+    <div class="health-card"><div class="health-n">${total}</div><div class="health-l">cards ativos</div></div>
+    <div class="health-card"><div class="health-n" style="color:var(--teal)">${newCount}</div><div class="health-l">ainda não estudados</div></div>
+    <div class="health-card"><div class="health-n" style="color:var(--red)">${recurrent}</div><div class="health-l">erros recorrentes</div></div>
+    <div class="health-card"><div class="health-n" style="color:var(--green)">${mastered}</div><div class="health-l">nível 4 ou superior no Programado</div></div>
+    <div class="health-card"><div class="health-n" style="color:var(--accent2)">${programmedNow}</div><div class="health-l">disponíveis agora no Programado</div></div>
+    <div class="health-card"><div class="health-n">${cycleDays}</div><div class="health-l">dias por giro teórico</div></div>
+    <div class="health-card"><div class="health-n">${cyclesYear.toFixed(1)}</div><div class="health-l">giros teóricos por ano</div></div>
+    <div class="health-card"><div class="health-n">${healthScore}%</div><div class="health-l">índice diagnóstico de consolidação</div></div>`;
+  const coverage = document.getElementById('health-coverage');
+  const latestMap = lastAnswerMapForHealth();
+  if(coverage) coverage.innerHTML = [7,20,40,90].map(days => {
+    const count = cardsSeenWithinDays(days, latestMap); const pct = total ? Math.round(100*count/total) : 0;
+    return `<div class="coverage-box"><div class="coverage-pct">${pct}%</div><div class="coverage-label">${count}/${total} vistos nos últimos ${days} dias</div></div>`;
+  }).join('');
+  const weak = healthPublicationStats().slice(0,8);
+  const list = document.getElementById('health-weak-list');
+  if(list) list.innerHTML = weak.length ? weak.map(x => `<div class="health-weak-row"><div><div class="health-weak-name">${escapeHtml(x.publicacao)}</div><div class="health-weak-meta">${x.recurrent} recorrentes · ${x.due} vencidos · cobertura ${x.studied}/${x.cards}</div></div><div class="health-weak-pct">${x.pct === null ? '—' : x.pct+'%'}</div><button class="mini-btn" onclick='studyPublicationWeak(${JSON.stringify(x.publicacao)})'>Revisar</button></div>`).join('') : '<div class="empty-state">Ainda não há dados suficientes.</div>';
+}
+
+function studyPublicationWeak(publicacao){
+  const groups = groupDashboardStats().filter(g => g.publicacao === publicacao).sort((a,b) => (a.pct ?? 101)-(b.pct ?? 101));
+  if(!groups.length) return;
+  studyGroup(publicacao, groups[0].assunto, 'all');
+}
+
+function startWeaknessReview(){
+  const weakGroups = groupDashboardStats().filter(g => g.answered > 0).slice(0,6);
+  const keys = new Set(weakGroups.map(g => `${g.publicacao}|||${g.assunto}`));
+  const cards = visibleCards(CARDS).filter(c => keys.has(`${c.publicacao}|||${cleanLabel(c.assunto,'Geral')}`));
+  startCustomReviewDeck(uniqueCards(cards), 'Maiores fraquezas', 'weakness');
+}
+
+function startCustomReviewDeck(cards, label, mode){
+  if(!cards.length){ showToast('Não há cards disponíveis para esta revisão.', 'warn'); return; }
+  deck = cards.slice(); idx = 0; isFlipped = false; resetSessionScore(); sessionTotal = deck.length;
+  currentStudy = {type:'custom', publicacao:null, assunto:null, mode, label};
+  activeCat = 'Todas'; buildCatPills();
+  document.getElementById('complete').classList.remove('show'); document.getElementById('complete').style.display='none';
+  showTab('study'); updateStudyTitle(); showCard();
+}
+
+function startFinalReview(){
+  const base = visibleCards(CARDS);
+  const due = getProgrammedStudyCards(base);
+  const recurrent = base.filter(isRecurrentWrongCard).sort((a,b) => reviewPriority(a)-reviewPriority(b));
+  const favorites = base.filter(c => isImportantCard(c) && !isProgrammedNewCard(c));
+  const weakKeys = new Set(groupDashboardStats().filter(g => g.answered > 0).slice(0,8).map(g => `${g.publicacao}|||${g.assunto}`));
+  const weak = base.filter(c => weakKeys.has(`${c.publicacao}|||${cleanLabel(c.assunto,'Geral')}`));
+  const target = Math.max(1, Number(getGoalSettings().daily || 300));
+  startCustomReviewDeck(uniqueCards([...due, ...recurrent, ...favorites, ...weak]).slice(0,target), `Revisão Final · até ${target} cards`, 'finalReview');
 }
 
 function goBackToStudy(){
@@ -8266,6 +8527,14 @@ function compareScore(current, candidate, currentAssunto, terms){
   return 0;
 }
 
+function compareRelationLabel(current, item){
+  if(item.id === current.id) return "Card atual";
+  const sameSubject = normalizeCompareText(cleanLabel(item.assunto,"Geral")) === normalizeCompareText(cleanLabel(current.assunto,"Geral"));
+  if(sameSubject && item.publicacao !== current.publicacao) return "Mesma ideia · outra publicação";
+  if(sameSubject) return "Mesmo assunto";
+  return "Conceito relacionado";
+}
+
 function openCompareModal(event){
   if(event){ event.preventDefault(); event.stopPropagation(); }
   const c = deck[idx];
@@ -8274,29 +8543,32 @@ function openCompareModal(event){
   const title = document.getElementById("compare-modal-title");
   const sub = document.getElementById("compare-modal-sub");
   const list = document.getElementById("compare-list");
-  if(title) title.textContent = "Comparar cards";
-  if(sub) sub.textContent = `Mesmo assunto em todas as publicações · ${c.assunto || "Geral"} · ${same.length} card${same.length === 1 ? "" : "s"}`;
+  const byPub = new Map();
+  same.forEach(item => {
+    const pub = item.publicacao || item.src || "Sem publicação";
+    if(!byPub.has(pub)) byPub.set(pub, []);
+    byPub.get(pub).push(item);
+  });
+  const otherPubs = [...byPub.keys()].filter(p => p !== (c.publicacao || c.src)).length;
+  if(title) title.textContent = "Comparar 2.0";
+  if(sub) sub.textContent = `${c.assunto || "Geral"} · ${same.length} cards · ${byPub.size} publicações · ${otherPubs} outras fontes`;
   if(list){
     if(!same.length){
-      list.innerHTML = `<div class="compare-empty">Não encontrei outros cards neste assunto.</div>`;
+      list.innerHTML = `<div class="compare-empty">Não encontrei outros cards relacionados.</div>`;
     } else {
-      list.innerHTML = same.map((item, i) => {
-        const isCurrent = item.id === c.id;
-        return `
-          <div class="compare-item ${isCurrent ? "current" : ""}">
-            <div class="compare-item-head">
-              <span class="compare-pill">#${i + 1}</span>
-              ${isCurrent ? `<span class="compare-current-pill">card atual</span>` : ""}
-            </div>
-            <div class="compare-item-meta">
-              <span class="compare-source-pill">${escapeHtml(item.publicacao || item.src || "Sem publicação")}</span>
-              <span class="compare-subject-pill">${escapeHtml(item.assunto || "Geral")}</span>
-            </div>
-            <div class="compare-q">${escapeHtml(frontQuestionText(item))}</div>
-            <div class="compare-a">${compareAnswerPreviewHTML(item.a)}</div>
-          </div>
-        `;
-      }).join("");
+      list.innerHTML = [...byPub.entries()].map(([pub, items]) => `
+        <section class="compare-publication-group">
+          <div class="compare-publication-title">${escapeHtml(pub)} <span>${items.length} card${items.length===1?'':'s'}</span></div>
+          ${items.map(item => {
+            const isCurrent = item.id === c.id;
+            return `<div class="compare-item ${isCurrent ? "current" : ""}">
+              <div class="compare-item-head"><span class="compare-pill">${escapeHtml(compareRelationLabel(c,item))}</span>${isCurrent ? `<span class="compare-current-pill">card atual</span>` : ""}</div>
+              <div class="compare-item-meta"><span class="compare-subject-pill">${escapeHtml(item.assunto || "Geral")}</span>${item.publicacao !== c.publicacao ? '<span class="compare-cross-source">outra publicação</span>' : ''}</div>
+              <div class="compare-q">${escapeHtml(frontQuestionText(item))}</div>
+              <div class="compare-a">${compareAnswerPreviewHTML(item.a)}</div>
+            </div>`;
+          }).join('')}
+        </section>`).join('');
     }
   }
   document.getElementById("compare-modal-backdrop").style.display = "flex";
@@ -8731,10 +9003,14 @@ function calcStreaksFromEvents(events){
   const today = startOfLocalDay(new Date());
   let current = 0;
   const cursor = new Date(today);
+  // A sequência permanece ativa durante o dia atual mesmo antes da primeira revisão.
+  // Ela só zera quando existe um dia completo sem atividade.
+  if(!(dayCounts.get(dateKeyLocal(cursor)) > 0)) cursor.setDate(cursor.getDate() - 1);
   while(dayCounts.get(dateKeyLocal(cursor)) > 0){
     current++;
     cursor.setDate(cursor.getDate() - 1);
   }
+  current = protectActiveStreak(current, dayCounts);
   const keys = Array.from(dayCounts.keys()).sort();
   let best = 0, run = 0, prev = null;
   keys.forEach(key => {
@@ -8748,6 +9024,7 @@ function calcStreaksFromEvents(events){
     best = Math.max(best, run);
     prev = d;
   });
+  best = Math.max(best, current);
   return { current, best, dayCounts };
 }
 
