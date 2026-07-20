@@ -3,8 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Flashcards — Praticagem v66.2 - sem Quiz Lights/Shapes</title>
-<!-- versão v66.2: desativa Quiz A/B automático apenas para Lights and Shapes com imagem na pergunta; mantém Programado/meta/revisão sem alterações. -->
+<title>Flashcards — Praticagem v66.3 - Favoritos, Voltar e Metas</title>
+<!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -849,6 +849,63 @@
     .image-zoom-help { font-size: 10px; max-width: 92%; overflow:hidden; text-overflow:ellipsis; }
   }
 
+
+  /* COMEMORAÇÃO DE METAS */
+  .goal-celebration-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 30000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 18px;
+    background: rgba(5,7,13,.58);
+    backdrop-filter: blur(4px);
+    overflow: hidden;
+  }
+  .goal-celebration-confetti { position:absolute; inset:0; overflow:hidden; pointer-events:none; }
+  .goal-confetti-piece {
+    position:absolute;
+    left: var(--x);
+    top: -12vh;
+    font-size: var(--size);
+    opacity: .96;
+    animation: goalConfettiFall var(--dur) var(--delay) cubic-bezier(.18,.7,.32,1) forwards;
+    will-change: transform, opacity;
+  }
+  .goal-celebration-card {
+    position: relative;
+    z-index: 2;
+    width: min(92vw, 460px);
+    background: rgba(26,29,39,.98);
+    border: 1px solid rgba(124,140,248,.58);
+    border-radius: 24px;
+    padding: 24px 20px 20px;
+    text-align: center;
+    box-shadow: 0 28px 100px rgba(0,0,0,.62), 0 0 50px rgba(91,106,240,.20);
+    animation: goalCelebrationPop .42s cubic-bezier(.2,.9,.3,1.25) both;
+  }
+  .goal-celebration-emoji { font-size: 58px; line-height:1; margin-bottom: 12px; }
+  .goal-celebration-title { font-size: 25px; font-weight: 950; margin-bottom: 8px; }
+  .goal-celebration-text { color: var(--muted); font-size: 14px; line-height: 1.55; }
+  .goal-celebration-badges { display:flex; flex-wrap:wrap; justify-content:center; gap:8px; margin:16px 0 18px; }
+  .goal-celebration-badge { color:var(--green); background:rgba(76,175,125,.13); border:1px solid rgba(76,175,125,.42); border-radius:999px; padding:7px 11px; font-size:12px; font-weight:950; }
+  .goal-celebration-close { width:100%; border:1px solid var(--accent2); background:var(--accent); color:#fff; border-radius:14px; padding:12px 14px; font-size:14px; font-weight:950; cursor:pointer; }
+  .goal-celebration-close:active { transform:scale(.98); }
+  @keyframes goalConfettiFall {
+    0% { transform: translate3d(0,-10vh,0) rotate(0deg); opacity:0; }
+    8% { opacity:1; }
+    100% { transform: translate3d(var(--dx),115vh,0) rotate(var(--rot)); opacity:.15; }
+  }
+  @keyframes goalCelebrationPop {
+    from { transform:scale(.72) translateY(20px); opacity:0; }
+    to { transform:scale(1) translateY(0); opacity:1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .goal-confetti-piece { display:none; }
+    .goal-celebration-card { animation:none; }
+  }
+
 </style>
 </head>
 <body>
@@ -899,7 +956,7 @@
   <div class="tabbar">
     <button class="tab-btn active" id="tab-study" onclick="smartStudy()">Estudar</button>
     <button class="tab-btn" id="tab-programmed" onclick="programmedStudy()">Programado</button>
-    <button class="tab-btn important" id="tab-important" onclick="importantStudy()">⭐ Importantes</button>
+    <button class="tab-btn important" id="tab-important" onclick="importantStudy()">⭐ Favoritos</button>
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-questions" onclick="showTab('questions')">Questões</button>
     <button class="tab-btn" id="tab-oldexams" onclick="showTab('oldexams')">Provas Antigas</button>
@@ -929,7 +986,7 @@
         <div class="diag-sub">A semana começa segunda-feira às 00:00 e termina domingo às 23:59. A meta diária aparece na tela inicial; aqui ficam os dados de hoje, semana, mês, sequência, projeção e calendário de consistência.</div>
       </div>
       <div class="diag-controls">
-        <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
+        <button class="mini-btn" onclick="goBackToStudy()">Voltar ao estudo</button>
         <button class="mini-btn" onclick="renderGoalsPage()">Atualizar</button>
         <button class="mini-btn danger-btn" onclick="studyWrongToday()">Refazer erradas de hoje</button>
         <button class="mini-btn danger-btn" onclick="studyWrongWeek()">Refazer erradas da semana</button>
@@ -1019,7 +1076,7 @@
           <div class="reading-pace" id="reading-pace-box">Defina uma data-alvo para calcular o ritmo diário.</div>
         </div>
         <div class="diag-controls" style="margin:12px 0 0;">
-          <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
+          <button class="mini-btn" onclick="goBackToStudy()">Voltar ao estudo</button>
           <button class="mini-btn" onclick="toggleReadingImportPanel()">Colar levantamento</button>
           <button class="mini-btn" onclick="exportReadingProgress()">Exportar progresso</button>
           <button class="mini-btn danger-btn" onclick="resetReadingProgress()">Zerar leitura</button>
@@ -1062,8 +1119,8 @@
         </div>
         <div class="db-actions">
           <button class="mini-btn sync-now-btn" id="sync-now-btn" onclick="forceSyncNow()">Sincronizar agora</button>
-          <button class="mini-btn" onclick="syncImportantNow()">Sincronizar importantes</button>
-          <button class="mini-btn" onclick="diagnoseImportantSync()">Diagnóstico importantes</button>
+          <button class="mini-btn" onclick="syncImportantNow()">Sincronizar favoritos</button>
+          <button class="mini-btn" onclick="diagnoseImportantSync()">Diagnóstico favoritos</button>
           <button class="mini-btn" onclick="renderSyncPanel()">Atualizar painel</button>
           <button class="mini-btn" onclick="showOrphanCardEvents()">Ver órfãos</button>
           <button class="mini-btn danger-btn" onclick="clearOrphanCardSync()">Limpar órfãos</button>
@@ -1096,7 +1153,7 @@
     </div>
     <div class="diag-controls">
       <button class="mini-btn" onclick="renderArchivedCards()">Atualizar lista</button>
-      <button class="mini-btn" onclick="smartStudy()">Voltar ao estudo</button>
+      <button class="mini-btn" onclick="goBackToStudy()">Voltar ao estudo</button>
     </div>
     <div class="archive-list" id="archive-list"></div>
   </div>
@@ -1201,7 +1258,7 @@
         <div class="card-face card-front">
           <div class="card-header">
             <span class="cat-badge" id="front-cat">—</span>
-            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-front" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como importante" aria-label="Marcar como importante">☆</button><span class="diff-badge" id="front-diff">—</span></span>
+            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-front" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como favorito" aria-label="Marcar como favorito">☆</button><span class="diff-badge" id="front-diff">—</span></span>
           </div>
           <div class="card-body">
             <div class="question-icon" id="q-icon">❓</div>
@@ -1222,12 +1279,12 @@
             <div class="hint" id="q-hint"></div>
             <div class="src-badge" id="q-src"></div>
           </div>
-          <div class="card-footer"><span class="tap-hint" id="front-tap-hint">Toque para ver a resposta</span><br><span class="footer-actions"><button class="favorite-link" onclick="toggleCurrentImportant(event)">⭐ Importante</button><button class="compare-link" onclick="openCompareModal(event)">Comparar</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint" id="front-tap-hint">Toque para ver a resposta</span><br><span class="footer-actions"><button class="favorite-link" onclick="toggleCurrentImportant(event)">⭐ Favorito</button><button class="compare-link" onclick="openCompareModal(event)">Comparar</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
         </div>
         <div class="card-face card-back">
           <div class="card-header">
             <span class="answer-label">Resposta</span>
-            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-back" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como importante" aria-label="Marcar como importante">☆</button><span class="diff-badge" id="back-diff">—</span></span>
+            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-back" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como favorito" aria-label="Marcar como favorito">☆</button><span class="diff-badge" id="back-diff">—</span></span>
           </div>
           <div class="card-body" style="overflow-y:auto; max-height: calc(var(--card-h) - 100px);">
             <div id="a-text" class="answer-text">—</div>
@@ -1236,7 +1293,7 @@
               <div id="a-img-caption" class="card-img-caption"></div>
             </div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="favorite-link" onclick="toggleCurrentImportant(event)">⭐ Importante</button><button class="compare-link" onclick="openCompareModal(event)">Comparar</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="favorite-link" onclick="toggleCurrentImportant(event)">⭐ Favorito</button><button class="compare-link" onclick="openCompareModal(event)">Comparar</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
         </div>
       </div>
     </div>
@@ -1248,7 +1305,7 @@
     <div class="nav-row">
       <button class="btn-nav" onclick="prevCard()">← Anterior</button>
       <button class="btn-nav btn-shuffle" onclick="shuffleCards()">🔀 Embaralhar</button>
-      <button class="btn-nav" onclick="skipCard()">Pular →</button>
+      <button class="btn-nav" id="card-next-btn" onclick="nextCardAction()">Pular →</button>
     </div>
   </div>
 
@@ -1394,6 +1451,7 @@ const GOALS_KEY = "flashpratico_goals_v1";
 const CARD_HISTORY_LAST_GOOD_KEY = "flashpratico_history_last_good_v1";
 const CARD_HISTORY_RESET_MARK_KEY = "flashpratico_history_reset_marker_v1";
 const GOAL_SNAPSHOT_KEY = "flashpratico_goal_snapshot_v1";
+const GOAL_CELEBRATION_KEY = "flashpratico_goal_celebrations_v1";
 const IMPORTANT_CARDS_KEY = "flashpratico_important_cards_v1";
 const IMPORTANT_CARDS_LAST_GOOD_KEY = "flashpratico_important_cards_last_good_v1";
 const IMPORTANT_PENDING_SYNC_KEY = "flashpratico_important_pending_sync_v1";
@@ -1443,6 +1501,8 @@ let SESSION_RESULTS = new Map();
 let scoreRight = 0, scoreWrong = 0, scoreHard = 0;
 let answered = 0, sessionDone = 0, sessionTotal = 0, activeCat = "Todas", activeTab = "study";
 let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", label:"Todas as publicações" };
+let LAST_STUDY_TAB = "study";
+let APP_HISTORY_READY = false;
 
 // Índices leves para o Programado. Evitam varrer todos os cards e todo o
 // histórico a cada clique/troca de aba. Sem isso, com milhares de eventos o
@@ -1457,6 +1517,7 @@ let QUESTION_BANK = [];
 let QUESTION_ATTEMPTS = [];
 let QUESTION_TABLE_READY = true;
 let questionDeck = [], questionIdx = 0, questionSessionDone = 0, questionSessionTotal = 0, activeQuestionSubject = null, questionAnsweredLocked = false;
+let QUESTION_SESSION_RESULTS = new Map();
 let CARD_ANSWER_LOCK = false;
 let CURRENT_AUTO_QUIZ = null;
 let OLD_EXAM_FILTER_READY = false;
@@ -1925,7 +1986,7 @@ function importantCards(){ return visibleCards(CARDS).filter(isImportantCard); }
 function importantBaseForActiveFilter(){ return baseCardsForActiveFilter().filter(isImportantCard); }
 function renderImportantTabCount(){
   const tab = document.getElementById("tab-important");
-  if(tab) tab.textContent = `⭐ Importantes (${importantCards().length})`;
+  if(tab) tab.textContent = `⭐ Favoritos (${importantCards().length})`; 
 }
 
 function makeClientId(){
@@ -2199,7 +2260,7 @@ function renderSyncPanel(){
   if(msg){
     const last = LAST_SYNC_AT ? ` Última sincronização: ${LAST_SYNC_AT.toLocaleTimeString("pt-BR", {hour:"2-digit", minute:"2-digit", second:"2-digit"})}.` : "";
     const details = summary.missingCardPending ? ` ${summary.missingCardPending} flashcard(s) antigo(s) salvo(s) localmente ainda não constam no Supabase.` : "";
-    const important = summary.importantPending ? ` ${summary.importantPending} marcação(ões) de importante aguardam sincronização.` : "";
+    const important = summary.importantPending ? ` ${summary.importantPending} marcação(ões) de favorito aguardam sincronização.` : "";
     const orphan = summary.orphanCardPending ? ` ${summary.orphanCardPending} evento(s) local(is) referem-se a cards que não existem mais na tabela cards; eles continuam contando na meta local, mas não podem subir para a tabela respostas por causa da chave estrangeira.` : "";
     msg.textContent = summary.totalPending
       ? `Há dados salvos neste aparelho aguardando envio.${details}${important}${orphan}${last}`
@@ -3132,17 +3193,23 @@ function studySessionKey(card){
   return cardLogicalKey(card) || cardIdKey(card);
 }
 
-function removeAnsweredCardCopiesFromDeck(answeredCard){
+function removeAnsweredCardCopiesFromDeck(answeredCard, keepCurrent=false){
   const answeredId = cardIdKey(answeredCard);
   const answeredKey = studySessionKey(answeredCard);
   let removedBeforeCurrentIndex = 0;
+  let removedTotal = 0;
   deck = deck.filter((card, i) => {
     if(!card) return false;
-    const remove = cardIdKey(card) === answeredId || studySessionKey(card) === answeredKey;
-    if(remove && i < idx) removedBeforeCurrentIndex++;
+    const sameCard = cardIdKey(card) === answeredId || studySessionKey(card) === answeredKey;
+    const remove = sameCard && !(keepCurrent && i === idx);
+    if(remove){
+      removedTotal++;
+      if(i < idx) removedBeforeCurrentIndex++;
+    }
     return !remove;
   });
   if(removedBeforeCurrentIndex) idx = Math.max(0, idx - removedBeforeCurrentIndex);
+  return removedTotal;
 }
 
 function answeredRightTodayLogicalKeys(){
@@ -4293,7 +4360,7 @@ function showQuestionList(){
   activeQuestionSubject = null;
   document.getElementById("questions-list-view").style.display = "block";
   document.getElementById("questions-study-view").style.display = "none";
-  questionDeck = []; questionIdx = 0; questionAnsweredLocked = false;
+  questionDeck = []; questionIdx = 0; questionAnsweredLocked = false; QUESTION_SESSION_RESULTS = new Map();
   if(!QUESTIONS_LOADED && !QUESTIONS_LOADING_PROMISE){
     const el = document.getElementById("question-subjects");
     if(el) el.innerHTML = `<div class="empty-state">Carregando questões do Supabase...</div>`;
@@ -4321,6 +4388,7 @@ function startQuestionSubject(subject, mode="all"){
   questionAnsweredLocked = false;
   questionSessionDone = 0;
   questionSessionTotal = questionDeck.length;
+  QUESTION_SESSION_RESULTS = new Map();
   document.getElementById("questions-list-view").style.display = "none";
   document.getElementById("questions-study-view").style.display = "block";
   showQuestionCard();
@@ -4353,7 +4421,8 @@ function showQuestionCard(){
   }
   const q = questionDeck[questionIdx];
   const st = qStatsForSubject(q.assunto);
-  questionAnsweredLocked = false;
+  const priorSessionAnswer = QUESTION_SESSION_RESULTS.get(String(q.id)) || null;
+  questionAnsweredLocked = !!priorSessionAnswer;
   document.getElementById("q-study-title").textContent = q.assunto;
   document.getElementById("q-study-stats").innerHTML = `
     <span class="meta-pill">Aproveitamento: ${st.pct === null ? "—" : st.pct + "%"}</span>
@@ -4408,6 +4477,22 @@ function showQuestionCard(){
   feedback.style.display = "none";
   feedback.className = "q-feedback";
   feedback.innerHTML = "";
+  if(priorSessionAnswer){
+    const selected = priorSessionAnswer.selected;
+    const correct = String(q.gabarito || "").toLowerCase();
+    document.querySelectorAll("#q-alt-list .q-alt-btn").forEach(btn => {
+      const letter = btn.getAttribute("data-letter");
+      btn.disabled = true;
+      if(letter === correct) btn.classList.add("correct");
+      if(letter === selected && selected !== correct) btn.classList.add("wrong");
+    });
+    const correctText = (q.alternativas || {})[correct] || q.resposta_texto || "";
+    feedback.style.display = "block";
+    feedback.className = `q-feedback ${priorSessionAnswer.result === "right" ? "ok" : "bad"}`;
+    feedback.innerHTML = priorSessionAnswer.result === "right"
+      ? `✓ Correta.<small>Resposta: ${correct.toUpperCase()}) ${escapeHtml(correctText)}</small>`
+      : `✗ Errada. A correta é ${correct.toUpperCase()}.<small>${escapeHtml(correctText)}</small>`;
+  }
   const source = document.getElementById("q-source");
   if(source) source.textContent = `${q.fonte || "PDF"} · ${q.assunto} · questão ${q.numero}`;
 }
@@ -4696,6 +4781,7 @@ async function selectQuestionOption(event, letter){
   const q = questionDeck[questionIdx];
   if(!q) return;
   questionAnsweredLocked = true;
+  const goalBefore = goalTotalsSnapshot();
   const selected = String(letter || "").toLowerCase();
   const correct = String(q.gabarito || "").toLowerCase();
   const result = selected === correct ? "right" : "wrong";
@@ -4712,8 +4798,10 @@ async function selectQuestionOption(event, letter){
   feedback.innerHTML = result === "right"
     ? `✓ Correta.<small>Resposta: ${correct.toUpperCase()}) ${escapeHtml(correctText)}</small>`
     : `✗ Errada. A correta é ${correct.toUpperCase()}.<small>${escapeHtml(correctText)}</small>`;
+  QUESTION_SESSION_RESULTS.set(String(q.id), { selected, result });
   questionSessionDone++;
   await saveQuestionEvent(q, selected, result);
+  celebrateReachedGoals(goalBefore, goalTotalsSnapshot());
   const st = qStatsForSubject(q.assunto);
   document.getElementById("q-study-stats").innerHTML = `
     <span class="meta-pill">Aproveitamento: ${st.pct === null ? "—" : st.pct + "%"}</span>
@@ -4728,23 +4816,23 @@ async function selectQuestionOption(event, letter){
 }
 function nextQuestionCard(){
   if(!questionDeck.length) return;
-  if(questionAnsweredLocked){
-    questionDeck.splice(questionIdx, 1);
-  } else {
-    questionSessionDone++;
-    questionDeck.splice(questionIdx, 1);
-  }
-  if(questionIdx >= questionDeck.length) questionIdx = Math.max(0, questionDeck.length - 1);
+  if(!questionAnsweredLocked) questionSessionDone++;
+  questionIdx++;
   showQuestionCard();
 }
 function skipQuestionCard(){ nextQuestionCard(); }
 function prevQuestionCard(){
-  // Mantido para compatibilidade visual. Como as questões respondidas são removidas do ciclo, o botão anterior só funciona antes de responder.
   if(questionIdx > 0){ questionIdx--; showQuestionCard(); }
 }
 function shuffleQuestionDeck(){
-  for(let i=questionDeck.length-1;i>0;i--){ const j=Math.floor(Math.random()*(i+1)); [questionDeck[i],questionDeck[j]]=[questionDeck[j],questionDeck[i]]; }
-  questionIdx=0; showQuestionCard();
+  const firstPending = questionDeck.findIndex((q, i) => i >= questionIdx && !QUESTION_SESSION_RESULTS.has(String(q.id)));
+  const start = firstPending >= 0 ? firstPending : questionIdx;
+  for(let i=questionDeck.length-1;i>start;i--){
+    const j = start + Math.floor(Math.random() * (i - start + 1));
+    [questionDeck[i],questionDeck[j]]=[questionDeck[j],questionDeck[i]];
+  }
+  questionIdx = Math.min(start, questionDeck.length);
+  showQuestionCard();
 }
 
 
@@ -5025,6 +5113,107 @@ function goalProgress(total, target){
   const remaining = Math.max(0, target - total);
   const extra = Math.max(0, total - target);
   return { pct, rawPct, remaining, extra };
+}
+
+
+function goalTotalsSnapshot(){
+  const now = new Date();
+  const goals = getGoalSettings();
+  return {
+    goals,
+    totals: { daily: todayStats().total, weekly: weekStats().total, monthly: monthStats().total },
+    periods: {
+      daily: dateKeyLocal(now),
+      weekly: dateKeyLocal(startOfLocalWeek(now)),
+      monthly: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    }
+  };
+}
+
+function readGoalCelebrations(){
+  try{
+    const parsed = JSON.parse(localStorage.getItem(GOAL_CELEBRATION_KEY) || "{}");
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  }catch(e){ return {}; }
+}
+
+function writeGoalCelebrations(state){
+  try{
+    const entries = Object.entries(state || {}).sort((a,b) => String(b[1]).localeCompare(String(a[1]))).slice(0, 180);
+    localStorage.setItem(GOAL_CELEBRATION_KEY, JSON.stringify(Object.fromEntries(entries)));
+  }catch(e){ console.warn("Não consegui salvar o registro de comemorações:", e); }
+}
+
+function goalCelebrationId(kind, snapshot){
+  const owner = currentUser?.id || "local";
+  return `${owner}|${kind}|${snapshot.periods[kind]}|${snapshot.goals[kind]}`;
+}
+
+function closeGoalCelebration(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  document.getElementById("goal-celebration-overlay")?.remove();
+}
+
+function launchGoalCelebration(achievements){
+  if(!Array.isArray(achievements) || !achievements.length) return;
+  closeGoalCelebration();
+  const overlay = document.createElement("div");
+  overlay.id = "goal-celebration-overlay";
+  overlay.className = "goal-celebration-overlay";
+  overlay.onclick = ev => { if(ev.target === overlay) closeGoalCelebration(ev); };
+
+  const confetti = document.createElement("div");
+  confetti.className = "goal-celebration-confetti";
+  const symbols = ["🎉","✨","⭐","🎯","⚓","◆","●"];
+  for(let i=0;i<88;i++){
+    const piece = document.createElement("span");
+    piece.className = "goal-confetti-piece";
+    piece.textContent = symbols[Math.floor(Math.random() * symbols.length)];
+    piece.style.setProperty("--x", `${Math.random() * 100}%`);
+    piece.style.setProperty("--dx", `${Math.round((Math.random() - .5) * 240)}px`);
+    piece.style.setProperty("--size", `${12 + Math.round(Math.random() * 15)}px`);
+    piece.style.setProperty("--dur", `${2.8 + Math.random() * 2.2}s`);
+    piece.style.setProperty("--delay", `${Math.random() * .9}s`);
+    piece.style.setProperty("--rot", `${Math.round((Math.random() - .5) * 1200)}deg`);
+    confetti.appendChild(piece);
+  }
+
+  const title = achievements.length > 1 ? "Metas alcançadas!" : `${achievements[0].label} alcançada!`;
+  const badges = achievements.map(a => `<span class="goal-celebration-badge">✓ ${escapeHtml(a.label)}: ${a.total} / ${a.target}</span>`).join("");
+  const card = document.createElement("div");
+  card.className = "goal-celebration-card";
+  card.onclick = ev => ev.stopPropagation();
+  card.innerHTML = `
+    <div class="goal-celebration-emoji">🏆</div>
+    <div class="goal-celebration-title">${escapeHtml(title)}</div>
+    <div class="goal-celebration-text">Excelente trabalho. Sua consistência está construindo o resultado da prova.</div>
+    <div class="goal-celebration-badges">${badges}</div>
+    <button class="goal-celebration-close" type="button">Continuar estudando</button>
+  `;
+  card.querySelector("button").onclick = closeGoalCelebration;
+  overlay.append(confetti, card);
+  document.body.appendChild(overlay);
+  setTimeout(() => { if(document.getElementById("goal-celebration-overlay") === overlay) closeGoalCelebration(); }, 6500);
+}
+
+function celebrateReachedGoals(before, after){
+  if(!before || !after) return;
+  const state = readGoalCelebrations();
+  const labels = { daily:"Meta diária", weekly:"Meta semanal", monthly:"Meta mensal" };
+  const achievements = [];
+  ["daily","weekly","monthly"].forEach(kind => {
+    const target = Number(after.goals[kind] || 0);
+    const beforeTotal = Number(before.totals[kind] || 0);
+    const afterTotal = Number(after.totals[kind] || 0);
+    const id = goalCelebrationId(kind, after);
+    if(target > 0 && beforeTotal < target && afterTotal >= target && !state[id]){
+      state[id] = new Date().toISOString();
+      achievements.push({ kind, label:labels[kind], total:afterTotal, target });
+    }
+  });
+  if(!achievements.length) return;
+  writeGoalCelebrations(state);
+  launchGoalCelebration(achievements);
 }
 
 function renderDailyGoalWidget(){
@@ -6486,10 +6675,24 @@ function importReadingPlanFromText(){
 }
 
 
-function showTab(tab){
+function updateAppHistory(tab, options={}){
+  const state = { flashpratico:true, tab };
+  if(!APP_HISTORY_READY){
+    history.replaceState(state, "", location.href);
+    APP_HISTORY_READY = true;
+    return;
+  }
+  if(options.fromHistory) return;
+  if(options.replaceHistory) history.replaceState(state, "", location.href);
+  else if(options.previousTab !== tab) history.pushState(state, "", location.href);
+}
+
+function showTab(tab, options={}){
+  const previousTab = activeTab;
   activeTab = tab;
   ["study","programmed","important","diag","questions","oldexams","progress","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
   const studyDisplay = tab === "study" || tab === "programmed" || tab === "important";
+  if(studyDisplay) LAST_STUDY_TAB = tab;
   const dailyGoal = document.getElementById("daily-goal-widget");
   if(dailyGoal) dailyGoal.style.display = studyDisplay ? "block" : "none";
   document.querySelector(".prog-wrap").style.display = studyDisplay ? "block" : "none";
@@ -6503,7 +6706,7 @@ function showTab(tab){
   document.getElementById("progress-screen").style.display = tab === "progress" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
   document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
-  if(tab === "study" || tab === "programmed" || tab === "important") renderDailyGoalWidget();
+  if(studyDisplay) renderDailyGoalWidget();
   if(tab === "goals") renderGoalsPage();
   if(tab === "diag") buildDashboard("all");
   if(tab === "questions") showQuestionList();
@@ -6511,8 +6714,19 @@ function showTab(tab){
   if(tab === "progress") renderReadingProgress();
   if(tab === "db") renderSummary("db-summary");
   if(tab === "arch") renderArchivedCards();
+  updateAppHistory(tab, {...options, previousTab});
 }
 
+function goBackToStudy(){
+  const target = ["study","programmed","important"].includes(LAST_STUDY_TAB) ? LAST_STUDY_TAB : "study";
+  showTab(target);
+  if(deck.length && idx < deck.length) showCard();
+}
+
+window.addEventListener("popstate", event => {
+  const tab = event.state?.flashpratico ? event.state.tab : null;
+  if(tab) showTab(tab, { fromHistory:true });
+});
 
 function scrollCats(direction){
   const el = document.getElementById('cat-pills');
@@ -6620,12 +6834,12 @@ function updateImportantButtons(card){
     if(!btn) return;
     btn.textContent = marked ? "★" : "☆";
     btn.classList.toggle("active", marked);
-    btn.title = marked ? "Remover dos importantes" : "Marcar como importante";
+    btn.title = marked ? "Remover dos favoritos" : "Marcar como favorito";
     btn.setAttribute("aria-label", btn.title);
   });
   document.querySelectorAll(".favorite-link").forEach(btn => {
-    btn.textContent = marked ? "★ Importante" : "☆ Importante";
-    btn.title = marked ? "Remover dos importantes" : "Marcar como importante";
+    btn.textContent = marked ? "★ Favorito" : "☆ Favorito";
+    btn.title = marked ? "Remover dos favoritos" : "Marcar como favorito";
   });
 }
 
@@ -6749,7 +6963,7 @@ async function loadImportantFromSupabase(){
     return;
   }
 
-  setSyncStatus("carregando importantes...");
+  setSyncStatus("carregando favoritos...");
   let metaSet = new Set();
   try{ metaSet = await refreshImportantUserMetadata(); }
   catch(error){ console.warn("Metadados de importantes não carregaram:", error); }
@@ -6762,7 +6976,7 @@ async function loadImportantFromSupabase(){
   }catch(error){
     console.warn("Tabela de importantes indisponível ou sem migração v66:", error);
     IMPORTANT_TABLE_READY = false;
-    setSyncStatus("Importantes protegidos localmente. Rode o SQL v66 se a sincronização entre aparelhos não aparecer.");
+    setSyncStatus("Favoritos protegidos localmente. Rode o SQL v66 se a sincronização entre aparelhos não aparecer.");
   }
 
   const finalState = mergeImportantStateMaps(
@@ -6789,18 +7003,18 @@ async function loadImportantFromSupabase(){
 }
 async function syncImportantNow(){
   if(IMPORTANT_SYNC_BUSY) return;
-  if(!currentUser?.id || !supabaseClient){ showToast("Você precisa estar logado para sincronizar importantes.", "warn"); return; }
+  if(!currentUser?.id || !supabaseClient){ showToast("Você precisa estar logado para sincronizar favoritos.", "warn"); return; }
   IMPORTANT_SYNC_BUSY = true;
   const before = IMPORTANT_CARDS.size;
   try{
     await loadImportantFromSupabase();
     const pending = readImportantPendingOps().length;
-    setSyncStatus(`Importantes sincronizados: ${before} → ${IMPORTANT_CARDS.size}. Pendências: ${pending}.`);
-    showToast(`Importantes sincronizados: ${before} → ${IMPORTANT_CARDS.size}.`, pending ? "warn" : "success", 5200);
+    setSyncStatus(`Favoritos sincronizados: ${before} → ${IMPORTANT_CARDS.size}. Pendências: ${pending}.`);
+    showToast(`Favoritos sincronizados: ${before} → ${IMPORTANT_CARDS.size}.`, pending ? "warn" : "success", 5200);
   }catch(error){
     console.error("Falha ao sincronizar importantes:", error);
-    setSyncStatus("falha ao sincronizar importantes: " + (error.message || error));
-    showToast("Falha ao sincronizar importantes: " + (error.message || error), "error", 6500);
+    setSyncStatus("falha ao sincronizar favoritos: " + (error.message || error));
+    showToast("Falha ao sincronizar favoritos: " + (error.message || error), "error", 6500);
   }finally{
     IMPORTANT_SYNC_BUSY = false;
     renderSyncPanel();
@@ -6862,12 +7076,12 @@ async function setImportantCard(card, marked){
   }
 
   if(tableOk || metaOk){
-    setSyncStatus(marked ? "Card marcado como importante e sincronizado." : "Card removido dos importantes e sincronizado.");
+    setSyncStatus(marked ? "Card marcado como favorito e sincronizado." : "Card removido dos favoritos e sincronizado.");
   }else if(isOnlineMode && currentUser){
-    setSyncStatus("Importante salvo neste aparelho; sincronização pendente.");
-    showToast("A estrela foi salva neste aparelho. Use Sincronizar agora; se não aparecer no outro aparelho, rode a migração SQL de Importantes.", "warn", 6200);
+    setSyncStatus("Favorito salvo neste aparelho; sincronização pendente.");
+    showToast("A estrela foi salva neste aparelho. Use Sincronizar agora; se não aparecer no outro aparelho, rode a migração SQL de Favoritos.", "warn", 6200);
   }else{
-    setSyncStatus(marked ? "Card marcado como importante neste aparelho." : "Card removido dos importantes neste aparelho.");
+    setSyncStatus(marked ? "Card marcado como favorito neste aparelho." : "Card removido dos favoritos neste aparelho.");
   }
   renderSyncPanel();
   return true;
@@ -7050,7 +7264,7 @@ function showNoAvailableCards(scopeLabel, totalCards, cardsForNext=null){
   const base = cardsForNext || baseCardsForActiveFilter();
   const emptyImportant = currentStudy?.mode === "important" && !totalCards;
   comp.querySelector('.complete-emoji').textContent = emptyImportant ? '⭐' : '⏳';
-  comp.querySelector('h2').textContent = emptyImportant ? 'Nenhum card importante marcado' : 'Nenhum card disponível agora';
+  comp.querySelector('h2').textContent = emptyImportant ? 'Nenhum card favorito marcado' : 'Nenhum card disponível agora';
   comp.querySelector('p').innerHTML = emptyImportant
     ? `Marque cards com a estrela para criar seu baralho de prioridade para a prova.`
     : `${escapeHtml(scopeLabel || 'Este baralho')} tem ${totalCards || base.length} card(s). Todos os cards disponíveis já foram respondidos ou ainda estão bloqueados pela revisão. ${escapeHtml(nextAvailableTextFor(base))}`;
@@ -7119,7 +7333,7 @@ function importantStudy(){
   sessionTotal = deck.length;
   idx = 0; isFlipped=false; resetSessionScore();
   const suffix = activeCat === "Todas" ? "" : ` — ${activeCat}`;
-  currentStudy = { type:"important", publicacao:activeCat==="Todas"?null:activeCat, assunto:null, mode:"important", label:`Importantes${suffix}` };
+  currentStudy = { type:"important", publicacao:activeCat==="Todas"?null:activeCat, assunto:null, mode:"important", label:`Favoritos${suffix}` };
   document.getElementById('complete').classList.remove('show');
   document.getElementById('complete').style.display='none';
   updateStudyTitle();
@@ -7167,7 +7381,7 @@ function studyToday(){
 }
 
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", wrongWeek:"Erradas da semana", wrongMonth:"Erradas do mês", wrongPeriod:"Erradas do período", pendingPeriod:"Pendentes do período", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente", programmed:"Programado", important:"Importantes + Programado"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", wrongWeek:"Erradas da semana", wrongMonth:"Erradas do mês", wrongPeriod:"Erradas do período", pendingPeriod:"Pendentes do período", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente", programmed:"Programado", important:"Favoritos + Programado"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = sessionTotal || deck.length;
@@ -7687,6 +7901,7 @@ function showCard(){
   setCardActionButtonsDisabled(false);
   if(idx >= deck.length){ showComplete(); return; }
   const c = deck[idx];
+  const reviewedInSession = SESSION_RESULTS.has(c.id);
   updateImportantButtons(c);
   isFlipped = false;
   const card = document.getElementById('card');
@@ -7704,8 +7919,11 @@ function showCard(){
   // Verso: a legenda pode aparecer, pois já é área de resposta.
   setCardImage("a", c.image_a_url || "", c.image_caption || "");
   document.getElementById('q-text').textContent = frontQuestionText(c);
-  document.getElementById('q-hint').textContent = c.hint ? '💡 ' + c.hint : '';
-  CURRENT_AUTO_QUIZ = shouldDisableAutoQuizForCard(c) ? null : buildAutoQuiz(c);
+  const baseHint = c.hint ? '💡 ' + c.hint : '';
+  document.getElementById('q-hint').textContent = reviewedInSession
+    ? `${baseHint}${baseHint ? ' · ' : ''}Card já respondido nesta sessão.`
+    : baseHint;
+  CURRENT_AUTO_QUIZ = reviewedInSession || shouldDisableAutoQuizForCard(c) ? null : buildAutoQuiz(c);
   renderAutoQuiz(CURRENT_AUTO_QUIZ);
   const frontTapHint = document.getElementById('front-tap-hint');
   if(frontTapHint) frontTapHint.textContent = CURRENT_AUTO_QUIZ ? 'Escolha A ou B' : 'Toque para ver a resposta';
@@ -7716,6 +7934,8 @@ function showCard(){
     srcEl.style.display = srcText ? 'inline-flex' : 'none';
   }
   setFormattedAnswer('a-text', c.a);
+  const nextBtn = document.getElementById('card-next-btn');
+  if(nextBtn) nextBtn.textContent = reviewedInSession ? 'Próxima →' : 'Pular →';
 
   updateProgress();
   updateStudyTitle();
@@ -7726,34 +7946,40 @@ function showCard(){
 function flipCard(){
   if(CURRENT_AUTO_QUIZ && !isFlipped) return;
   isFlipped = !isFlipped;
+  const c = deck[idx];
+  const reviewedInSession = !!c && SESSION_RESULTS.has(c.id);
   document.getElementById('card').classList.toggle('flipped', isFlipped);
-  document.getElementById('btn-row').style.display = isFlipped ? 'flex' : 'none';
+  document.getElementById('btn-row').style.display = isFlipped && !reviewedInSession ? 'flex' : 'none';
 }
 
 async function answer(type){
   if(CARD_ANSWER_LOCK) return;
   const c = deck[idx];
-  if(!c) return;
+  if(!c || SESSION_RESULTS.has(c.id)) return;
+  const goalBefore = goalTotalsSnapshot();
   CARD_ANSWER_LOCK = true;
   setCardActionButtonsDisabled(true);
   try{
     noteSessionAttempt(c);
     SESSION_RESULTS.set(c.id, type);
     await saveEvent(c, type);
+    celebrateReachedGoals(goalBefore, goalTotalsSnapshot());
     if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
     if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
     if(type==='hard') scoreHard++;
     renderDailyGoalWidget();
     answered++;
     sessionDone++;
-    // Remove da fila atual imediatamente. Assim, mesmo se o usuário embaralhar,
-    // o card recém-agendado não reaparece no mesmo estudo.
-    removeAnsweredCardCopiesFromDeck(c);
-    if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
+    // Mantém o card respondido atrás do cursor para o botão Anterior funcionar,
+    // mas remove duplicatas futuras da mesma pergunta para não reaparecer na sessão.
+    const removedFutureDuplicates = removeAnsweredCardCopiesFromDeck(c, true);
+    if(removedFutureDuplicates) sessionTotal = Math.max(sessionDone, sessionTotal - removedFutureDuplicates);
+    idx++;
     isFlipped=false;
     showCard();
   }catch(error){
     console.error('Erro ao registrar resposta do flashcard:', error);
+    SESSION_RESULTS.delete(c.id);
     CARD_ANSWER_LOCK = false;
     setCardActionButtonsDisabled(false);
     showToast('Não consegui registrar a resposta. Tente novamente.', 'error');
@@ -7769,7 +7995,6 @@ async function skipCard(){
     if(c) await saveEvent(c, "skip");
     sessionDone++;
     deck.splice(idx, 1);
-    if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
     isFlipped=false;
     showCard();
   }catch(error){
@@ -7779,8 +8004,26 @@ async function skipCard(){
     showToast('Não consegui pular o card. Tente novamente.', 'error');
   }
 }
+function nextCardAction(){
+  const c = deck[idx];
+  if(c && SESSION_RESULTS.has(c.id)){
+    idx++;
+    isFlipped = false;
+    showCard();
+    return;
+  }
+  skipCard();
+}
 function prevCard(){ if(idx>0){idx--;isFlipped=false;showCard();} }
-function shuffleCards(){ for(let i=deck.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[deck[i],deck[j]]=[deck[j],deck[i]];} idx=0;isFlipped=false;showCard(); }
+function shuffleCards(){
+  const firstPending = deck.findIndex((c, i) => i >= idx && !SESSION_RESULTS.has(c.id));
+  const start = firstPending >= 0 ? firstPending : idx;
+  for(let i=deck.length-1;i>start;i--){
+    const j = start + Math.floor(Math.random() * (i - start + 1));
+    [deck[i],deck[j]]=[deck[j],deck[i]];
+  }
+  idx=Math.min(start, deck.length);isFlipped=false;showCard();
+}
 
 function updateProgress(){
   const total = sessionTotal || deck.length;
@@ -8651,11 +8894,11 @@ function restoreFullJsonBackup(event){
         ? "\n\nTambém vou SUBSTITUIR o histórico remoto desta conta no Supabase por esse JSON. Os flashcards não serão apagados."
         : "\n\nComo não há sessão online ativa, a restauração será local neste aparelho.";
       showConfirmToast(
-        `Restaurar backup completo?\n\nEventos no JSON: ${history.length}\nRespostas efetivas: ${answered}\nEstado de revisão: ${reviewState.length}\nImportantes no JSON: ${importantCards.length}\nPeríodo: ${first} até ${last}${remoteText}`,
+        `Restaurar backup completo?\n\nEventos no JSON: ${history.length}\nRespostas efetivas: ${answered}\nEstado de revisão: ${reviewState.length}\nFavoritos no JSON: ${importantCards.length}\nPeríodo: ${first} até ${last}${remoteText}`,
         async () => {
           const res = await applyFullJsonBackupRestore(history, reviewState, { replaceRemote: !!(isOnlineMode && currentUser?.id), importantCards });
           setSyncStatus(`JSON restaurado: ${res.local} evento(s) locais, ${res.remote.synced || 0} enviado(s), ${res.remote.orphaned || 0} órfão(s).`);
-          showToast(`JSON restaurado. Eventos locais: ${res.local}. Importantes restaurados: ${res.important || 0}. Enviados ao Supabase: ${res.remote.synced || 0}.`, "success", 8000);
+          showToast(`JSON restaurado. Eventos locais: ${res.local}. Favoritos restaurados: ${res.important || 0}. Enviados ao Supabase: ${res.remote.synced || 0}.`, "success", 8000);
         },
         {confirmText:"Restaurar", cancelText:"Cancelar", tone:"danger"}
       );
@@ -8715,7 +8958,7 @@ function importHistory(event){
         setSyncStatus("Histórico importado/mesclado com o Supabase.");
       }
       refreshAfterHistoryRestore();
-      showToast(`Histórico importado: ${clean.length} evento(s) lido(s) do JSON. Importantes importados: ${importantImport.imported || 0}.`, "success", 6500);
+      showToast(`Histórico importado: ${clean.length} evento(s) lido(s) do JSON. Favoritos importados: ${importantImport.imported || 0}.`, "success", 6500);
     }catch(err){ console.error(err); showToast("Não consegui importar esse arquivo JSON: " + (err.message || "erro desconhecido"), "error", 6000); }
   };
   reader.readAsText(file);
@@ -8931,7 +9174,7 @@ async function startAuthenticatedApp(){
         if(activeTab === "db") renderSummary("db-summary");
         if(activeTab === "goals") renderGoalsPage();
         if(activeTab === "progress") renderReadingProgress();
-        setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${importantCards().length} importantes; ${archivedCards().length} arquivados.`);
+        setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${importantCards().length} favoritos; ${archivedCards().length} arquivados.`);
       }catch(bgError){
         console.error("Erro no carregamento em segundo plano:", bgError);
         setSyncStatus("app aberto, mas houve erro ao sincronizar em segundo plano: " + (bgError.message || "erro desconhecido"));
@@ -8966,6 +9209,9 @@ window.archiveCurrentCard = archiveCurrentCard;
 window.toggleCurrentImportant = toggleCurrentImportant;
 window.importantStudy = importantStudy;
 window.showTab = showTab;
+window.goBackToStudy = goBackToStudy;
+window.nextCardAction = nextCardAction;
+window.closeGoalCelebration = closeGoalCelebration;
 window.showQuestionList = showQuestionList;
 window.startQuestionSubject = startQuestionSubject;
 window.selectQuestionOption = selectQuestionOption;
