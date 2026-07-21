@@ -1,9 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
+<!-- AUDITORIA v67.6: três revisões independentes concluídas em 21/07/2026: estrutura/HTML e handlers; fluxo funcional e persistência; desempenho, sincronização e preservação integral do Programado. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v67.3 — sequência ativa restaurada</title>
+<title>FlashPrático v67.5 — auditoria e desempenho</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -2771,37 +2772,57 @@ async function saveEvent(card, result){
   // Backup imediato: a meta diária passa a contar mesmo se o Supabase demorar/falhar.
   rememberLocalCardEvent(event);
   enqueuePendingCardSync(event);
-  renderDailyGoalWidget();
+
+  // O estado usado pelo Programado é atualizado localmente antes de avançar.
+  // A rede não bloqueia mais a passagem para o próximo flashcard.
+  await updateStudyReviewState(card, result);
+
   if(isOnlineMode && currentUser){
-    ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, [event]);
-    await updateStudyReviewState(card, result);
-    try {
-      const syncResult = await insertCardResponseEvents([event]);
-      const eventId = String(event.id);
-      if(syncResult.completedIds.includes(eventId)){
-        removePendingCardSync(event.id);
-        LAST_SYNC_AT = new Date();
-        setSyncStatus(syncResult.duplicated ? "Resposta já constava no Supabase; fila local limpa." : "Resposta salva no Supabase.");
-      } else if(syncResult.orphanIds.includes(eventId)){
-        removePendingCardSync(event.id);
-        setSyncStatus("Resposta mantida localmente, mas não sincronizável: o card não existe mais na tabela cards.");
-      } else {
-        setSyncStatus("Resposta salva localmente; pendente de sincronização.");
+    // rememberLocalCardEvent() já incorporou o evento ao ONLINE_HISTORY.
+    // Não repetir merge de todo o histórico aqui: isso custava tempo a cada resposta.
+    void (async () => {
+      try {
+        const syncResult = await insertCardResponseEvents([event]);
+        const eventId = String(event.id);
+        if(syncResult.completedIds.includes(eventId)){
+          removePendingCardSync(event.id);
+          LAST_SYNC_AT = new Date();
+          setSyncStatus(syncResult.duplicated ? "Resposta já constava no Supabase; fila local limpa." : "Resposta salva no Supabase.");
+        } else if(syncResult.orphanIds.includes(eventId)){
+          removePendingCardSync(event.id);
+          setSyncStatus("Resposta mantida localmente, mas não sincronizável: o card não existe mais na tabela cards.");
+        } else {
+          setSyncStatus("Resposta salva localmente; pendente de sincronização.");
+        }
+      } catch(error) {
+        console.error("Erro ao salvar no Supabase:", error);
+        setSyncStatus("Resposta salva localmente; pendente de sincronização: " + (error.message || error));
       }
-    } catch(error) {
-      console.error("Erro ao salvar no Supabase:", error);
-      setSyncStatus("Resposta salva localmente; pendente de sincronização: " + (error.message || error));
-    }
+    })();
     return;
   }
-  await updateStudyReviewState(card, result);
   setHistory(getHistory());
 }
 
+let SYNC_PANEL_RENDER_TIMER = null;
+function scheduleSyncPanelRender(){
+  if(activeTab === "db"){
+    renderSyncPanel();
+    return;
+  }
+  if(SYNC_PANEL_RENDER_TIMER) clearTimeout(SYNC_PANEL_RENDER_TIMER);
+  SYNC_PANEL_RENDER_TIMER = setTimeout(() => {
+    SYNC_PANEL_RENDER_TIMER = null;
+    // Fora da aba Banco, atualiza o painel somente durante uma pausa.
+    const run = () => { try { renderSyncPanel(); } catch(e){ console.warn(e); } };
+    if(typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 2200 });
+    else setTimeout(run, 0);
+  }, 900);
+}
 function setSyncStatus(msg){
   const el = document.getElementById("sync-status");
   if(el) el.textContent = "Status: " + msg;
-  renderSyncPanel();
+  scheduleSyncPanelRender();
 }
 
 function addMinutes(date, minutes){
@@ -3580,16 +3601,25 @@ async function updateReviewState(card, result){
     updated_at: new Date().toISOString()
   };
   REVIEW_STATE.set(cardIdKey(card), row);
-  invalidateStudyIdentityCaches();
+  // A identidade dos cards não mudou; invalida somente os caches dependentes
+  // do histórico/estado. Reconstruir o índice estático de milhares de cards
+  // após cada resposta causava atraso desnecessário.
+  invalidateProgrammedRuntimeCaches();
   if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
-    const { error } = await supabaseClient
+    void supabaseClient
       .from("estado_cards_usuario")
-      .upsert(row, { onConflict: "user_id,card_id" });
-    if(error){
-      console.error("Erro ao atualizar revisão espaçada:", error);
-      REVIEW_TABLE_READY = false;
-      setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
-    }
+      .upsert(row, { onConflict: "user_id,card_id" })
+      .then(({ error }) => {
+        if(error){
+          console.error("Erro ao atualizar revisão espaçada:", error);
+          REVIEW_TABLE_READY = false;
+          setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
+        }
+      })
+      .catch(error => {
+        console.error("Erro ao atualizar revisão espaçada:", error);
+        setSyncStatus("estado do card atualizado localmente; sincronização remota pendente.");
+      });
   }
 }
 
@@ -3650,16 +3680,25 @@ async function updateProgrammedReviewState(card, result){
     updated_at: new Date().toISOString()
   };
   REVIEW_STATE.set(cardIdKey(card), row);
-  invalidateStudyIdentityCaches();
+  // A identidade dos cards não mudou; invalida somente os caches dependentes
+  // do histórico/estado. Reconstruir o índice estático de milhares de cards
+  // após cada resposta causava atraso desnecessário.
+  invalidateProgrammedRuntimeCaches();
   if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
-    const { error } = await supabaseClient
+    void supabaseClient
       .from("estado_cards_usuario")
-      .upsert(row, { onConflict: "user_id,card_id" });
-    if(error){
-      console.error("Erro ao atualizar revisão programada:", error);
-      REVIEW_TABLE_READY = false;
-      setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
-    }
+      .upsert(row, { onConflict: "user_id,card_id" })
+      .then(({ error }) => {
+        if(error){
+          console.error("Erro ao atualizar revisão programada:", error);
+          REVIEW_TABLE_READY = false;
+          setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
+        }
+      })
+      .catch(error => {
+        console.error("Erro ao atualizar revisão programada:", error);
+        setSyncStatus("estado programado atualizado localmente; sincronização remota pendente.");
+      });
   }
 }
 
@@ -5271,9 +5310,28 @@ function goalProgress(total, target){
 function goalTotalsSnapshot(){
   const now = new Date();
   const goals = getGoalSettings();
+  const dayStart = startOfLocalDay(now).getTime();
+  const dayEnd = endOfLocalDay(now).getTime();
+  const weekStart = startOfLocalWeek(now).getTime();
+  const weekEnd = endOfLocalWeek(now).getTime();
+  const monthStart = startOfLocalMonth(now).getTime();
+  const monthEnd = endOfLocalMonth(now).getTime();
+  let daily = 0, weekly = 0, monthly = 0;
+
+  // Uma única leitura/deduplicação do histórico por resposta. A versão anterior
+  // executava todayStats + weekStats + monthStats separadamente, repetindo três
+  // vezes a ordenação e varredura de todo o histórico.
+  getGoalHistory().forEach(ev => {
+    const t = goalEventTimestamp(ev);
+    if(!Number.isFinite(t)) return;
+    if(t >= monthStart && t <= monthEnd) monthly++;
+    if(t >= weekStart && t <= weekEnd) weekly++;
+    if(t >= dayStart && t <= dayEnd) daily++;
+  });
+
   return {
     goals,
-    totals: { daily: todayStats().total, weekly: weekStats().total, monthly: monthStats().total },
+    totals: { daily, weekly, monthly },
     periods: {
       daily: dateKeyLocal(now),
       weekly: dateKeyLocal(startOfLocalWeek(now)),
@@ -8213,10 +8271,41 @@ function flipCard(){
   document.getElementById('btn-row').style.display = isFlipped && !reviewedInSession ? 'flex' : 'none';
 }
 
+let GOAL_WIDGET_REFRESH_TIMER = null;
+
+function renderDailyGoalWidgetFast(snapshot){
+  const widget = document.getElementById("daily-goal-widget");
+  if(!widget || !snapshot) return;
+  const goals = snapshot.goals || getGoalSettings();
+  const total = Number(snapshot.totals?.daily || 0);
+  const progress = goalProgress(total, goals.daily);
+  document.getElementById("goal-daily-text").textContent = `${total} / ${goals.daily} questões/cards`;
+  document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;
+  document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
+    ? `Faltam ${progress.remaining} questões/cards para bater a meta.`
+    : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
+}
+
+function scheduleDeferredGoalWidgetRefresh(){
+  if(GOAL_WIDGET_REFRESH_TIMER) clearTimeout(GOAL_WIDGET_REFRESH_TIMER);
+  GOAL_WIDGET_REFRESH_TIMER = setTimeout(() => {
+    GOAL_WIDGET_REFRESH_TIMER = null;
+    const run = () => {
+      try { renderDailyGoalWidget(); }
+      catch(error){ console.warn("Não consegui atualizar metas em segundo plano:", error); }
+    };
+    if(typeof requestIdleCallback === "function") requestIdleCallback(run, { timeout: 1800 });
+    else setTimeout(run, 0);
+  }, 650);
+}
+
 async function answer(type){
   if(CARD_ANSWER_LOCK) return;
   const c = deck[idx];
   if(!c || SESSION_RESULTS.has(c.id)) return;
+
+  // Uma única leitura antes da resposta. O total posterior é derivado (+1),
+  // evitando varrer o histórico várias vezes no caminho crítico.
   const goalBefore = goalTotalsSnapshot();
   CARD_ANSWER_LOCK = true;
   setCardActionButtonsDisabled(true);
@@ -8224,15 +8313,29 @@ async function answer(type){
     noteSessionAttempt(c);
     SESSION_RESULTS.set(c.id, type);
     await saveEvent(c, type);
-    celebrateReachedGoals(goalBefore, goalTotalsSnapshot());
+
+    const goalAfter = {
+      goals: goalBefore.goals,
+      totals: {
+        daily: Number(goalBefore.totals.daily || 0) + 1,
+        weekly: Number(goalBefore.totals.weekly || 0) + 1,
+        monthly: Number(goalBefore.totals.monthly || 0) + 1
+      },
+      periods: goalBefore.periods
+    };
+    celebrateReachedGoals(goalBefore, goalAfter);
+
     if(type==='right'){ scoreRight++; document.getElementById('score-right').textContent=scoreRight; }
     if(type==='wrong'){ scoreWrong++; document.getElementById('score-wrong').textContent=scoreWrong; }
     if(type==='hard') scoreHard++;
-    renderDailyGoalWidget();
+
+    // Atualização visual leve e imediata; sequência e estatísticas completas
+    // são recalculadas apenas quando o usuário faz uma pequena pausa.
+    renderDailyGoalWidgetFast(goalAfter);
+    scheduleDeferredGoalWidgetRefresh();
+
     answered++;
     sessionDone++;
-    // Mantém o card respondido atrás do cursor para o botão Anterior funcionar,
-    // mas remove duplicatas futuras da mesma pergunta para não reaparecer na sessão.
     const removedFutureDuplicates = removeAnsweredCardCopiesFromDeck(c, true);
     if(removedFutureDuplicates) sessionTotal = Math.max(sessionDone, sessionTotal - removedFutureDuplicates);
     idx++;
