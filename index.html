@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v70: auditoria completa final; preserva Programado/meta/histórico, mantém sync em lote de Favoritos e protege backup lastGood dos Favoritos contra sobrescrita vazia. -->
+<!-- AUDITORIA v67.6: três revisões independentes concluídas em 21/07/2026: estrutura/HTML e handlers; fluxo funcional e persistência; desempenho, sincronização e preservação integral do Programado. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v70 — auditoria completa final</title>
+<title>FlashPrático v67.5 — auditoria e desempenho</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1670,58 +1670,13 @@ function showConfirmToast(message, onConfirm, options={}){
   wrap.appendChild(box);
 }
 
-function waitMs(ms){
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function isTransientSupabaseError(error){
-  const msg = String(error?.message || error || "").toLowerCase();
-  return msg.includes("load failed")
-    || msg.includes("failed to fetch")
-    || msg.includes("network")
-    || msg.includes("timeout")
-    || msg.includes("fetch")
-    || msg.includes("aborted")
-    || msg.includes("temporarily");
-}
-
-async function runSupabaseWithRetry(operation, options={}){
-  const attempts = Math.max(1, Number(options.attempts || 3));
-  const baseDelay = Math.max(100, Number(options.baseDelay || 450));
-  const timeoutMs = Math.max(4000, Number(options.timeoutMs || 25000));
-  const label = options.label || "operação Supabase";
-  let lastError = null;
-  for(let attempt=0; attempt<attempts; attempt++){
-    let timer = null;
-    try{
-      const result = await Promise.race([
-        Promise.resolve().then(operation),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`${label}: timeout após ${timeoutMs} ms`)), timeoutMs);
-        })
-      ]);
-      if(result?.error) throw result.error;
-      return result;
-    }catch(error){
-      lastError = error;
-      if(attempt >= attempts - 1 || !isTransientSupabaseError(error)) throw error;
-      await waitMs(baseDelay * Math.pow(2, attempt));
-    }finally{
-      if(timer) clearTimeout(timer);
-    }
-  }
-  throw lastError;
-}
-
 async function fetchSupabasePages(makeQuery, pageSize=1000, maxRows=50000){
   const rows = [];
   for(let from=0; from<maxRows; from += pageSize){
     const to = Math.min(from + pageSize - 1, maxRows - 1);
-    const pageResult = await runSupabaseWithRetry(
-      () => makeQuery(from, to),
-      { label:`consulta Supabase ${from}-${to}`, attempts:3, timeoutMs:25000 }
-    );
-    const page = pageResult?.data || [];
+    const { data, error } = await makeQuery(from, to);
+    if(error) throw error;
+    const page = data || [];
     rows.push(...page);
     if(page.length < pageSize) break;
   }
@@ -2476,9 +2431,9 @@ async function forceSyncNow(){
     if(btn){ btn.disabled = false; btn.textContent = "Sincronizar agora"; }
   };
   safetyTimer = setTimeout(() => {
-    console.warn("A sincronização está demorando mais que o normal; mantendo bloqueio para evitar execução duplicada.");
-    if(btn){ btn.disabled = true; btn.textContent = "Sincronizando..."; }
-    showToast("A sincronização está demorando mais que o normal. Aguarde terminar para evitar duplicidade.", "warn", 5200);
+    console.warn("Timeout de segurança liberou o botão de sincronização.");
+    releaseSyncButton();
+    showToast("A sincronização demorou demais. O botão foi liberado; tente novamente se ainda houver pendências.", "warn", 5200);
     renderSyncPanel();
   }, 30000);
   if(btn){ btn.disabled = true; btn.textContent = "Sincronizando..."; }
@@ -5016,7 +4971,8 @@ function getGoalSettings(){
 async function loadGoalSettingsFromSupabase(){
   if(!supabaseClient || !currentUser?.id) return;
   try{
-    const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.getUser(), { label:"carregar metas do perfil", timeoutMs:15000 });
+    const { data, error } = await supabaseClient.auth.getUser();
+    if(error) throw error;
     if(data?.user) currentUser = data.user;
     protectBestStreak(Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0));
     syncProtectedBestStreak(readProtectedBestStreak());
@@ -5032,7 +4988,8 @@ async function setGoalSettings(goals){
   localStorage.setItem(GOALS_KEY, JSON.stringify(clean));
   if(supabaseClient && currentUser?.id){
     try{
-      const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.updateUser({ data: { flashpratico_goals: clean } }), { label:"salvar metas", timeoutMs:15000 });
+      const { data, error } = await supabaseClient.auth.updateUser({ data: { flashpratico_goals: clean } });
+      if(error) throw error;
       if(data?.user) currentUser = data.user;
       setSyncStatus("Metas sincronizadas no usuário.");
     }catch(e){
@@ -5267,7 +5224,8 @@ async function syncProtectedBestStreak(best){
   const cloudBest = Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0);
   if(!supabaseClient || !currentUser?.id || safeBest <= cloudBest) return safeBest;
   try{
-    const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.updateUser({ data: { [GOAL_BEST_STREAK_METADATA_KEY]: safeBest } }), { label:"salvar recorde de sequência", timeoutMs:15000 });
+    const { data, error } = await supabaseClient.auth.updateUser({ data: { [GOAL_BEST_STREAK_METADATA_KEY]: safeBest } });
+    if(error) throw error;
     if(data?.user) currentUser = data.user;
   }catch(e){ console.warn("Não consegui sincronizar o recorde de sequência:", e); }
   return safeBest;
@@ -7188,48 +7146,6 @@ function syncImportantUi(){
   renderCategoryList(document.getElementById("cat-list-search")?.value || "");
 }
 
-function showLoadingCardMessage(message="Carregando..."){
-  try{
-    document.getElementById('front-cat').textContent = "—";
-    document.getElementById('back-diff').textContent = "—";
-    document.getElementById('front-diff').textContent = "—";
-    document.getElementById('q-icon').textContent = "❓";
-    document.getElementById('q-text').textContent = message;
-    document.getElementById('a-text').textContent = "—";
-    document.getElementById('btn-row').style.display = 'none';
-    setCardImage("q", "", "");
-    setCardImage("a", "", "");
-    updateImportantButtons(null);
-  }catch(error){ console.warn("Não consegui renderizar estado de carregamento:", error); }
-}
-
-function recoverInvalidDeckPosition(){
-  const before = deck.length;
-  deck = deck.filter(card => card && card.id && (card.q || card.a));
-  if(idx < 0) idx = 0;
-  if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
-  return before !== deck.length;
-}
-
-function refreshActiveImportantDeckAfterSync(){
-  if(activeTab !== "important") return;
-  if(!CARDS.length) return;
-  const base = importantBaseForActiveFilter();
-  const cards = getProgrammedStudyCards(base);
-  const currentId = deck[idx]?.id || null;
-  deck = [...cards];
-  sessionTotal = deck.length;
-  idx = Math.max(0, currentId ? deck.findIndex(c => c.id === currentId) : 0);
-  if(idx < 0) idx = 0;
-  currentStudy = { type:"important", publicacao:activeCat==="Todas"?null:activeCat, assunto:null, mode:"important", label:`Favoritos${activeCat === "Todas" ? "" : ` — ${activeCat}`}` };
-  document.getElementById('complete').classList.remove('show');
-  document.getElementById('complete').style.display='none';
-  document.getElementById('card-area').style.display='flex';
-  updateStudyTitle();
-  if(!deck.length){ showNoAvailableCards(currentStudy.label, base.length, base); return; }
-  showCard();
-}
-
 function updateImportantButtons(card){
   const marked = !!card && isImportantCard(card);
   ["favorite-btn-front", "favorite-btn-back"].forEach(id => {
@@ -7249,7 +7165,8 @@ function updateImportantButtons(card){
 async function refreshImportantUserMetadata(){
   if(!supabaseClient || !currentUser?.id) return new Set();
   try{
-    const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.getUser(), { label:"carregar favoritos do perfil", timeoutMs:15000 });
+    const { data, error } = await supabaseClient.auth.getUser();
+    if(error) throw error;
     if(data?.user) currentUser = data.user;
     return importantIdsFromUserMetadata(currentUser);
   }catch(error){
@@ -7260,14 +7177,13 @@ async function refreshImportantUserMetadata(){
 async function syncImportantUserMetadata(){
   if(!supabaseClient || !currentUser?.id) return false;
   const ids = [...IMPORTANT_CARDS].map(normalizeImportantId).filter(Boolean);
-  const metaSet = importantIdsFromUserMetadata(currentUser);
-  if(metaSet.size === ids.length && ids.every(id => metaSet.has(id))) return true;
-  const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.updateUser({
+  const { data, error } = await supabaseClient.auth.updateUser({
     data: {
       [IMPORTANT_AUTH_METADATA_KEY]: ids,
       [IMPORTANT_AUTH_METADATA_UPDATED_KEY]: new Date().toISOString()
     }
-  }), { label:"salvar favoritos no perfil", timeoutMs:20000 });
+  });
+  if(error) throw error;
   if(data?.user) currentUser = data.user;
   return true;
 }
@@ -7297,64 +7213,52 @@ async function fetchImportantRowsFromSupabase(){
     return query;
   }, 1000, 50000);
 }
-async function syncImportantOpsBatchToSupabase(ops){
-  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return { ok:false, synced:0, ids:[] };
-  const cleanOps = readImportantPendingOpsFromArray(ops || []).map(op => ({
-    card_id: normalizeImportantId(op.card_id),
-    marked: !!op.marked,
-    updated_at: op.updated_at || new Date().toISOString()
-  })).filter(op => op.card_id);
-  if(!cleanOps.length) return { ok:true, synced:0, ids:[] };
-
-  const syncedIds = [];
-  const chunkSize = 500;
-  for(let i=0; i<cleanOps.length; i += chunkSize){
-    const chunk = cleanOps.slice(i, i + chunkSize);
-    const payload = chunk.map(op => ({
-      user_id: currentUser.id,
-      card_id: op.card_id,
-      marked: !!op.marked,
-      marked_at: op.marked ? op.updated_at : null,
-      updated_at: op.updated_at
-    }));
-    try{
-      await runSupabaseWithRetry(() => supabaseClient
-        .from("flashcard_importantes")
-        .upsert(payload, { onConflict:"user_id,card_id" }),
-        { label:"sincronizar favoritos em lote", attempts:3, timeoutMs:25000 });
-      syncedIds.push(...chunk.map(op => op.card_id));
-    }catch(error){
-      console.warn("Não foi possível sincronizar lote de favoritos na tabela flashcard_importantes:", error);
-      IMPORTANT_TABLE_READY = false;
-      return { ok:false, synced:syncedIds.length, ids:syncedIds, error };
-    }
-  }
-  IMPORTANT_TABLE_READY = true;
-  return { ok:true, synced:syncedIds.length, ids:syncedIds };
-}
 async function syncImportantOpToSupabase(op){
-  const res = await syncImportantOpsBatchToSupabase([op]);
-  return !!res.ok;
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return false;
+  const card_id = normalizeImportantId(op?.card_id || op?.cardId || op?.id);
+  if(!card_id) return true;
+  const ts = op.updated_at || op.ts || new Date().toISOString();
+  try{
+    const { error } = await supabaseClient
+      .from("flashcard_importantes")
+      .upsert({
+        user_id: currentUser.id,
+        card_id,
+        marked: !!op.marked,
+        marked_at: op.marked ? ts : null,
+        updated_at: ts
+      }, { onConflict:"user_id,card_id" });
+    if(error) throw error;
+    IMPORTANT_TABLE_READY = true;
+    return true;
+  }catch(modernError){
+    console.warn("Não foi possível sincronizar importante na tabela flashcard_importantes:", modernError);
+    IMPORTANT_TABLE_READY = false;
+    return false;
+  }
 }
 async function syncImportantPendingToSupabase(){
   const pending = readImportantPendingOps();
   if(!pending.length) return { synced:0, skipped:0 };
-  const res = await syncImportantOpsBatchToSupabase(pending);
-  (res.ids || []).forEach(id => clearImportantPendingOp(id));
+  let synced = 0, skipped = 0;
+  for(const op of pending){
+    const ok = await syncImportantOpToSupabase(op);
+    if(ok){ clearImportantPendingOp(op.card_id); synced++; }
+    else skipped++;
+  }
   renderSyncPanel();
-  return { synced:res.synced || 0, skipped:res.ok ? 0 : Math.max(0, pending.length - Number(res.synced || 0)) };
+  return { synced, skipped };
 }
 async function syncImportantMissingToSupabase(remoteState=new Map()){
   if(!isOnlineMode || !currentUser?.id || !supabaseClient) return 0;
-  const ts = new Date().toISOString();
-  const ops = [];
+  let sent = 0;
   for(const id of IMPORTANT_CARDS){
     const remote = remoteState.get(id);
     if(remote?.marked) continue;
-    ops.push({ card_id:id, marked:true, updated_at:ts });
+    const ok = await syncImportantOpToSupabase({ card_id:id, marked:true, updated_at:new Date().toISOString() });
+    if(ok) sent++;
   }
-  const res = await syncImportantOpsBatchToSupabase(ops);
-  return Number(res.synced || 0);
+  return sent;
 }
 function buildImportantLocalStateMap(){
   const current = readImportantSetFromStorage(importantStorageKey());
@@ -7401,9 +7305,7 @@ async function loadImportantFromSupabase(){
     importantPendingStateMap()
   );
   IMPORTANT_CARDS = importantSetFromStateMap(finalState);
-  // Não sobrescreve o backup lastGood com lista vazia.
-  // A lista atual continua sendo salva normalmente; o lastGood fica como recuperação contra sync remoto vazio/incompleto.
-  writeLocalImportantCards();
+  writeLocalImportantCards({ allowEmptyLastGood:true });
   syncImportantUi();
 
   try{
@@ -7417,7 +7319,6 @@ async function loadImportantFromSupabase(){
   catch(error){ console.warn("Não consegui salvar importantes no perfil da conta:", error); }
 
   syncImportantUi();
-  refreshActiveImportantDeckAfterSync();
 }
 async function syncImportantNow(){
   if(IMPORTANT_SYNC_BUSY) return;
@@ -7521,40 +7422,35 @@ async function toggleCurrentImportant(event){
 
 async function loadArchivedFromSupabase(){
   setSyncStatus("carregando arquivados...");
+  ARCHIVED_CARDS = new Set();
   ARCHIVE_TABLE_READY = true;
-  try{
-    const data = await fetchSupabasePages((from, to) => {
-      let query = supabaseClient
-        .from("flashcard_arquivados")
-        .select("user_id,card_id,archived_at")
-        .order("archived_at", { ascending:false })
-        .range(from, to);
-      if(currentUser?.id) query = query.eq("user_id", currentUser.id);
-      return query;
-    }, 1000, 50000);
-    const next = new Set();
-    (data || []).forEach(row => { if(row?.card_id) next.add(row.card_id); });
-    ARCHIVED_CARDS = next;
-  }catch(error){
-    console.warn("Arquivados não carregaram; preservando estado local da sessão:", error);
+  let query = supabaseClient
+    .from("flashcard_arquivados")
+    .select("user_id, card_id, archived_at")
+    .order("archived_at", { ascending:false });
+  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  const { data, error } = await query;
+  if(error){
+    console.warn("Tabela de arquivados ainda não disponível:", error);
     ARCHIVE_TABLE_READY = false;
-    setSyncStatus("Arquivados não sincronizaram agora; o estudo continua normalmente.");
+    setSyncStatus("rode a migração de arquivados no Supabase.");
+    return;
   }
+  (data || []).forEach(row => ARCHIVED_CARDS.add(row.card_id));
 }
 
 async function archiveCard(card){
   if(!card) return;
   ARCHIVED_CARDS.add(card.id);
   if(isOnlineMode && currentUser && ARCHIVE_TABLE_READY){
-    try{
-      await runSupabaseWithRetry(() => supabaseClient
-        .from("flashcard_arquivados")
-        .upsert({ user_id: currentUser.id, card_id: card.id, archived_at: new Date().toISOString() }, { onConflict:"user_id,card_id" }),
-        { label:"arquivar card", timeoutMs:20000 });
-    }catch(error){
-      ARCHIVE_TABLE_READY = false;
-      console.warn("Não foi possível sincronizar arquivamento agora; mantendo localmente:", error);
-      showToast("Card arquivado localmente. A sincronização dos Arquivados falhou agora: " + (error.message || error), "warn", 5200);
+    const { error } = await supabaseClient
+      .from("flashcard_arquivados")
+      .upsert({ user_id: currentUser.id, card_id: card.id, archived_at: new Date().toISOString() }, { onConflict:"user_id,card_id" });
+    if(error){
+      ARCHIVED_CARDS.delete(card.id);
+      console.error("Erro ao arquivar card:", error);
+      showToast("Erro ao arquivar card. Verifique se a migração de Arquivados foi rodada no Supabase. " + error.message, "error", 7000);
+      return false;
     }
   }
   return true;
@@ -7568,7 +7464,7 @@ async function archiveCurrentCard(event){
     const ok = await archiveCard(c);
     if(!ok) return;
     deck = deck.filter(card => card.id !== c.id);
-    if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
+    if(idx >= deck.length) idx = Math.max(0, deck.length);
     buildCatPills();
     setSyncStatus("Card arquivado.");
     if(deck.length === 0){ showComplete(); return; }
@@ -7593,24 +7489,23 @@ async function restoreArchivedCard(cardId){
   setSyncStatus("Restaurando card...");
 
   if(isOnlineMode && currentUser && ARCHIVE_TABLE_READY){
-    try{
-      await runSupabaseWithRetry(() => supabaseClient
-        .from("flashcard_arquivados")
-        .delete()
-        .eq("user_id", currentUser.id)
-        .eq("card_id", cardId),
-        { label:"restaurar arquivado", timeoutMs:20000 });
+    const { error } = await supabaseClient
+      .from("flashcard_arquivados")
+      .delete()
+      .eq("user_id", currentUser.id)
+      .eq("card_id", cardId);
 
-      // Recarrega do banco para garantir que a lista local ficou igual ao Supabase.
-      await loadArchivedFromSupabase();
-    }catch(error){
+    if(error){
       if(wasArchived) ARCHIVED_CARDS.add(cardId);
       buildCatPills();
       renderArchivedCards();
       console.error("Erro ao restaurar card:", error);
-      alert("Erro ao restaurar card: " + (error.message || error));
+      alert("Erro ao restaurar card: " + error.message);
       return;
     }
+
+    // Recarrega do banco para garantir que a lista local ficou igual ao Supabase.
+    await loadArchivedFromSupabase();
   }
 
   buildCatPills();
@@ -7751,13 +7646,6 @@ function programmedStudy(){
 }
 
 function importantStudy(){
-  if(!CARDS.length){
-    deck = []; idx = 0; sessionTotal = 0;
-    currentStudy = { type:"important", publicacao:null, assunto:null, mode:"important", label:"Favoritos" };
-    showTab('important');
-    showLoadingCardMessage("Carregando flashcards...");
-    return;
-  }
   const base = importantBaseForActiveFilter();
   const cards = getProgrammedStudyCards(base);
   deck = [...cards];
@@ -8330,15 +8218,8 @@ function setCardActionButtonsDisabled(disabled){
 function showCard(){
   CARD_ANSWER_LOCK = false;
   setCardActionButtonsDisabled(false);
-  recoverInvalidDeckPosition();
-  if(idx >= deck.length || !deck.length){ showComplete(); return; }
-  let c = deck[idx];
-  if(!c || !c.id){
-    recoverInvalidDeckPosition();
-    if(!deck.length){ showComplete(); return; }
-    c = deck[idx];
-  }
-  if(!c || !c.id){ showLoadingCardMessage("Carregando flashcard..."); return; }
+  if(idx >= deck.length){ showComplete(); return; }
+  const c = deck[idx];
   const reviewedInSession = SESSION_RESULTS.has(c.id);
   updateImportantButtons(c);
   isFlipped = false;
@@ -9667,14 +9548,12 @@ async function startAuthenticatedApp(){
         buildCatPills();
         renderArchivedCards();
         renderImportantTabCount();
-        refreshActiveImportantDeckAfterSync();
         renderDailyGoalWidget();
         renderSyncPanel();
         if(activeTab === "diag") buildDashboard("all");
         if(activeTab === "db") renderSummary("db-summary");
         if(activeTab === "goals") renderGoalsPage();
         if(activeTab === "progress") renderReadingProgress();
-        if(activeTab === "health") renderHealthDashboard();
         setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${importantCards().length} favoritos; ${archivedCards().length} arquivados.`);
       }catch(bgError){
         console.error("Erro no carregamento em segundo plano:", bgError);
@@ -9684,11 +9563,8 @@ async function startAuthenticatedApp(){
     })();
   }catch(error){
     console.error(error);
-    showLoadingCardMessage("Erro ao carregar flashcards. Recarregue a página ou tente novamente em instantes.");
-    buildCatPills();
-    renderSyncPanel();
-    showToast("Erro ao iniciar com Supabase: " + (error.message || error), "error", 6200);
-    setSyncStatus("erro ao carregar cards: " + (error.message || error));
+    showToast("Erro ao iniciar com Supabase: " + error.message, "error", 6200);
+    setSyncStatus("erro: " + error.message);
   }
 }
 
