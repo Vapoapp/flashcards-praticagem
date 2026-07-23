@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v76: correção baseada nos logs reais do Supabase; remove cancelamento artificial de consultas no Safari/iOS e preserva Programado, meta, histórico e Favoritos. -->
+<!-- v77: carrega cards por rota REST pública simples (sem preflight) e mantém Supabase JS/XHR autenticado como fallback; preserva Programado, meta, histórico e Favoritos. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v76 — Safari sem abortar requisições</title>
-<!-- v76: mantém as correções v75 e remove AbortController/timeout artificial das chamadas Supabase. Retry ocorre apenas após falha real do fetch. -->
+<title>FlashPrático v77 — carregamento resiliente de cards</title>
+<!-- v77: mantém as correções v76 e separa o carregamento de cards do restante do Supabase. A primeira rota usa GET simples com publishable key na URL, conforme a API REST oficial, evitando OPTIONS/preflight no Safari. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -1539,6 +1539,8 @@ let APP_STARTUP_BUSY = false;
 let APP_STARTUP_DONE = false;
 let APP_STARTUP_LOCK = false;
 let APP_STARTUP_RUN_ID = 0;
+let CARDS_LOAD_PROMISE = null;
+let CARDS_LAST_TRANSPORT = "";
 let GOAL_FAST_REFRESH_BUSY = false;
 let GOAL_FAST_REFRESH_PROMISE = null;
 let GOAL_FAST_REFRESH_RETRY_TIMER = null;
@@ -7664,7 +7666,9 @@ async function syncImportantOpsBatchToSupabase(ops){
       user_id: currentUser.id,
       card_id: op.card_id,
       marked: !!op.marked,
-      marked_at: op.marked ? op.updated_at : null,
+      // A tabela real possui marked_at NOT NULL. Mesmo ao desmarcar,
+      // gravamos o instante da alteração para evitar POST 400.
+      marked_at: op.updated_at,
       updated_at: op.updated_at
     }));
     try{
@@ -9970,35 +9974,238 @@ async function hydrateCardsFromCache(){
   return applyLoadedCardRows(cached);
 }
 
-async function loadCardsFromSupabase(){
-  setSyncStatus("carregando cards...");
-  let data = null;
+function buildPublicCardsRestUrl(fields, offset=0, limit=1000){
+  const url = new URL(`${SUPABASE_URL}/rest/v1/cards`);
+  // A documentação oficial da Data REST API permite usar a publishable key
+  // como query parameter no navegador. Sem headers customizados, este GET é
+  // uma requisição CORS simples e evita o OPTIONS que estava ficando preso
+  // no Safari antes do GET /cards.
+  url.searchParams.set("apikey", SUPABASE_KEY);
+  url.searchParams.set("select", fields);
+  url.searchParams.set("ativo", "eq.true");
+  url.searchParams.set("order", "publicacao.asc,assunto.asc");
+  url.searchParams.set("offset", String(offset));
+  url.searchParams.set("limit", String(limit));
+  return url.toString();
+}
 
-  const fieldsWithImages = "id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption";
-  const fieldsBasic = "id,publicacao,assunto,icon,diff,src,q,a,ativo";
-  const queryCards = (fields, label) => fetchSupabasePages((from, to) => supabaseClient
-    .from("cards")
-    .select(fields)
-    .eq("ativo", true)
-    .order("publicacao", { ascending:true })
-    .order("assunto", { ascending:true })
-    .range(from, to), 1000, 50000, { label, attempts:2, timeoutMs:15000, baseDelay:500 });
-
-  try{
-    data = await queryCards(fieldsWithImages, "carregar cards");
-  }catch(error){
-    // Só repete a consulta sem imagens quando as colunas realmente não existem.
-    // Em versões anteriores qualquer falha de rede reiniciava TODA a paginação,
-    // dobrando o tráfego e prolongando o estado "Carregando...".
-    if(!isMissingCardImageColumnError(error)) throw error;
-    console.warn("Colunas de imagem ausentes; carregando campos básicos:", error);
-    data = await queryCards(fieldsBasic, "carregar cards básicos");
+async function fetchCardsViaPublicRest(fields){
+  const rows = [];
+  const pageSize = 1000;
+  for(let offset=0; offset<50000; offset += pageSize){
+    const response = await fetch(buildPublicCardsRestUrl(fields, offset, pageSize), {
+      method:"GET",
+      mode:"cors",
+      credentials:"omit",
+      cache:"no-store",
+      redirect:"follow",
+      referrerPolicy:"no-referrer"
+    });
+    const rawText = await response.text();
+    let payload = null;
+    try{ payload = rawText ? JSON.parse(rawText) : []; }
+    catch(parseError){
+      const error = new Error(`Resposta inválida ao carregar cards pela REST pública (${response.status}).`);
+      error.status = response.status;
+      error.details = rawText.slice(0, 500);
+      throw error;
+    }
+    if(!response.ok){
+      const error = new Error(payload?.message || payload?.error_description || `REST pública de cards retornou ${response.status}.`);
+      error.status = response.status;
+      error.code = payload?.code || "";
+      error.details = payload?.details || rawText.slice(0, 500);
+      throw error;
+    }
+    if(!Array.isArray(payload)) throw new Error("REST pública de cards não retornou uma lista.");
+    rows.push(...payload);
+    if(payload.length < pageSize) break;
   }
+  if(!rows.length){
+    const error = new Error("A rota pública de cards retornou lista vazia; tentando rota autenticada.");
+    error.code = "EMPTY_PUBLIC_CARDS";
+    throw error;
+  }
+  return rows;
+}
 
-  const applied = applyLoadedCardRows(data || []);
-  if(!applied) throw new Error("Nenhum flashcard ativo válido foi retornado pelo Supabase; o baralho anterior foi preservado.");
-  void writeCachedCards(CARDS);
-  return CARDS;
+function xhrJson(url, headers={}, timeoutMs=25000){
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("GET", url, true);
+    xhr.timeout = timeoutMs;
+    xhr.withCredentials = false;
+    Object.entries(headers || {}).forEach(([name, value]) => {
+      if(value) xhr.setRequestHeader(name, value);
+    });
+    xhr.onload = () => {
+      let payload = null;
+      try{ payload = xhr.responseText ? JSON.parse(xhr.responseText) : []; }
+      catch(parseError){
+        const error = new Error(`Resposta inválida do XHR de cards (${xhr.status}).`);
+        error.status = xhr.status;
+        error.details = String(xhr.responseText || "").slice(0, 500);
+        reject(error);
+        return;
+      }
+      if(xhr.status < 200 || xhr.status >= 300){
+        const error = new Error(payload?.message || `XHR de cards retornou ${xhr.status}.`);
+        error.status = xhr.status;
+        error.code = payload?.code || "";
+        error.details = payload?.details || String(xhr.responseText || "").slice(0, 500);
+        reject(error);
+        return;
+      }
+      resolve(payload);
+    };
+    xhr.onerror = () => reject(new Error("Falha de rede no XHR alternativo de cards."));
+    xhr.ontimeout = () => reject(new Error("Tempo excedido no XHR alternativo de cards."));
+    xhr.onabort = () => reject(new Error("XHR alternativo de cards foi cancelado pelo navegador."));
+    xhr.send();
+  });
+}
+
+async function fetchCardsViaAuthenticatedXHR(fields){
+  let accessToken = "";
+  try{
+    const { data } = await supabaseClient.auth.getSession();
+    accessToken = data?.session?.access_token || "";
+  }catch(error){ console.warn("Não consegui obter token para XHR de cards:", error); }
+  const headers = {
+    apikey: SUPABASE_KEY,
+    Authorization: `Bearer ${accessToken || SUPABASE_KEY}`
+  };
+  const rows = [];
+  const pageSize = 1000;
+  for(let offset=0; offset<50000; offset += pageSize){
+    const url = new URL(`${SUPABASE_URL}/rest/v1/cards`);
+    url.searchParams.set("select", fields);
+    url.searchParams.set("ativo", "eq.true");
+    url.searchParams.set("order", "publicacao.asc,assunto.asc");
+    url.searchParams.set("offset", String(offset));
+    url.searchParams.set("limit", String(pageSize));
+    const page = await xhrJson(url.toString(), headers, 25000);
+    if(!Array.isArray(page)) throw new Error("XHR autenticado de cards não retornou uma lista.");
+    rows.push(...page);
+    if(page.length < pageSize) break;
+  }
+  if(!rows.length) throw new Error("XHR autenticado retornou zero cards.");
+  return rows;
+}
+
+function firstSuccessfulCardTransport(transports, deadlineMs=60000){
+  return new Promise((resolve, reject) => {
+    let finished = false;
+    let completed = 0;
+    const failures = [];
+    const timers = [];
+    const finishOk = (value, name) => {
+      if(finished) return;
+      finished = true;
+      timers.forEach(clearTimeout);
+      CARDS_LAST_TRANSPORT = name;
+      resolve(value);
+    };
+    const finishFailureIfDone = () => {
+      if(finished || completed < transports.length) return;
+      finished = true;
+      timers.forEach(clearTimeout);
+      const last = failures[failures.length - 1]?.error || new Error("Todas as rotas de carregamento de cards falharam.");
+      last.transportFailures = failures;
+      reject(last);
+    };
+    transports.forEach(transport => {
+      const timer = setTimeout(() => {
+        if(finished) return;
+        Promise.resolve()
+          .then(() => transport.run())
+          .then(value => finishOk(value, transport.name))
+          .catch(error => {
+            failures.push({ name:transport.name, error });
+            completed += 1;
+            console.warn(`Rota de cards falhou (${transport.name}):`, error);
+            finishFailureIfDone();
+          });
+      }, Math.max(0, Number(transport.delay || 0)));
+      timers.push(timer);
+    });
+    const deadline = setTimeout(() => {
+      if(finished) return;
+      finished = true;
+      timers.forEach(clearTimeout);
+      const last = failures[failures.length - 1]?.error || new Error("O carregamento de cards não concluiu no tempo de segurança.");
+      last.transportFailures = failures;
+      reject(last);
+    }, deadlineMs);
+    timers.push(deadline);
+  });
+}
+
+async function loadCardsFromSupabase(){
+  if(CARDS_LOAD_PROMISE) return CARDS_LOAD_PROMISE;
+  CARDS_LOAD_PROMISE = (async () => {
+    setSyncStatus("carregando cards...");
+    let data = null;
+
+    const fieldsWithImages = "id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption";
+    const fieldsBasic = "id,publicacao,assunto,icon,diff,src,q,a,ativo";
+    const queryCardsViaSupabaseJs = (fields, label) => fetchSupabasePages((from, to) => supabaseClient
+      .from("cards")
+      .select(fields)
+      .eq("ativo", true)
+      .order("publicacao", { ascending:true })
+      .order("assunto", { ascending:true })
+      .range(from, to), 1000, 50000, { label, attempts:2, baseDelay:500 });
+
+    const queryThroughAllTransports = fields => firstSuccessfulCardTransport([
+      { name:"REST pública sem preflight", delay:0, run:() => fetchCardsViaPublicRest(fields) },
+      { name:"Supabase JS autenticado", delay:2500, run:() => queryCardsViaSupabaseJs(fields, "carregar cards") },
+      { name:"XHR autenticado mínimo", delay:7000, run:() => fetchCardsViaAuthenticatedXHR(fields) }
+    ], 60000);
+
+    try{
+      data = await queryThroughAllTransports(fieldsWithImages);
+    }catch(error){
+      // Só repete sem imagens quando o retorno indica que as colunas não existem.
+      if(!isMissingCardImageColumnError(error)) throw error;
+      console.warn("Colunas de imagem ausentes; carregando campos básicos:", error);
+      data = await queryThroughAllTransports(fieldsBasic);
+    }
+
+    const applied = applyLoadedCardRows(data || []);
+    if(!applied) throw new Error("Nenhum flashcard ativo válido foi retornado; o baralho anterior foi preservado.");
+    void writeCachedCards(CARDS);
+    setSyncStatus(`${visibleCards(CARDS).length} cards carregados via ${CARDS_LAST_TRANSPORT}.`);
+    return CARDS;
+  })();
+  try{
+    return await CARDS_LOAD_PROMISE;
+  }finally{
+    CARDS_LOAD_PROMISE = null;
+  }
+}
+
+async function retryCardsLoadNow(){
+  showLoadingCardMessage("Tentando carregar flashcards novamente...");
+  try{
+    await loadCardsFromSupabase();
+    renderInitialStudyFromLoadedCards();
+    renderImportantTabCount();
+    renderDailyGoalWidget();
+    showToast(`${visibleCards(CARDS).length} cards carregados.`, "success");
+  }catch(error){
+    console.error("Nova tentativa de cards falhou:", error);
+    showCardLoadErrorMessage("Ainda não foi possível carregar os flashcards.");
+    showToast("Falha ao carregar cards: " + (error?.message || error), "error", 6200);
+  }
+}
+
+function showCardLoadErrorMessage(message="Não foi possível carregar os flashcards."){
+  showLoadingCardMessage(message);
+  const q = document.getElementById("q-text");
+  if(q){
+    q.innerHTML = `<div>${escapeHtml(message)}</div><button type="button" class="btn-nav" style="margin:16px auto 0;min-width:220px" onclick="retryCardsLoadNow()">Tentar carregar novamente</button>`;
+  }
 }
 
 async function loadReviewStateFromSupabase(){
@@ -10224,7 +10431,7 @@ async function startAuthenticatedApp(){
     APP_STARTUP_BUSY = false;
     APP_STARTUP_DONE = true;
     console.error(error);
-    showLoadingCardMessage("Não foi possível carregar os flashcards. Verifique a conexão e recarregue a página.");
+    showCardLoadErrorMessage("Não foi possível carregar os flashcards. Use o botão abaixo para tentar novamente.");
     buildCatPills();
     renderSyncPanel();
     showToast("Erro ao carregar cards: " + (error.message || error), "error", 6200);
@@ -10252,6 +10459,7 @@ window.restoreArchivedCard = restoreArchivedCard;
 window.archiveCurrentCard = archiveCurrentCard;
 window.toggleCurrentImportant = toggleCurrentImportant;
 window.importantStudy = importantStudy;
+window.retryCardsLoadNow = retryCardsLoadNow;
 window.showTab = showTab;
 window.goBackToStudy = goBackToStudy;
 window.nextCardAction = nextCardAction;
