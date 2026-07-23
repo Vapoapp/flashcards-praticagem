@@ -940,6 +940,36 @@
   .compare-publication-title span{color:var(--muted);font-size:10px;margin-left:6px}
   .compare-cross-source{font-size:10px;font-weight:950;color:var(--teal);background:rgba(61,184,176,.12);border:1px solid rgba(61,184,176,.35);border-radius:999px;padding:3px 8px}
 
+
+
+  /* v80 — PAINEL DE DIAGNÓSTICO DE INICIALIZAÇÃO (somente observação) */
+  .diag-trace-toggle {
+    position: fixed; right: 10px; bottom: 10px; z-index: 30020;
+    border: 1px solid rgba(124,140,248,.55); background: rgba(26,29,39,.96);
+    color: var(--accent2); border-radius: 999px; padding: 8px 11px;
+    font-size: 11px; font-weight: 950; cursor: pointer; box-shadow: 0 10px 34px rgba(0,0,0,.45);
+  }
+  .diag-trace-panel {
+    position: fixed; right: 10px; bottom: 52px; z-index: 30010;
+    width: min(560px, calc(100vw - 20px)); max-height: min(72vh, 700px);
+    display: flex; flex-direction: column; overflow: hidden;
+    background: rgba(15,17,23,.985); border: 1px solid rgba(124,140,248,.46);
+    border-radius: 16px; box-shadow: 0 24px 90px rgba(0,0,0,.68);
+  }
+  .diag-trace-panel.hidden { display:none; }
+  .diag-trace-head { display:flex; align-items:center; justify-content:space-between; gap:8px; padding:10px 11px; border-bottom:1px solid var(--border); }
+  .diag-trace-title { font-size:12px; font-weight:950; color:var(--text); }
+  .diag-trace-sub { font-size:10px; color:var(--muted); margin-top:2px; }
+  .diag-trace-actions { display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; }
+  .diag-trace-btn { border:1px solid var(--border2); background:var(--surface2); color:var(--text); border-radius:9px; padding:6px 8px; font-size:10px; font-weight:900; cursor:pointer; }
+  .diag-trace-status { padding:8px 11px; border-bottom:1px solid var(--border); font-size:11px; color:var(--muted); line-height:1.4; }
+  .diag-trace-log { flex:1 1 auto; min-height:120px; overflow:auto; padding:9px 10px 12px; font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; font-size:10px; line-height:1.45; white-space:pre-wrap; color:#dfe4ff; }
+  .diag-trace-line.ok { color:#83d9aa; }
+  .diag-trace-line.err { color:#ff8d8d; }
+  .diag-trace-line.warn { color:#ffc178; }
+  .diag-trace-line.pending { color:#9eb0ff; }
+  @media (max-width:620px){ .diag-trace-panel{right:6px;bottom:48px;width:calc(100vw - 12px);max-height:64vh}.diag-trace-toggle{right:6px;bottom:6px} }
+
 </style>
 </head>
 <body>
@@ -1405,6 +1435,24 @@
 
 
 
+
+
+  <!-- v80: diagnóstico visual de inicialização; não altera a lógica do app -->
+  <button id="diag-trace-toggle" class="diag-trace-toggle" type="button" onclick="toggleStartupDiagnostic()">🧪 Diagnóstico</button>
+  <div id="diag-trace-panel" class="diag-trace-panel">
+    <div class="diag-trace-head">
+      <div><div class="diag-trace-title">FlashPrático v80 — diagnóstico</div><div class="diag-trace-sub">Instrumentação somente leitura</div></div>
+      <div class="diag-trace-actions">
+        <button class="diag-trace-btn" type="button" onclick="copyStartupDiagnostic()">Copiar</button>
+        <button class="diag-trace-btn" type="button" onclick="downloadStartupDiagnostic()">Baixar JSON</button>
+        <button class="diag-trace-btn" type="button" onclick="clearStartupDiagnostic()">Limpar</button>
+        <button class="diag-trace-btn" type="button" onclick="toggleStartupDiagnostic(false)">Fechar</button>
+      </div>
+    </div>
+    <div id="diag-trace-status" class="diag-trace-status">Aguardando inicialização…</div>
+    <div id="diag-trace-log" class="diag-trace-log"></div>
+  </div>
+
   <!-- UNIVERSAL IMAGE ZOOM MODAL -->
   <div class="image-zoom-backdrop" id="image-zoom-backdrop" onclick="closeImageZoomModal(event)">
     <div class="image-zoom-modal" role="dialog" aria-modal="true" aria-labelledby="image-zoom-title" onclick="event.stopPropagation()">
@@ -1562,6 +1610,7 @@ const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
 let supabaseClient = null;
 if (window.supabase && window.supabase.createClient) {
+  startupDiagLog("Supabase global disponível", null, "ok");
   supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
     auth: {
       persistSession: true,
@@ -1570,7 +1619,9 @@ if (window.supabase && window.supabase.createClient) {
       storageKey: "flashpratico_supabase_auth_v1"
     }
   });
+  startupDiagLog("Supabase client criado", {client:Boolean(supabaseClient)}, "ok");
 } else {
+  startupDiagLog("Supabase JS não carregou", null, "err");
   console.error("Supabase JS não carregou. Verifique conexão/CDN.");
 }
 let currentUser = null;
@@ -1618,6 +1669,104 @@ let CURRENT_AUTO_QUIZ = null;
 let OLD_EXAM_FILTER_READY = false;
 let OLD_EXAM_VISIBLE_LIMIT = 80;
 
+
+
+
+
+// v80 — DIAGNÓSTICO DE INICIALIZAÇÃO. Não altera decisões nem resultados.
+const STARTUP_DIAG_VERSION = "v80";
+const STARTUP_DIAG_T0 = performance.now();
+const STARTUP_DIAG = [];
+const STARTUP_DIAG_PENDING = new Map();
+let STARTUP_DIAG_SEQ = 0;
+
+function startupDiagSafe(value){
+  try{
+    if(value instanceof Error) return {name:value.name,message:value.message,stack:value.stack};
+    if(typeof value === "string") return value.slice(0,2000);
+    return JSON.parse(JSON.stringify(value, (k,v) => {
+      const key = String(k||"").toLowerCase();
+      if(key.includes("token") || key.includes("apikey") || key === "authorization" || key === "password") return "[redacted]";
+      if(typeof v === "string" && v.length > 2000) return v.slice(0,2000)+"…";
+      return v;
+    }));
+  }catch(_){ return String(value); }
+}
+function startupDiagPath(input){
+  try{
+    const raw = typeof input === "string" ? input : (input?.url || String(input));
+    const u = new URL(raw, location.href);
+    return u.pathname + (u.searchParams.has("offset") ? `?offset=${u.searchParams.get("offset")}&limit=${u.searchParams.get("limit")||""}` : "");
+  }catch(_){ return String(input).slice(0,240); }
+}
+function startupDiagLog(label, detail=null, level="info"){
+  const entry = {seq:++STARTUP_DIAG_SEQ, t_ms:Math.round((performance.now()-STARTUP_DIAG_T0)*10)/10, iso:new Date().toISOString(), level, label:String(label), detail:startupDiagSafe(detail)};
+  STARTUP_DIAG.push(entry);
+  if(STARTUP_DIAG.length>2000) STARTUP_DIAG.splice(0,STARTUP_DIAG.length-2000);
+  try{
+    const box=document.getElementById("diag-trace-log");
+    if(box){
+      const line=document.createElement("div"); line.className=`diag-trace-line ${level}`;
+      const extra = detail==null ? "" : " " + (typeof detail === "string" ? detail : JSON.stringify(entry.detail));
+      line.textContent=`${String(entry.t_ms/1000).padStart(8," ")}s  ${label}${extra}`;
+      box.appendChild(line); box.scrollTop=box.scrollHeight;
+    }
+    const status=document.getElementById("diag-trace-status");
+    if(status) status.textContent=`Última etapa: ${label} • ${entry.t_ms} ms • cards=${CARDS?.length||0} deck=${deck?.length||0}`;
+  }catch(_){ }
+  console.log(`[FP-DIAG ${entry.t_ms}ms] ${label}`, detail ?? "");
+  return entry;
+}
+function startupDiagBegin(label, detail=null){
+  const id=`d${++STARTUP_DIAG_SEQ}`;
+  STARTUP_DIAG_PENDING.set(id,{label,start:performance.now()});
+  startupDiagLog(`${label} — início`, detail, "pending");
+  return id;
+}
+function startupDiagEnd(id, detail=null, level="ok"){
+  const p=STARTUP_DIAG_PENDING.get(id); STARTUP_DIAG_PENDING.delete(id);
+  const ms=p ? Math.round((performance.now()-p.start)*10)/10 : null;
+  startupDiagLog(`${p?.label||id} — fim`, {duration_ms:ms, detail:startupDiagSafe(detail)}, level);
+}
+function startupDiagError(id, error){
+  const p=STARTUP_DIAG_PENDING.get(id); STARTUP_DIAG_PENDING.delete(id);
+  const ms=p ? Math.round((performance.now()-p.start)*10)/10 : null;
+  startupDiagLog(`${p?.label||id} — erro`, {duration_ms:ms,error:startupDiagSafe(error)}, "err");
+}
+function startupDiagnosticSnapshot(){
+  return {
+    version:STARTUP_DIAG_VERSION, generated_at:new Date().toISOString(), user_agent:navigator.userAgent,
+    online:navigator.onLine, visibility:document.visibilityState,
+    state:{user:currentUser?.id ? String(currentUser.id).slice(0,8)+"…" : null,cards:CARDS.length,deck:deck.length,idx,activeTab,activeCat,
+      appStartupBusy:typeof APP_STARTUP_BUSY!=="undefined"?APP_STARTUP_BUSY:null,appStartupDone:typeof APP_STARTUP_DONE!=="undefined"?APP_STARTUP_DONE:null,
+      cardsLoadPromise:typeof CARDS_LOAD_PROMISE!=="undefined"?Boolean(CARDS_LOAD_PROMISE):null,lastTransport:typeof CARDS_LAST_TRANSPORT!=="undefined"?CARDS_LAST_TRANSPORT:null},
+    pending:[...STARTUP_DIAG_PENDING.values()].map(p=>({label:p.label,elapsed_ms:Math.round(performance.now()-p.start)})), events:STARTUP_DIAG
+  };
+}
+function toggleStartupDiagnostic(force){ const p=document.getElementById("diag-trace-panel"); if(!p)return; const show=typeof force==="boolean"?force:p.classList.contains("hidden"); p.classList.toggle("hidden",!show); }
+async function copyStartupDiagnostic(){ const text=JSON.stringify(startupDiagnosticSnapshot(),null,2); try{await navigator.clipboard.writeText(text);showToast("Diagnóstico copiado.","success");}catch(_){prompt("Copie o diagnóstico:",text);} }
+function downloadStartupDiagnostic(){ const blob=new Blob([JSON.stringify(startupDiagnosticSnapshot(),null,2)],{type:"application/json"}); const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`flashpratico-v80-diagnostico-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1200); }
+function clearStartupDiagnostic(){ STARTUP_DIAG.length=0; STARTUP_DIAG_PENDING.clear(); const b=document.getElementById("diag-trace-log");if(b)b.innerHTML="";startupDiagLog("Diagnóstico limpo"); }
+window.toggleStartupDiagnostic=toggleStartupDiagnostic; window.copyStartupDiagnostic=copyStartupDiagnostic; window.downloadStartupDiagnostic=downloadStartupDiagnostic; window.clearStartupDiagnostic=clearStartupDiagnostic;
+
+// Observa fetch sem cancelar, repetir ou modificar a requisição.
+const STARTUP_DIAG_NATIVE_FETCH = window.fetch.bind(window);
+window.fetch = async function(input, init){
+  const method=String(init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
+  const path=startupDiagPath(input);
+  const id=startupDiagBegin(`fetch ${method} ${path}`);
+  try{
+    const response=await STARTUP_DIAG_NATIVE_FETCH(input,init);
+    startupDiagEnd(id,{status:response.status,ok:response.ok,type:response.type,url:startupDiagPath(response.url)},response.ok?"ok":"warn");
+    return response;
+  }catch(error){ startupDiagError(id,error); throw error; }
+};
+window.addEventListener("error",ev=>startupDiagLog("window.error",{message:ev.message,filename:ev.filename,lineno:ev.lineno,colno:ev.colno,error:startupDiagSafe(ev.error)},"err"));
+window.addEventListener("unhandledrejection",ev=>startupDiagLog("unhandledrejection",startupDiagSafe(ev.reason),"err"));
+window.addEventListener("online",()=>startupDiagLog("browser online",null,"ok"));
+window.addEventListener("offline",()=>startupDiagLog("browser offline",null,"warn"));
+document.addEventListener("visibilitychange",()=>startupDiagLog("visibilitychange",document.visibilityState));
+startupDiagLog("script principal iniciado",{readyState:document.readyState,supabaseGlobal:Boolean(window.supabase)});
 
 
 function showToast(message, type="info", duration=3600){
@@ -9980,6 +10129,7 @@ async function hydrateCardsFromCache(){
    do Supabase, como na versão de referência v66.2. */
 
 async function loadCardsFromSupabase(){
+  const diagLoadCards = startupDiagBegin("loadCardsFromSupabase", {existingPromise:Boolean(CARDS_LOAD_PROMISE),cards:CARDS.length});
   /*
    * v79 — carregamento restaurado a partir da versão v66.2 que efetivamente
    * conseguia abrir os cards neste mesmo projeto/Supabase.
@@ -9989,7 +10139,7 @@ async function loadCardsFromSupabase(){
    * sem deadline artificial e sem AbortController. Isso evita o GET anônimo
    * 401/"permission denied for table cards" observado nos logs da v77.
    */
-  if(CARDS_LOAD_PROMISE) return CARDS_LOAD_PROMISE;
+  if(CARDS_LOAD_PROMISE){ startupDiagEnd(diagLoadCards,{reused:true},"warn"); return CARDS_LOAD_PROMISE; }
 
   CARDS_LOAD_PROMISE = (async () => {
     setSyncStatus("carregando cards pela conexão autenticada...");
@@ -10003,14 +10153,22 @@ async function loadCardsFromSupabase(){
       const maxRows = 50000;
       for(let from=0; from<maxRows; from += pageSize){
         const to = Math.min(from + pageSize - 1, maxRows - 1);
-        const { data, error } = await supabaseClient
+        const diagPage = startupDiagBegin(`cards página ${Math.floor(from/pageSize)+1}`, {from,to,fields});
+        let data, error;
+        try{
+          ({ data, error } = await supabaseClient
           .from("cards")
           .select(fields)
           .eq("ativo", true)
           .order("publicacao", { ascending:true })
           .order("assunto", { ascending:true })
-          .range(from, to);
-        if(error) throw error;
+          .range(from, to));
+          if(error){ startupDiagError(diagPage,error); throw error; }
+          startupDiagEnd(diagPage,{rows:Array.isArray(data)?data.length:0},"ok");
+        }catch(pageError){
+          if(STARTUP_DIAG_PENDING.has(diagPage)) startupDiagError(diagPage,pageError);
+          throw pageError;
+        }
         const page = Array.isArray(data) ? data : [];
         rows.push(...page);
         if(page.length < pageSize) break;
@@ -10040,7 +10198,12 @@ async function loadCardsFromSupabase(){
   })();
 
   try{
-    return await CARDS_LOAD_PROMISE;
+    const result = await CARDS_LOAD_PROMISE;
+    startupDiagEnd(diagLoadCards,{cards:result?.length||CARDS.length,transport:CARDS_LAST_TRANSPORT},"ok");
+    return result;
+  }catch(error){
+    startupDiagError(diagLoadCards,error);
+    throw error;
   }finally{
     CARDS_LOAD_PROMISE = null;
   }
@@ -10050,7 +10213,10 @@ async function retryCardsLoadNow(){
   showLoadingCardMessage("Tentando carregar flashcards novamente...");
   try{
     await loadCardsFromSupabase();
+    const diagRenderFirst=startupDiagBegin("renderInitialStudyFromLoadedCards",{cards:CARDS.length});
     renderInitialStudyFromLoadedCards();
+    startupDiagEnd(diagRenderFirst,{deck:deck.length,idx},"ok");
+    startupDiagEnd(diagStartAuth,{cards:CARDS.length,deck:deck.length},"ok");
     renderImportantTabCount();
     renderDailyGoalWidget();
     showToast(`${visibleCards(CARDS).length} cards carregados.`, "success");
@@ -10159,6 +10325,7 @@ function renderInitialStudyFromLoadedCards(){
 }
 
 async function startAuthenticatedApp(){
+  const diagStartAuth = startupDiagBegin("startAuthenticatedApp", {user:currentUser?.id?String(currentUser.id).slice(0,8)+"…":null});
   if(APP_STARTUP_BUSY || APP_STARTUP_LOCK) return;
   APP_STARTUP_LOCK = true;
   const startupRunId = ++APP_STARTUP_RUN_ID;
@@ -10194,13 +10361,16 @@ async function startAuthenticatedApp(){
      * autenticada de cards começa imediatamente e é a etapa principal. O cache
      * deixa de fazer parte do caminho crítico de abertura.
      */
+    startupDiagLog("iniciando etapa Cards do Supabase",null,"pending");
     const remoteCards = runStartupStep("Cards do Supabase", async () => {
       await loadCardsFromSupabase();
       remoteCardsReady = true;
       return CARDS.length;
     });
 
+    startupDiagLog("aguardando resultado remoto de cards",null,"pending");
     const cardResult = await remoteCards;
+    startupDiagLog("resultado remoto de cards",{ok:cardResult?.ok,error:startupDiagSafe(cardResult?.error),cards:CARDS.length},cardResult?.ok?"ok":"err");
     if(!cardResult.ok){
       // Cache apenas como contingência e com limite local; nunca bloqueia
       // indefinidamente a tentativa autenticada do Supabase.
@@ -10302,6 +10472,7 @@ async function startAuthenticatedApp(){
     })();
     APP_STARTUP_LOCK = false;
   }catch(error){
+    if(STARTUP_DIAG_PENDING.has(diagStartAuth)) startupDiagError(diagStartAuth,error);
     APP_STARTUP_LOCK = false;
     APP_STARTUP_BUSY = false;
     APP_STARTUP_DONE = true;
@@ -10315,18 +10486,31 @@ async function startAuthenticatedApp(){
 }
 
 async function initApp(){
+  const diagInit=startupDiagBegin("initApp");
   document.getElementById("auth-screen").style.display = "flex";
   document.getElementById("app").style.display = "none";
   if(!supabaseClient){
+    startupDiagError(diagInit,new Error("supabaseClient indisponível"));
     document.getElementById("auth-msg").textContent = "Não foi possível carregar a biblioteca do Supabase. Atualize a página ou verifique a conexão.";
     return;
   }
-  const { data } = await supabaseClient.auth.getSession();
-  if(data.session?.user){
-    currentUser = data.session.user;
-    await startAuthenticatedApp();
-  } else {
-    document.getElementById("auth-msg").textContent = "Entre ou crie uma conta para começar.";
+  const diagSession=startupDiagBegin("auth.getSession");
+  try{
+    const { data, error } = await supabaseClient.auth.getSession();
+    if(error){ startupDiagError(diagSession,error); throw error; }
+    startupDiagEnd(diagSession,{hasSession:Boolean(data.session),user:data.session?.user?.id?String(data.session.user.id).slice(0,8)+"…":null},"ok");
+    if(data.session?.user){
+      currentUser = data.session.user;
+      startupDiagLog("sessão reconhecida; chamando startAuthenticatedApp",null,"ok");
+      await startAuthenticatedApp();
+      startupDiagEnd(diagInit,{authenticated:true,cards:CARDS.length},"ok");
+    } else {
+      startupDiagEnd(diagInit,{authenticated:false},"warn");
+      document.getElementById("auth-msg").textContent = "Entre ou crie uma conta para começar.";
+    }
+  }catch(error){
+    if(STARTUP_DIAG_PENDING.has(diagInit)) startupDiagError(diagInit,error);
+    throw error;
   }
 }
 
@@ -10358,6 +10542,13 @@ window.resetReadingProgress = resetReadingProgress;
 window.exportReadingProgress = exportReadingProgress;
 window.toggleReadingImportPanel = toggleReadingImportPanel;
 window.importReadingPlanFromText = importReadingPlanFromText;
+
+setInterval(() => {
+  for(const [id,p] of STARTUP_DIAG_PENDING.entries()){
+    const elapsed=Math.round(performance.now()-p.start);
+    if(elapsed>=5000 && elapsed%5000<1100) startupDiagLog(`WATCHDOG: ${p.label} pendente`,{elapsed_ms:elapsed},"warn");
+  }
+},1000);
 
 initApp().catch(error => {
   console.error("Erro no initApp:", error);
