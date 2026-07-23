@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v77: carrega cards por rota REST pública simples (sem preflight) e mantém Supabase JS/XHR autenticado como fallback; preserva Programado, meta, histórico e Favoritos. -->
+<!-- v82: diagnóstico auditado; fixa a versão do Supabase JS, não substitui window.fetch globalmente e corrige rastreamento de inicialização/retry. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v79 — inicialização forense corrigida</title>
-<!-- v78: restaura para cards o fluxo autenticado simples da v66.2; preserva as demais melhorias da v77. -->
+<title>FlashPrático v82 — diagnóstico auditado</title>
+<!-- v82: mantém Programado/meta/histórico; alterações restritas ao diagnóstico, dependência Supabase e carregamento observável. -->
 <!-- v77: mantém as correções v76 e separa o carregamento de cards do restante do Supabase. A primeira rota usa GET simples com publishable key na URL, conforme a API REST oficial, evitando OPTIONS/preflight no Safari. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1441,7 +1441,7 @@
   <button id="diag-trace-toggle" class="diag-trace-toggle" type="button" onclick="toggleStartupDiagnostic()">🧪 Diagnóstico</button>
   <div id="diag-trace-panel" class="diag-trace-panel">
     <div class="diag-trace-head">
-      <div><div class="diag-trace-title">FlashPrático v81 — diagnóstico</div><div class="diag-trace-sub">Instrumentação somente leitura</div></div>
+      <div><div class="diag-trace-title">FlashPrático v82 — diagnóstico auditado</div><div class="diag-trace-sub">Instrumentação somente leitura</div></div>
       <div class="diag-trace-actions">
         <button class="diag-trace-btn" type="button" onclick="copyStartupDiagnostic()">Copiar</button>
         <button class="diag-trace-btn" type="button" onclick="downloadStartupDiagnostic()">Baixar JSON</button>
@@ -1545,7 +1545,7 @@
     </div>
   </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.109.0"></script>
 <script>
 const CARDS = [];
 // Os flashcards não ficam mais embutidos no HTML.
@@ -1609,18 +1609,6 @@ let SYNC_SUMMARY_CACHE_AT = 0;
 const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
 const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
 let supabaseClient = null;
-if (window.supabase && window.supabase.createClient) {
-  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: {
-      persistSession: true,
-      autoRefreshToken: true,
-      detectSessionInUrl: true,
-      storageKey: "flashpratico_supabase_auth_v1"
-    }
-  });
-} else {
-  console.error("Supabase JS não carregou. Verifique conexão/CDN.");
-}
 let currentUser = null;
 let ONLINE_HISTORY = [];
 let REVIEW_STATE = new Map();
@@ -1671,7 +1659,7 @@ let OLD_EXAM_VISIBLE_LIMIT = 80;
 
 
 // v80 — DIAGNÓSTICO DE INICIALIZAÇÃO. Não altera decisões nem resultados.
-const STARTUP_DIAG_VERSION = "v81";
+const STARTUP_DIAG_VERSION = "v82";
 const STARTUP_DIAG_T0 = performance.now();
 const STARTUP_DIAG = [];
 const STARTUP_DIAG_PENDING = new Map();
@@ -1716,7 +1704,7 @@ function startupDiagLog(label, detail=null, level="info"){
 }
 function startupDiagBegin(label, detail=null){
   const id=`d${++STARTUP_DIAG_SEQ}`;
-  STARTUP_DIAG_PENDING.set(id,{label,start:performance.now()});
+  STARTUP_DIAG_PENDING.set(id,{label,start:performance.now(),lastWarnElapsed:0});
   startupDiagLog(`${label} — início`, detail, "pending");
   return id;
 }
@@ -1742,13 +1730,14 @@ function startupDiagnosticSnapshot(){
 }
 function toggleStartupDiagnostic(force){ const p=document.getElementById("diag-trace-panel"); if(!p)return; const show=typeof force==="boolean"?force:p.classList.contains("hidden"); p.classList.toggle("hidden",!show); }
 async function copyStartupDiagnostic(){ const text=JSON.stringify(startupDiagnosticSnapshot(),null,2); try{await navigator.clipboard.writeText(text);showToast("Diagnóstico copiado.","success");}catch(_){prompt("Copie o diagnóstico:",text);} }
-function downloadStartupDiagnostic(){ const blob=new Blob([JSON.stringify(startupDiagnosticSnapshot(),null,2)],{type:"application/json"}); const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`flashpratico-v81-diagnostico-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1200); }
+function downloadStartupDiagnostic(){ const blob=new Blob([JSON.stringify(startupDiagnosticSnapshot(),null,2)],{type:"application/json"}); const a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download=`flashpratico-v82-diagnostico-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;a.click();setTimeout(()=>URL.revokeObjectURL(a.href),1200); }
 function clearStartupDiagnostic(){ STARTUP_DIAG.length=0; STARTUP_DIAG_PENDING.clear(); const b=document.getElementById("diag-trace-log");if(b)b.innerHTML="";startupDiagLog("Diagnóstico limpo"); }
 window.toggleStartupDiagnostic=toggleStartupDiagnostic; window.copyStartupDiagnostic=copyStartupDiagnostic; window.downloadStartupDiagnostic=downloadStartupDiagnostic; window.clearStartupDiagnostic=clearStartupDiagnostic;
 
-// Observa fetch sem cancelar, repetir ou modificar a requisição.
+// Observa apenas as chamadas feitas pelo cliente Supabase. Não substitui
+// window.fetch globalmente e não cancela, repete ou modifica a requisição.
 const STARTUP_DIAG_NATIVE_FETCH = window.fetch.bind(window);
-window.fetch = async function(input, init){
+async function startupDiagSupabaseFetch(input, init){
   const method=String(init?.method || (input instanceof Request ? input.method : "GET")).toUpperCase();
   const path=startupDiagPath(input);
   const id=startupDiagBegin(`fetch ${method} ${path}`);
@@ -1757,13 +1746,37 @@ window.fetch = async function(input, init){
     startupDiagEnd(id,{status:response.status,ok:response.ok,type:response.type,url:startupDiagPath(response.url)},response.ok?"ok":"warn");
     return response;
   }catch(error){ startupDiagError(id,error); throw error; }
-};
+}
+
+if (window.supabase && window.supabase.createClient) {
+  supabaseClient = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: "flashpratico_supabase_auth_v1"
+    },
+    global: { fetch: startupDiagSupabaseFetch }
+  });
+} else {
+  console.error("Supabase JS não carregou. Verifique conexão/CDN.");
+}
+
 window.addEventListener("error",ev=>startupDiagLog("window.error",{message:ev.message,filename:ev.filename,lineno:ev.lineno,colno:ev.colno,error:startupDiagSafe(ev.error)},"err"));
 window.addEventListener("unhandledrejection",ev=>startupDiagLog("unhandledrejection",startupDiagSafe(ev.reason),"err"));
 window.addEventListener("online",()=>startupDiagLog("browser online",null,"ok"));
 window.addEventListener("offline",()=>startupDiagLog("browser offline",null,"warn"));
 document.addEventListener("visibilitychange",()=>startupDiagLog("visibilitychange",document.visibilityState));
-startupDiagLog("script principal iniciado",{readyState:document.readyState,supabaseGlobal:Boolean(window.supabase),supabaseClient:Boolean(supabaseClient)}, supabaseClient ? "ok" : "err");
+startupDiagLog("script principal iniciado",{
+  readyState:document.readyState,
+  supabaseGlobal:Boolean(window.supabase),
+  supabaseClient:Boolean(supabaseClient),
+  sdk:"@supabase/supabase-js@2.109.0",
+  protocol:location.protocol,
+  origin:location.origin,
+  href:String(location.href).slice(0,500),
+  serviceWorkerControlled:Boolean(navigator.serviceWorker?.controller)
+}, supabaseClient ? "ok" : "err");
 
 
 function showToast(message, type="info", duration=3600){
@@ -10213,7 +10226,7 @@ async function retryCardsLoadNow(){
     const diagRenderFirst=startupDiagBegin("renderInitialStudyFromLoadedCards",{cards:CARDS.length});
     renderInitialStudyFromLoadedCards();
     startupDiagEnd(diagRenderFirst,{deck:deck.length,idx},"ok");
-    startupDiagEnd(diagStartAuth,{cards:CARDS.length,deck:deck.length},"ok");
+    startupDiagLog("nova tentativa de cards renderizada",{cards:CARDS.length,deck:deck.length,idx},"ok");
     renderImportantTabCount();
     renderDailyGoalWidget();
     showToast(`${visibleCards(CARDS).length} cards carregados.`, "success");
@@ -10322,8 +10335,11 @@ function renderInitialStudyFromLoadedCards(){
 }
 
 async function startAuthenticatedApp(){
+  if(APP_STARTUP_BUSY || APP_STARTUP_LOCK){
+    startupDiagLog("startAuthenticatedApp ignorado: inicialização já em andamento",{APP_STARTUP_BUSY,APP_STARTUP_LOCK},"warn");
+    return;
+  }
   const diagStartAuth = startupDiagBegin("startAuthenticatedApp", {user:currentUser?.id?String(currentUser.id).slice(0,8)+"…":null});
-  if(APP_STARTUP_BUSY || APP_STARTUP_LOCK) return;
   APP_STARTUP_LOCK = true;
   const startupRunId = ++APP_STARTUP_RUN_ID;
   document.getElementById("auth-screen").style.display = "none";
@@ -10380,7 +10396,10 @@ async function startAuthenticatedApp(){
       setSyncStatus(`Supabase não respondeu; usando cache local (${visibleCards(CARDS).length} cards).`);
     }
 
+    const diagRenderFirst = startupDiagBegin("renderInitialStudyFromLoadedCards",{cards:CARDS.length});
     renderInitialStudyFromLoadedCards();
+    startupDiagEnd(diagRenderFirst,{deck:deck.length,idx},"ok");
+    startupDiagEnd(diagStartAuth,{cards:CARDS.length,deck:deck.length,idx},"ok");
 
     // Uma única fila de inicialização. Nada de 6 consultas pesadas simultâneas.
     // A ordem prioriza o que o usuário vê: cards → configuração da meta → meta
@@ -10541,9 +10560,12 @@ window.toggleReadingImportPanel = toggleReadingImportPanel;
 window.importReadingPlanFromText = importReadingPlanFromText;
 
 setInterval(() => {
-  for(const [id,p] of STARTUP_DIAG_PENDING.entries()){
+  for(const p of STARTUP_DIAG_PENDING.values()){
     const elapsed=Math.round(performance.now()-p.start);
-    if(elapsed>=5000 && elapsed%5000<1100) startupDiagLog(`WATCHDOG: ${p.label} pendente`,{elapsed_ms:elapsed},"warn");
+    if(elapsed>=5000 && elapsed-(p.lastWarnElapsed||0)>=5000){
+      p.lastWarnElapsed=elapsed;
+      startupDiagLog(`WATCHDOG: ${p.label} pendente`,{elapsed_ms:elapsed},"warn");
+    }
   }
 },1000);
 
