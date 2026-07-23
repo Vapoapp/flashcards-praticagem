@@ -1,0 +1,394 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <title>FlashPrático v83 — diagnóstico mínimo Supabase/Safari</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.109.0/dist/umd/supabase.js"></script>
+  <style>
+    :root { color-scheme: dark; font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #080d21; color: #f3f5ff; }
+    main { width: min(980px, calc(100% - 24px)); margin: 24px auto 48px; }
+    h1 { font-size: clamp(1.35rem, 3vw, 2rem); margin: 0 0 8px; }
+    p { color: #b9c0de; line-height: 1.45; }
+    .card { background: #101735; border: 1px solid #27325e; border-radius: 16px; padding: 16px; margin-top: 14px; box-shadow: 0 14px 40px rgba(0,0,0,.25); }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); gap: 10px; }
+    .kv { background: #0c122b; border: 1px solid #202a52; border-radius: 12px; padding: 10px; min-width: 0; }
+    .kv b { display:block; font-size:.78rem; color:#8f9bd1; margin-bottom:4px; }
+    .kv span { word-break: break-word; }
+    button, input { font: inherit; }
+    button { border: 1px solid #40508a; background: #1b2756; color: white; border-radius: 11px; padding: 11px 13px; cursor: pointer; font-weight: 700; }
+    button:hover { filter: brightness(1.12); }
+    button:disabled { opacity: .55; cursor: wait; }
+    .buttons { display:flex; flex-wrap:wrap; gap:9px; }
+    .buttons button { flex: 1 1 220px; }
+    input { width:100%; background:#080d21; color:white; border:1px solid #334174; border-radius:10px; padding:11px; }
+    .login-grid { display:grid; grid-template-columns:1fr 1fr auto; gap:9px; align-items:end; }
+    .login-grid label { color:#aeb7db; font-size:.83rem; }
+    .login-grid label span { display:block; margin-bottom:5px; }
+    .ok { color:#66e39a; }
+    .warn { color:#ffcb6b; }
+    .err { color:#ff7d91; }
+    .pending { color:#78b7ff; }
+    #log { height: 430px; overflow:auto; background:#050817; border:1px solid #1b2447; border-radius:12px; padding:10px; font: 12px/1.45 ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace; white-space:pre-wrap; word-break:break-word; }
+    .log-line { border-bottom:1px dashed rgba(255,255,255,.06); padding:5px 2px; }
+    .small { font-size:.85rem; }
+    code { color:#c3d1ff; }
+    @media (max-width: 700px) { .login-grid { grid-template-columns:1fr; } main { margin-top:12px; } }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Diagnóstico mínimo Supabase/Safari — v83</h1>
+  <p>Esta página não contém o FlashPrático. Ela testa isoladamente o navegador, a sessão e o endpoint <code>/rest/v1/cards</code>, sem carregar meta, histórico, Favoritos ou Programado.</p>
+
+  <section class="card">
+    <div class="grid">
+      <div class="kv"><b>Origem</b><span id="origin">—</span></div>
+      <div class="kv"><b>Protocolo</b><span id="protocol">—</span></div>
+      <div class="kv"><b>Online</b><span id="online">—</span></div>
+      <div class="kv"><b>Sessão</b><span id="session">verificando…</span></div>
+      <div class="kv"><b>Usuário</b><span id="user">—</span></div>
+      <div class="kv"><b>SDK</b><span>@supabase/supabase-js 2.109.0</span></div>
+    </div>
+  </section>
+
+  <section id="login-card" class="card" hidden>
+    <h2>Login de teste</h2>
+    <div class="login-grid">
+      <label><span>E-mail</span><input id="email" type="email" autocomplete="username"></label>
+      <label><span>Senha</span><input id="password" type="password" autocomplete="current-password"></label>
+      <button id="login-btn" type="button">Entrar</button>
+    </div>
+    <p class="small">O login usa a mesma chave de armazenamento do FlashPrático. Nenhuma senha é incluída no arquivo de diagnóstico exportado.</p>
+  </section>
+
+  <section class="card">
+    <h2>Testes independentes</h2>
+    <p class="small">Execute um por vez. Um teste pendente não bloqueia os demais. O aviso “ainda pendente” não cancela a requisição.</p>
+    <div class="buttons">
+      <button data-test="same-origin">1. Mesmo domínio</button>
+      <button data-test="auth-user">2. Auth getUser</button>
+      <button data-test="fetch-one">3. REST fetch — 1 card</button>
+      <button data-test="xhr-one">4. REST XHR — 1 card</button>
+      <button data-test="sdk-one">5. Supabase JS — 1 card</button>
+      <button data-test="fetch-ids">6. REST fetch — 1000 IDs</button>
+      <button data-test="fetch-full">7. REST fetch — 1000 completos</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="buttons">
+      <button id="copy-btn" type="button">Copiar diagnóstico</button>
+      <button id="download-btn" type="button">Baixar JSON</button>
+      <button id="clear-btn" type="button">Limpar log</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Timeline</h2>
+    <div id="log" aria-live="polite"></div>
+  </section>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const VERSION = "v83-minimal";
+  const SUPABASE_URL = "https://gpgwvvzekruslppplvsz.supabase.co";
+  const SUPABASE_KEY = "sb_publishable_IwaXnzsbJDk8REPVZeENJw_49H9Jwb0";
+  const SDK_VERSION = "2.109.0";
+  const START = performance.now();
+  const events = [];
+  const pending = new Map();
+  let seq = 0;
+  let currentSession = null;
+
+  const $ = (id) => document.getElementById(id);
+  const elapsed = () => Math.round(performance.now() - START);
+  const safe = (value) => {
+    if (value == null) return value;
+    if (value instanceof Error) return { name:value.name, message:value.message, stack:value.stack || "" };
+    try { return JSON.parse(JSON.stringify(value)); } catch (_) { return String(value); }
+  };
+
+  function addEvent(level, label, detail = null) {
+    const event = { seq: ++seq, t_ms: elapsed(), iso: new Date().toISOString(), level, label, detail: safe(detail) };
+    events.push(event);
+    const line = document.createElement("div");
+    line.className = `log-line ${level}`;
+    const suffix = detail == null ? "" : `\n${JSON.stringify(safe(detail), null, 2)}`;
+    line.textContent = `${String(event.t_ms).padStart(7)} ms  ${label}${suffix}`;
+    $("log").appendChild(line);
+    $("log").scrollTop = $("log").scrollHeight;
+    return event;
+  }
+
+  function begin(label, detail = null) {
+    const id = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    pending.set(id, { label, start: performance.now(), warned: new Set() });
+    addEvent("pending", `${label} — início`, detail);
+    return id;
+  }
+
+  function end(id, detail = null, level = "ok") {
+    const item = pending.get(id);
+    if (!item) return;
+    pending.delete(id);
+    addEvent(level, `${item.label} — fim`, { duration_ms: Math.round(performance.now() - item.start), ...safe(detail) });
+  }
+
+  function fail(id, error, detail = null) {
+    const item = pending.get(id);
+    if (item) pending.delete(id);
+    addEvent("err", `${item?.label || "operação"} — erro`, { duration_ms: item ? Math.round(performance.now() - item.start) : null, error:safe(error), ...safe(detail) });
+  }
+
+  const client = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+    auth: {
+      persistSession: true,
+      autoRefreshToken: true,
+      detectSessionInUrl: true,
+      storageKey: "flashpratico_supabase_auth_v1"
+    }
+  });
+
+  function updateHeader() {
+    $("origin").textContent = location.origin || "(sem origem)";
+    $("protocol").textContent = location.protocol;
+    $("online").textContent = navigator.onLine ? "sim" : "não";
+    $("session").textContent = currentSession ? "ativa" : "ausente";
+    $("session").className = currentSession ? "ok" : "warn";
+    $("user").textContent = currentSession?.user?.id ? `${currentSession.user.id.slice(0,8)}…` : "—";
+    $("login-card").hidden = Boolean(currentSession);
+  }
+
+  async function refreshSession() {
+    const id = begin("auth.getSession");
+    try {
+      const { data, error } = await client.auth.getSession();
+      if (error) throw error;
+      currentSession = data?.session || null;
+      end(id, { has_session:Boolean(currentSession), user:currentSession?.user?.id?.slice(0,8) || null });
+    } catch (error) {
+      currentSession = null;
+      fail(id, error);
+    }
+    updateHeader();
+    return currentSession;
+  }
+
+  function requireSession() {
+    if (!currentSession?.access_token) throw new Error("Sessão ausente. Faça login primeiro.");
+    return currentSession.access_token;
+  }
+
+  function cardsUrl(select, limit) {
+    const url = new URL(`${SUPABASE_URL}/rest/v1/cards`);
+    url.searchParams.set("select", select);
+    url.searchParams.set("ativo", "eq.true");
+    url.searchParams.set("order", "id.asc");
+    url.searchParams.set("offset", "0");
+    url.searchParams.set("limit", String(limit));
+    return url.toString();
+  }
+
+  function authHeaders() {
+    const token = requireSession();
+    return {
+      "apikey": SUPABASE_KEY,
+      "Authorization": `Bearer ${token}`,
+      "Accept": "application/json"
+    };
+  }
+
+  async function measuredFetch(label, url, init = {}) {
+    const id = begin(label, { method:init.method || "GET", url:url.replace(SUPABASE_URL, "SUPABASE") });
+    try {
+      const headersStart = performance.now();
+      const response = await fetch(url, init);
+      addEvent(response.ok ? "ok" : "warn", `${label} — cabeçalhos recebidos`, {
+        headers_ms:Math.round(performance.now() - headersStart), status:response.status, ok:response.ok,
+        type:response.type, content_type:response.headers.get("content-type"), content_length:response.headers.get("content-length")
+      });
+      const bodyStart = performance.now();
+      const text = await response.text();
+      let parsed = null;
+      try { parsed = text ? JSON.parse(text) : null; } catch (_) { parsed = null; }
+      end(id, {
+        status:response.status,
+        body_ms:Math.round(performance.now() - bodyStart),
+        bytes:new Blob([text]).size,
+        rows:Array.isArray(parsed) ? parsed.length : null,
+        sample:Array.isArray(parsed) && parsed.length ? Object.keys(parsed[0]) : null,
+        error_body:response.ok ? null : (parsed || text.slice(0,500))
+      }, response.ok ? "ok" : "warn");
+      return { response, parsed, text };
+    } catch (error) {
+      fail(id, error);
+      throw error;
+    }
+  }
+
+  async function runSameOrigin() {
+    if (location.protocol === "file:") throw new Error("Este teste precisa estar publicado em HTTPS para medir o mesmo domínio.");
+    const url = new URL(location.href);
+    url.searchParams.set("diag_ping", Date.now());
+    await measuredFetch("mesmo domínio GET", url.toString(), { method:"GET", cache:"no-store", credentials:"same-origin" });
+  }
+
+  async function runAuthUser() {
+    const id = begin("auth.getUser");
+    try {
+      const { data, error } = await client.auth.getUser();
+      if (error) throw error;
+      end(id, { user:data?.user?.id?.slice(0,8) || null });
+    } catch (error) { fail(id, error); throw error; }
+  }
+
+  async function runFetchOne() {
+    await measuredFetch("REST fetch 1 card", cardsUrl("id", 1), { method:"GET", mode:"cors", cache:"no-store", credentials:"omit", headers:authHeaders() });
+  }
+
+  async function runFetchIds() {
+    await measuredFetch("REST fetch 1000 IDs", cardsUrl("id", 1000), { method:"GET", mode:"cors", cache:"no-store", credentials:"omit", headers:authHeaders() });
+  }
+
+  async function runFetchFull() {
+    const fields = "id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption";
+    await measuredFetch("REST fetch 1000 completos", cardsUrl(fields, 1000), { method:"GET", mode:"cors", cache:"no-store", credentials:"omit", headers:authHeaders() });
+  }
+
+  async function runXhrOne() {
+    const label = "REST XHR 1 card";
+    const id = begin(label, { url:"SUPABASE/rest/v1/cards?select=id&limit=1" });
+    const url = cardsUrl("id", 1);
+    const token = requireSession();
+    await new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const started = performance.now();
+      xhr.open("GET", url, true);
+      xhr.setRequestHeader("apikey", SUPABASE_KEY);
+      xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+      xhr.setRequestHeader("Accept", "application/json");
+      xhr.onreadystatechange = () => {
+        if (xhr.readyState === 2) addEvent("ok", `${label} — cabeçalhos recebidos`, { elapsed_ms:Math.round(performance.now()-started), status:xhr.status });
+      };
+      xhr.onload = () => {
+        let rows = null;
+        try { const data = JSON.parse(xhr.responseText || "null"); rows = Array.isArray(data) ? data.length : null; } catch (_) {}
+        end(id, { status:xhr.status, bytes:new Blob([xhr.responseText || ""]).size, rows }, xhr.status >= 200 && xhr.status < 300 ? "ok" : "warn");
+        resolve();
+      };
+      xhr.onerror = () => { const error = new Error("XMLHttpRequest retornou erro de rede"); fail(id,error,{status:xhr.status}); reject(error); };
+      xhr.onabort = () => { const error = new Error("XMLHttpRequest foi abortado"); fail(id,error,{status:xhr.status}); reject(error); };
+      xhr.send();
+    });
+  }
+
+  async function runSdkOne() {
+    const id = begin("Supabase JS 1 card");
+    try {
+      const { data, error, status } = await client.from("cards").select("id").eq("ativo", true).order("id", { ascending:true }).range(0,0);
+      if (error) throw error;
+      end(id, { status, rows:Array.isArray(data) ? data.length : null });
+    } catch (error) { fail(id,error); throw error; }
+  }
+
+  const runners = {
+    "same-origin":runSameOrigin,
+    "auth-user":runAuthUser,
+    "fetch-one":runFetchOne,
+    "xhr-one":runXhrOne,
+    "sdk-one":runSdkOne,
+    "fetch-ids":runFetchIds,
+    "fetch-full":runFetchFull
+  };
+
+  document.querySelectorAll("button[data-test]").forEach((button) => {
+    button.addEventListener("click", async () => {
+      const key = button.dataset.test;
+      button.disabled = true;
+      try { await runners[key](); }
+      catch (error) { addEvent("err", `${key} não concluiu`, safe(error)); }
+      finally { button.disabled = false; }
+    });
+  });
+
+  $("login-btn").addEventListener("click", async () => {
+    const email = $("email").value.trim();
+    const password = $("password").value;
+    const id = begin("signInWithPassword", { email:email ? email.replace(/(^.).*(@.*$)/,"$1***$2") : "" });
+    $("login-btn").disabled = true;
+    try {
+      const { data, error } = await client.auth.signInWithPassword({ email, password });
+      if (error) throw error;
+      currentSession = data.session;
+      end(id, { user:data.user?.id?.slice(0,8) || null });
+      updateHeader();
+    } catch (error) { fail(id,error); }
+    finally { $("password").value = ""; $("login-btn").disabled = false; }
+  });
+
+  function snapshot() {
+    const resourceEntries = performance.getEntriesByType("resource").map((entry) => ({
+      name:String(entry.name).replace(SUPABASE_URL,"SUPABASE"), initiatorType:entry.initiatorType,
+      startTime:Math.round(entry.startTime), duration:Math.round(entry.duration), transferSize:entry.transferSize,
+      encodedBodySize:entry.encodedBodySize, decodedBodySize:entry.decodedBodySize,
+      nextHopProtocol:entry.nextHopProtocol || null
+    }));
+    return {
+      version:VERSION,
+      generated_at:new Date().toISOString(),
+      page:{ href:location.href, origin:location.origin, protocol:location.protocol, visibility:document.visibilityState },
+      browser:{ user_agent:navigator.userAgent, online:navigator.onLine, language:navigator.language, cookie_enabled:navigator.cookieEnabled, service_worker_controlled:Boolean(navigator.serviceWorker?.controller), connection:safe(navigator.connection || null) },
+      sdk:`@supabase/supabase-js@${SDK_VERSION}`,
+      session:{ active:Boolean(currentSession), user:currentSession?.user?.id ? `${currentSession.user.id.slice(0,8)}…` : null, expires_at:currentSession?.expires_at || null },
+      pending:[...pending.values()].map((item) => ({ label:item.label, elapsed_ms:Math.round(performance.now()-item.start) })),
+      resources:resourceEntries,
+      events
+    };
+  }
+
+  $("copy-btn").addEventListener("click", async () => {
+    const text = JSON.stringify(snapshot(), null, 2);
+    try { await navigator.clipboard.writeText(text); addEvent("ok","diagnóstico copiado"); }
+    catch (_) { prompt("Copie o diagnóstico:", text); }
+  });
+  $("download-btn").addEventListener("click", () => {
+    const blob = new Blob([JSON.stringify(snapshot(), null, 2)], { type:"application/json" });
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = `flashpratico-v83-minimal-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1500);
+  });
+  $("clear-btn").addEventListener("click", () => { events.length = 0; seq = 0; $("log").innerHTML = ""; addEvent("ok","log limpo"); });
+
+  setInterval(() => {
+    const now = performance.now();
+    for (const item of pending.values()) {
+      const seconds = Math.floor((now - item.start) / 1000);
+      const threshold = seconds >= 60 ? Math.floor(seconds / 30) * 30 : Math.floor(seconds / 10) * 10;
+      if (threshold >= 10 && !item.warned.has(threshold)) {
+        item.warned.add(threshold);
+        addEvent("warn", `${item.label} — ainda pendente`, { elapsed_ms:Math.round(now-item.start) });
+      }
+    }
+  }, 1000);
+
+  window.addEventListener("online", () => { updateHeader(); addEvent("ok","browser online"); });
+  window.addEventListener("offline", () => { updateHeader(); addEvent("warn","browser offline"); });
+  window.addEventListener("error", (event) => addEvent("err","window.error", { message:event.message, filename:event.filename, lineno:event.lineno, colno:event.colno, error:safe(event.error) }));
+  window.addEventListener("unhandledrejection", (event) => addEvent("err","unhandledrejection", safe(event.reason)));
+  document.addEventListener("visibilitychange", () => addEvent("info","visibilitychange", document.visibilityState));
+
+  addEvent("ok","página mínima iniciada", { href:location.href, sdk:SDK_VERSION, supabase_global:Boolean(window.supabase), service_worker_controlled:Boolean(navigator.serviceWorker?.controller) });
+  updateHeader();
+  refreshSession();
+})();
+</script>
+</body>
+</html>
