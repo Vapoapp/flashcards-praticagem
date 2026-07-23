@@ -4,7 +4,7 @@
 <!-- v77: carrega cards por rota REST pública simples (sem preflight) e mantém Supabase JS/XHR autenticado como fallback; preserva Programado, meta, histórico e Favoritos. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v78 — carregamento de cards restaurado</title>
+<title>FlashPrático v79 — inicialização forense corrigida</title>
 <!-- v78: restaura para cards o fluxo autenticado simples da v66.2; preserva as demais melhorias da v77. -->
 <!-- v77: mantém as correções v76 e separa o carregamento de cards do restante do Supabase. A primeira rota usa GET simples com publishable key na URL, conforme a API REST oficial, evitando OPTIONS/preflight no Safari. -->
 <style>
@@ -9981,7 +9981,7 @@ async function hydrateCardsFromCache(){
 
 async function loadCardsFromSupabase(){
   /*
-   * v78 — carregamento restaurado a partir da versão v66.2 que efetivamente
+   * v79 — carregamento restaurado a partir da versão v66.2 que efetivamente
    * conseguia abrir os cards neste mesmo projeto/Supabase.
    *
    * Para a tabela "cards" usamos UMA única rota autenticada do Supabase JS,
@@ -10183,23 +10183,37 @@ async function startAuthenticatedApp(){
   let cacheReady = false;
   let remoteCardsReady = false;
   try{
-    cacheReady = await hydrateCardsFromCache();
-    if(cacheReady){
-      renderInitialStudyFromLoadedCards();
-      setSyncStatus(`cache local aberto (${visibleCards(CARDS).length} cards). Atualizando o banco...`);
-    }
-
+    /*
+     * v79 — correção forense da inicialização.
+     *
+     * Na v78, hydrateCardsFromCache() era aguardado ANTES de iniciar a consulta
+     * ao Supabase. No Safari, indexedDB.open() pode ficar pendente sem disparar
+     * onsuccess/onerror; nesse cenário, o GET /cards nunca era enviado.
+     *
+     * O fluxo volta ao comportamento comprovado da versão antiga: a consulta
+     * autenticada de cards começa imediatamente e é a etapa principal. O cache
+     * deixa de fazer parte do caminho crítico de abertura.
+     */
     const remoteCards = runStartupStep("Cards do Supabase", async () => {
       await loadCardsFromSupabase();
       remoteCardsReady = true;
       return CARDS.length;
     });
 
-    if(!cacheReady){
-      const cardResult = await remoteCards;
-      if(!cardResult.ok) throw cardResult.error;
-      renderInitialStudyFromLoadedCards();
+    const cardResult = await remoteCards;
+    if(!cardResult.ok){
+      // Cache apenas como contingência e com limite local; nunca bloqueia
+      // indefinidamente a tentativa autenticada do Supabase.
+      const cacheResult = await Promise.race([
+        hydrateCardsFromCache().then(ok => ({ ok:Boolean(ok) })).catch(error => ({ ok:false, error })),
+        waitMs(1800).then(() => ({ ok:false, timeout:true }))
+      ]);
+      cacheReady = Boolean(cacheResult?.ok);
+      if(!cacheReady) throw cardResult.error;
+      setSyncStatus(`Supabase não respondeu; usando cache local (${visibleCards(CARDS).length} cards).`);
     }
+
+    renderInitialStudyFromLoadedCards();
 
     // Uma única fila de inicialização. Nada de 6 consultas pesadas simultâneas.
     // A ordem prioriza o que o usuário vê: cards → configuração da meta → meta
