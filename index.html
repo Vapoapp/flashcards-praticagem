@@ -1,11 +1,11 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v70: auditoria completa final; preserva Programado/meta/histórico, mantém sync em lote de Favoritos e protege backup lastGood dos Favoritos contra sobrescrita vazia. -->
+<!-- AUDITORIA v67.6: três revisões independentes concluídas em 21/07/2026: estrutura/HTML e handlers; fluxo funcional e persistência; desempenho, sincronização e preservação integral do Programado. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v70 — auditoria completa final</title>
-<!-- versão v71: prioriza e torna resiliente o carregamento da meta diária; mantém Programado, agendamento e rastreabilidade sem alterações. -->
+<title>FlashPrático v67.5 — auditoria e desempenho</title>
+<!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   :root {
@@ -1535,15 +1535,6 @@ const CARD_ORPHAN_SYNC_KEY = "flashpratico_card_orphan_sync_v1";
 let LAST_SYNC_AT = null;
 let LAST_GOAL_REMOTE_REFRESH_AT = 0;
 let GOAL_REMOTE_REFRESH_BUSY = false;
-let GOAL_FAST_REFRESH_BUSY = false;
-let GOAL_FAST_REFRESH_PROMISE = null;
-let GOAL_FAST_REFRESH_RETRY_TIMER = null;
-let GOAL_FAST_REFRESH_RETRY_ATTEMPT = 0;
-let GOAL_LAST_CONFIRMED_AT = 0;
-let GOAL_LAST_REFRESH_STATUS = { cardsOk:null, questionsOk:null };
-let GOAL_HISTORY_CACHE = null;
-let BEST_STREAK_SYNC_PROMISE = null;
-let BEST_STREAK_PENDING_TARGET = 0;
 let SYNC_BUSY = false;
 let REMOTE_CARD_RESPONSE_IDS = new Set();
 let REMOTE_CARD_RESPONSE_KEYS = new Set();
@@ -1679,63 +1670,13 @@ function showConfirmToast(message, onConfirm, options={}){
   wrap.appendChild(box);
 }
 
-function waitMs(ms){
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
-function isTransientSupabaseError(error){
-  const msg = String(error?.message || error || "").toLowerCase();
-  return msg.includes("load failed")
-    || msg.includes("failed to fetch")
-    || msg.includes("network")
-    || msg.includes("timeout")
-    || msg.includes("fetch")
-    || msg.includes("aborted")
-    || msg.includes("temporarily");
-}
-
-async function runSupabaseWithRetry(operation, options={}){
-  const attempts = Math.max(1, Number(options.attempts || 3));
-  const baseDelay = Math.max(100, Number(options.baseDelay || 450));
-  const timeoutMs = Math.max(4000, Number(options.timeoutMs || 25000));
-  const label = options.label || "operação Supabase";
-  let lastError = null;
-  for(let attempt=0; attempt<attempts; attempt++){
-    let timer = null;
-    try{
-      const result = await Promise.race([
-        Promise.resolve().then(operation),
-        new Promise((_, reject) => {
-          timer = setTimeout(() => reject(new Error(`${label}: timeout após ${timeoutMs} ms`)), timeoutMs);
-        })
-      ]);
-      if(result?.error) throw result.error;
-      return result;
-    }catch(error){
-      lastError = error;
-      if(attempt >= attempts - 1 || !isTransientSupabaseError(error)) throw error;
-      await waitMs(baseDelay * Math.pow(2, attempt));
-    }finally{
-      if(timer) clearTimeout(timer);
-    }
-  }
-  throw lastError;
-}
-
-async function fetchSupabasePages(makeQuery, pageSize=1000, maxRows=50000, retryOptions={}){
+async function fetchSupabasePages(makeQuery, pageSize=1000, maxRows=50000){
   const rows = [];
   for(let from=0; from<maxRows; from += pageSize){
     const to = Math.min(from + pageSize - 1, maxRows - 1);
-    const pageResult = await runSupabaseWithRetry(
-      () => makeQuery(from, to),
-      {
-        label: retryOptions.label || `consulta Supabase ${from}-${to}`,
-        attempts: retryOptions.attempts || 3,
-        timeoutMs: retryOptions.timeoutMs || 25000,
-        baseDelay: retryOptions.baseDelay || 450
-      }
-    );
-    const page = pageResult?.data || [];
+    const { data, error } = await makeQuery(from, to);
+    if(error) throw error;
+    const page = data || [];
     rows.push(...page);
     if(page.length < pageSize) break;
   }
@@ -1805,7 +1746,6 @@ function mergeQuestionAttempts(...lists){
 }
 function loadEmbeddedQuestionResponses(){
   QUESTION_ATTEMPTS = readLocalQuestionResponses();
-  invalidateGoalRuntimeCaches();
 }
 function saveEmbeddedQuestionResponses(){
   try {
@@ -1813,7 +1753,6 @@ function saveEmbeddedQuestionResponses(){
     localStorage.setItem(QUESTION_LOCAL_KEY, JSON.stringify(clean));
   }
   catch(e) { console.warn("Não foi possível salvar respostas locais das questões:", e); }
-  invalidateGoalRuntimeCaches();
 }
 function useEmbeddedQuestions(reason){
   QUESTION_SOURCE = "html";
@@ -2492,9 +2431,9 @@ async function forceSyncNow(){
     if(btn){ btn.disabled = false; btn.textContent = "Sincronizar agora"; }
   };
   safetyTimer = setTimeout(() => {
-    console.warn("A sincronização está demorando mais que o normal; mantendo bloqueio para evitar execução duplicada.");
-    if(btn){ btn.disabled = true; btn.textContent = "Sincronizando..."; }
-    showToast("A sincronização está demorando mais que o normal. Aguarde terminar para evitar duplicidade.", "warn", 5200);
+    console.warn("Timeout de segurança liberou o botão de sincronização.");
+    releaseSyncButton();
+    showToast("A sincronização demorou demais. O botão foi liberado; tente novamente se ainda houver pendências.", "warn", 5200);
     renderSyncPanel();
   }, 30000);
   if(btn){ btn.disabled = true; btn.textContent = "Sincronizando..."; }
@@ -2812,14 +2751,11 @@ function dedupeGoalEvents(events){
   return clean;
 }
 function getGoalHistory(options = {}){
-  if(!options.raw && Array.isArray(GOAL_HISTORY_CACHE)) return GOAL_HISTORY_CACHE;
   const raw = [
     ...getHistory({includeOrphans:true}).map(ev => ({...ev, kind: ev.kind || "card"})),
     ...getQuestionGoalEvents()
   ];
-  if(options.raw) return raw;
-  GOAL_HISTORY_CACHE = dedupeGoalEvents(raw);
-  return GOAL_HISTORY_CACHE;
+  return options.raw ? raw : dedupeGoalEvents(raw);
 }
 async function saveEvent(card, result){
   invalidateSyncSummaryCache();
@@ -3037,16 +2973,11 @@ function addToSetMap(map, key, value){
   map.get(key).add(value);
 }
 
-function invalidateGoalRuntimeCaches(){
-  GOAL_HISTORY_CACHE = null;
-}
-
 function invalidateProgrammedRuntimeCaches(){
   HISTORY_UNION_CACHE = null;
   HISTORY_ACTIVE_CACHE = null;
   HISTORY_LOGICAL_INDEX_CACHE = null;
   EFFECTIVE_PROGRAMMED_STATE_CACHE = new Map();
-  invalidateGoalRuntimeCaches();
 }
 
 function invalidateStudyIdentityCaches(){
@@ -4402,10 +4333,7 @@ async function loadQuestionsFromSupabase(){
   QUESTION_TABLE_READY = true;
   QUESTION_SOURCE = "supabase";
   QUESTION_BANK = [];
-  // Não apaga respostas já carregadas localmente ou pela busca rápida da meta.
-  // A versão anterior podia zerar temporariamente a meta enquanto as questões carregavam.
-  QUESTION_ATTEMPTS = mergeQuestionAttempts(QUESTION_ATTEMPTS, readLocalQuestionResponses());
-  invalidateGoalRuntimeCaches();
+  QUESTION_ATTEMPTS = [];
   try{
     if(!supabaseClient) throw new Error("Supabase JS não carregado");
     const data = await fetchSupabasePages((from, to) => supabaseClient
@@ -4447,11 +4375,6 @@ async function loadQuestionResponsesFromSupabase(){
   REMOTE_QUESTION_RESPONSE_KEYS = new Set(remoteAttempts.map(questionAttemptStableKey).filter(Boolean));
   QUESTION_ATTEMPTS = mergeQuestionAttempts(remoteAttempts, readLocalQuestionResponses());
   saveEmbeddedQuestionResponses();
-  markGoalSourceConfirmed("questions");
-  // A meta deve aparecer assim que as respostas remotas chegam, sem aguardar
-  // o reenvio das pendências locais de questões.
-  renderDailyGoalWidget();
-  if(activeTab === "goals") renderGoalsPage();
   await syncLocalQuestionResponsesToSupabase(remoteAttempts);
 }
 function qEventsFor(questionId){
@@ -5048,14 +4971,13 @@ function getGoalSettings(){
 async function loadGoalSettingsFromSupabase(){
   if(!supabaseClient || !currentUser?.id) return;
   try{
-    const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.getUser(), { label:"carregar metas do perfil", timeoutMs:15000 });
+    const { data, error } = await supabaseClient.auth.getUser();
+    if(error) throw error;
     if(data?.user) currentUser = data.user;
     protectBestStreak(Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0));
     syncProtectedBestStreak(readProtectedBestStreak());
     const goals = currentUser?.user_metadata?.flashpratico_goals;
     if(goals) localStorage.setItem(GOALS_KEY, JSON.stringify(sanitizeGoalSettings(goals)));
-    renderDailyGoalWidget();
-    if(activeTab === "goals") renderGoalsPage();
   }catch(e){
     console.warn("Não consegui carregar metas sincronizadas:", e);
   }
@@ -5066,7 +4988,8 @@ async function setGoalSettings(goals){
   localStorage.setItem(GOALS_KEY, JSON.stringify(clean));
   if(supabaseClient && currentUser?.id){
     try{
-      const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.updateUser({ data: { flashpratico_goals: clean } }), { label:"salvar metas", timeoutMs:15000 });
+      const { data, error } = await supabaseClient.auth.updateUser({ data: { flashpratico_goals: clean } });
+      if(error) throw error;
       if(data?.user) currentUser = data.user;
       setSyncStatus("Metas sincronizadas no usuário.");
     }catch(e){
@@ -5298,37 +5221,14 @@ function protectBestStreak(best){
 }
 async function syncProtectedBestStreak(best){
   const safeBest = protectBestStreak(best);
-  BEST_STREAK_PENDING_TARGET = Math.max(BEST_STREAK_PENDING_TARGET, safeBest);
   const cloudBest = Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0);
-  if(!supabaseClient || !currentUser?.id || BEST_STREAK_PENDING_TARGET <= cloudBest) return safeBest;
-
-  // Diversas renderizações da meta podem ocorrer durante a inicialização.
-  // Mantém apenas uma gravação de metadata por vez para não criar uma tempestade
-  // de chamadas Auth que concorra com o carregamento dos cards e da própria meta.
-  if(BEST_STREAK_SYNC_PROMISE) return BEST_STREAK_SYNC_PROMISE;
-
-  BEST_STREAK_SYNC_PROMISE = (async () => {
-    try{
-      while(supabaseClient && currentUser?.id){
-        const target = Math.max(BEST_STREAK_PENDING_TARGET, protectBestStreak(BEST_STREAK_PENDING_TARGET));
-        const remote = Number(currentUser?.user_metadata?.[GOAL_BEST_STREAK_METADATA_KEY] || 0);
-        if(target <= remote) break;
-        const { data } = await runSupabaseWithRetry(
-          () => supabaseClient.auth.updateUser({ data: { [GOAL_BEST_STREAK_METADATA_KEY]: target } }),
-          { label:"salvar recorde de sequência", timeoutMs:15000 }
-        );
-        if(data?.user) currentUser = data.user;
-        else break;
-      }
-    }catch(e){
-      console.warn("Não consegui sincronizar o recorde de sequência:", e);
-    }finally{
-      BEST_STREAK_SYNC_PROMISE = null;
-    }
-    return protectBestStreak(BEST_STREAK_PENDING_TARGET);
-  })();
-
-  return BEST_STREAK_SYNC_PROMISE;
+  if(!supabaseClient || !currentUser?.id || safeBest <= cloudBest) return safeBest;
+  try{
+    const { data, error } = await supabaseClient.auth.updateUser({ data: { [GOAL_BEST_STREAK_METADATA_KEY]: safeBest } });
+    if(error) throw error;
+    if(data?.user) currentUser = data.user;
+  }catch(e){ console.warn("Não consegui sincronizar o recorde de sequência:", e); }
+  return safeBest;
 }
 function saveGoalSnapshot(streak, dayCounts){
   if(!streak || !dayCounts) return;
@@ -5354,14 +5254,12 @@ function saveGoalSnapshot(streak, dayCounts){
   }catch(e){ console.warn("Não consegui salvar snapshot da sequência:", e); }
 }
 
-function calcStreaks(precomputedDayCounts = null){
-  const dayCounts = precomputedDayCounts instanceof Map ? new Map(precomputedDayCounts) : new Map();
-  if(!(precomputedDayCounts instanceof Map)){
-    getGoalHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
-      const key = dateKeyLocal(ev.ts);
-      dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
-    });
-  }
+function calcStreaks(){
+  const dayCounts = new Map();
+  getGoalHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
+    const key = dateKeyLocal(ev.ts);
+    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
+  });
   const today = startOfLocalDay(new Date());
   let current = 0;
   const cursor = new Date(today);
@@ -5528,219 +5426,19 @@ function celebrateReachedGoals(before, after){
   launchGoalCelebration(achievements);
 }
 
-function currentDailyGoalSummary(){
-  const dayCounts = new Map();
-  const todayKey = dateKeyLocal(new Date());
-  getGoalHistory().forEach(ev => {
-    if(!ev || !isAnsweredResult(ev.result) || !ev.ts) return;
-    const t = goalEventTimestamp(ev);
-    if(!Number.isFinite(t)) return;
-    const key = dateKeyLocal(t);
-    dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
-  });
-
-  // Se o navegador abriu antes de o histórico remoto terminar, conserva o
-  // último total diário confirmado neste aparelho em vez de piscar 0.
-  if(!(dayCounts.get(todayKey) > 0) && !hasExplicitHistoryReset()){
-    const snap = readGoalSnapshot();
-    if(snap?.today_key === todayKey && Number(snap.today_count || 0) > 0){
-      dayCounts.set(todayKey, Number(snap.today_count || 0));
-    }
-  }
-  return { total: Number(dayCounts.get(todayKey) || 0), dayCounts };
-}
-
 function renderDailyGoalWidget(){
   const widget = document.getElementById("daily-goal-widget");
   if(!widget) return;
   const goals = getGoalSettings();
-  const dailySummary = currentDailyGoalSummary();
-  const progress = goalProgress(dailySummary.total, goals.daily);
-  const streak = calcStreaks(dailySummary.dayCounts);
-  document.getElementById("goal-daily-text").textContent = `${dailySummary.total} / ${goals.daily} questões/cards`;
+  const st = todayStats();
+  const progress = goalProgress(st.total, goals.daily);
+  const streak = calcStreaks();
+  document.getElementById("goal-daily-text").textContent = `${st.total} / ${goals.daily} questões/cards`;
   document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;
   document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
     ? `Faltam ${progress.remaining} questões/cards para bater a meta.`
     : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
   document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dias`;
-}
-
-function markGoalWidgetUpdating(){
-  const sub = document.getElementById("goal-daily-sub");
-  if(!sub) return;
-  const current = String(sub.textContent || "").replace(/\s*·\s*Sincronizando…$/u, "");
-  sub.textContent = `${current || "Carregando progresso da meta."} · Sincronizando…`;
-}
-
-
-function clearGoalFastRefreshRetry(){
-  if(GOAL_FAST_REFRESH_RETRY_TIMER){
-    clearTimeout(GOAL_FAST_REFRESH_RETRY_TIMER);
-    GOAL_FAST_REFRESH_RETRY_TIMER = null;
-  }
-  GOAL_FAST_REFRESH_RETRY_ATTEMPT = 0;
-}
-
-function markGoalSourceConfirmed(kind){
-  if(kind === "cards") GOAL_LAST_REFRESH_STATUS.cardsOk = true;
-  if(kind === "questions") GOAL_LAST_REFRESH_STATUS.questionsOk = true;
-  GOAL_LAST_CONFIRMED_AT = Date.now();
-  if(GOAL_LAST_REFRESH_STATUS.cardsOk && GOAL_LAST_REFRESH_STATUS.questionsOk){
-    clearGoalFastRefreshRetry();
-  }
-}
-
-function scheduleGoalFastRefreshRetry(reason="auto"){
-  if(!currentUser?.id || !supabaseClient || GOAL_FAST_REFRESH_RETRY_TIMER) return;
-  const delays = [3000, 10000, 30000];
-  if(GOAL_FAST_REFRESH_RETRY_ATTEMPT >= delays.length) return;
-  const delay = delays[GOAL_FAST_REFRESH_RETRY_ATTEMPT++];
-  GOAL_FAST_REFRESH_RETRY_TIMER = setTimeout(async () => {
-    GOAL_FAST_REFRESH_RETRY_TIMER = null;
-    try{
-      const result = await refreshTodayGoalEventsFromSupabase({ silent:true, reason:`${reason}-retry`, scheduleRetry:false });
-      if(result?.allOk) clearGoalFastRefreshRetry();
-      else scheduleGoalFastRefreshRetry(reason);
-    }catch(error){
-      console.warn("Nova tentativa da meta diária falhou:", error);
-      scheduleGoalFastRefreshRetry(reason);
-    }
-  }, delay);
-}
-
-function markGoalWidgetSyncProblem(status){
-  const sub = document.getElementById("goal-daily-sub");
-  if(!sub) return;
-  const base = String(sub.textContent || "").replace(/\s*·\s*(Sincronizando…|Meta parcial; tentando novamente…|Não foi possível confirmar na nuvem; tentando novamente…)$/u, "");
-  if(status?.cardsOk || status?.questionsOk){
-    sub.textContent = `${base} · Meta parcial; tentando novamente…`;
-  }else{
-    sub.textContent = `${base} · Não foi possível confirmar na nuvem; tentando novamente…`;
-  }
-}
-
-async function refreshTodayGoalEventsFromSupabase(options = {}){
-  if(!currentUser?.id || !supabaseClient) return { cards:0, questions:0, cardsOk:false, questionsOk:false, anyOk:false, allOk:false };
-  if(GOAL_FAST_REFRESH_BUSY && GOAL_FAST_REFRESH_PROMISE) return GOAL_FAST_REFRESH_PROMISE;
-
-  GOAL_FAST_REFRESH_BUSY = true;
-  if(!options.silent) markGoalWidgetUpdating();
-  const startIso = startOfLocalDay(new Date()).toISOString();
-  const endIso = endOfLocalDay(new Date()).toISOString();
-
-  GOAL_FAST_REFRESH_PROMISE = (async () => {
-    let cardCount = 0;
-    let questionCount = 0;
-
-    const cardTask = (async () => {
-      const rows = await fetchSupabasePages((from, to) => supabaseClient
-        .from("respostas")
-        .select("id,user_id,card_id,resultado,created_at")
-        .eq("user_id", currentUser.id)
-        .gte("created_at", startIso)
-        .lte("created_at", endIso)
-        .order("created_at", { ascending:true })
-        .range(from, to), 1000, 5000, { label:"meta diária de flashcards", attempts:2, timeoutMs:10000, baseDelay:350 });
-
-      const cardMap = new Map(CARDS.map(c => [cardIdKey(c), c]));
-      const remoteToday = (rows || []).map(r => {
-        const c = cardMap.get(cardIdKey(r.card_id)) || {};
-        return {
-          id:String(r.id),
-          user_id:r.user_id || currentUser.id,
-          card_id:r.card_id,
-          publicacao:cleanLabel(c.publicacao, "Geral"),
-          assunto:cleanLabel(c.assunto, "Geral"),
-          logical_key:c.id ? studySessionKey(c) : "",
-          result:r.resultado,
-          ts:r.created_at
-        };
-      }).filter(ev => isAnsweredResult(ev.result) && ev.ts);
-
-      (rows || []).forEach(r => {
-        REMOTE_CARD_RESPONSE_IDS.add(String(r.id));
-        const key = cardResponseKeyFromRemoteRow(r);
-        if(key) REMOTE_CARD_RESPONSE_KEYS.add(key);
-      });
-      ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, remoteToday);
-      writeLocalCardHistory(mergeHistoryEvents(readLocalCardHistory(), remoteToday), { reason:"daily-goal-fast-refresh" });
-      cardCount = remoteToday.length;
-      renderDailyGoalWidget();
-      if(activeTab === "goals") renderGoalsPage();
-      return cardCount;
-    })();
-
-    const questionTask = (async () => {
-      const rows = await fetchSupabasePages((from, to) => supabaseClient
-        .from("questoes_respostas")
-        .select("id,user_id,questao_id,publicacao,assunto,numero,resposta,resultado,created_at")
-        .eq("user_id", currentUser.id)
-        .gte("created_at", startIso)
-        .lte("created_at", endIso)
-        .order("created_at", { ascending:true })
-        .range(from, to), 1000, 5000, { label:"meta diária de questões", attempts:2, timeoutMs:10000, baseDelay:350 });
-
-      const remoteToday = (rows || []).map(r => normalizeQuestionAttempt({
-        id:String(r.id),
-        question_id:r.questao_id,
-        publicacao:r.publicacao,
-        assunto:r.assunto,
-        numero:r.numero,
-        resposta:r.resposta,
-        result:r.resultado,
-        ts:r.created_at
-      })).filter(Boolean);
-      (rows || []).forEach(r => REMOTE_QUESTION_RESPONSE_IDS.add(String(r.id)));
-      remoteToday.forEach(ev => {
-        const key = questionAttemptStableKey(ev);
-        if(key) REMOTE_QUESTION_RESPONSE_KEYS.add(key);
-      });
-      QUESTION_ATTEMPTS = mergeQuestionAttempts(QUESTION_ATTEMPTS, readLocalQuestionResponses(), remoteToday);
-      saveEmbeddedQuestionResponses();
-      questionCount = remoteToday.length;
-      renderDailyGoalWidget();
-      if(activeTab === "goals") renderGoalsPage();
-      return questionCount;
-    })();
-
-    const settled = await Promise.allSettled([cardTask, questionTask]);
-    const cardsOk = settled[0].status === "fulfilled" || GOAL_LAST_REFRESH_STATUS.cardsOk === true;
-    const questionsOk = settled[1].status === "fulfilled" || GOAL_LAST_REFRESH_STATUS.questionsOk === true;
-    settled.forEach((result, index) => {
-      if(result.status === "rejected"){
-        console.warn(index === 0 ? "Meta rápida de flashcards não carregou:" : "Meta rápida de questões não carregou:", result.reason);
-      }
-    });
-
-    const status = {
-      cards:cardCount,
-      questions:questionCount,
-      cardsOk,
-      questionsOk,
-      anyOk: cardsOk || questionsOk,
-      allOk: cardsOk && questionsOk
-    };
-    GOAL_LAST_REFRESH_STATUS = { cardsOk, questionsOk };
-    if(settled[0].status === "fulfilled") markGoalSourceConfirmed("cards");
-    if(settled[1].status === "fulfilled") markGoalSourceConfirmed("questions");
-
-    renderDailyGoalWidget();
-    if(!status.allOk){
-      markGoalWidgetSyncProblem(status);
-      if(options.scheduleRetry !== false) scheduleGoalFastRefreshRetry(options.reason || "meta");
-    }else{
-      clearGoalFastRefreshRetry();
-    }
-    renderSyncPanel();
-    return status;
-  })();
-
-  try{
-    return await GOAL_FAST_REFRESH_PROMISE;
-  }finally{
-    GOAL_FAST_REFRESH_BUSY = false;
-    GOAL_FAST_REFRESH_PROMISE = null;
-  }
 }
 
 async function refreshRemoteGoalCounters(reason = "auto"){
@@ -5751,11 +5449,6 @@ async function refreshRemoteGoalCounters(reason = "auto"){
   GOAL_REMOTE_REFRESH_BUSY = true;
   LAST_GOAL_REMOTE_REFRESH_AT = now;
   try{
-    // Atualiza primeiro apenas os eventos de hoje. É rápido e não depende do
-    // carregamento completo de todo o histórico para mostrar a meta diária.
-    try { await refreshTodayGoalEventsFromSupabase({ silent:true, reason }); }
-    catch(err){ console.warn("Não consegui atualizar rapidamente a meta diária:", err); }
-
     try { await loadResponsesFromSupabase({ silent:true }); }
     catch(err){ console.warn("Não consegui atualizar histórico remoto de flashcards:", err); }
 
@@ -5779,10 +5472,6 @@ async function refreshRemoteGoalCounters(reason = "auto"){
 window.addEventListener("focus", () => refreshRemoteGoalCounters("focus"));
 document.addEventListener("visibilitychange", () => {
   if(!document.hidden) refreshRemoteGoalCounters("visible");
-});
-window.addEventListener("online", () => {
-  clearGoalFastRefreshRetry();
-  void refreshTodayGoalEventsFromSupabase({ silent:true, reason:"online" });
 });
 
 document.addEventListener("click", (ev) => {
@@ -7457,48 +7146,6 @@ function syncImportantUi(){
   renderCategoryList(document.getElementById("cat-list-search")?.value || "");
 }
 
-function showLoadingCardMessage(message="Carregando..."){
-  try{
-    document.getElementById('front-cat').textContent = "—";
-    document.getElementById('back-diff').textContent = "—";
-    document.getElementById('front-diff').textContent = "—";
-    document.getElementById('q-icon').textContent = "❓";
-    document.getElementById('q-text').textContent = message;
-    document.getElementById('a-text').textContent = "—";
-    document.getElementById('btn-row').style.display = 'none';
-    setCardImage("q", "", "");
-    setCardImage("a", "", "");
-    updateImportantButtons(null);
-  }catch(error){ console.warn("Não consegui renderizar estado de carregamento:", error); }
-}
-
-function recoverInvalidDeckPosition(){
-  const before = deck.length;
-  deck = deck.filter(card => card && card.id && (card.q || card.a));
-  if(idx < 0) idx = 0;
-  if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
-  return before !== deck.length;
-}
-
-function refreshActiveImportantDeckAfterSync(){
-  if(activeTab !== "important") return;
-  if(!CARDS.length) return;
-  const base = importantBaseForActiveFilter();
-  const cards = getProgrammedStudyCards(base);
-  const currentId = deck[idx]?.id || null;
-  deck = [...cards];
-  sessionTotal = deck.length;
-  idx = Math.max(0, currentId ? deck.findIndex(c => c.id === currentId) : 0);
-  if(idx < 0) idx = 0;
-  currentStudy = { type:"important", publicacao:activeCat==="Todas"?null:activeCat, assunto:null, mode:"important", label:`Favoritos${activeCat === "Todas" ? "" : ` — ${activeCat}`}` };
-  document.getElementById('complete').classList.remove('show');
-  document.getElementById('complete').style.display='none';
-  document.getElementById('card-area').style.display='flex';
-  updateStudyTitle();
-  if(!deck.length){ showNoAvailableCards(currentStudy.label, base.length, base); return; }
-  showCard();
-}
-
 function updateImportantButtons(card){
   const marked = !!card && isImportantCard(card);
   ["favorite-btn-front", "favorite-btn-back"].forEach(id => {
@@ -7518,7 +7165,8 @@ function updateImportantButtons(card){
 async function refreshImportantUserMetadata(){
   if(!supabaseClient || !currentUser?.id) return new Set();
   try{
-    const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.getUser(), { label:"carregar favoritos do perfil", timeoutMs:15000 });
+    const { data, error } = await supabaseClient.auth.getUser();
+    if(error) throw error;
     if(data?.user) currentUser = data.user;
     return importantIdsFromUserMetadata(currentUser);
   }catch(error){
@@ -7529,14 +7177,13 @@ async function refreshImportantUserMetadata(){
 async function syncImportantUserMetadata(){
   if(!supabaseClient || !currentUser?.id) return false;
   const ids = [...IMPORTANT_CARDS].map(normalizeImportantId).filter(Boolean);
-  const metaSet = importantIdsFromUserMetadata(currentUser);
-  if(metaSet.size === ids.length && ids.every(id => metaSet.has(id))) return true;
-  const { data } = await runSupabaseWithRetry(() => supabaseClient.auth.updateUser({
+  const { data, error } = await supabaseClient.auth.updateUser({
     data: {
       [IMPORTANT_AUTH_METADATA_KEY]: ids,
       [IMPORTANT_AUTH_METADATA_UPDATED_KEY]: new Date().toISOString()
     }
-  }), { label:"salvar favoritos no perfil", timeoutMs:20000 });
+  });
+  if(error) throw error;
   if(data?.user) currentUser = data.user;
   return true;
 }
@@ -7566,64 +7213,52 @@ async function fetchImportantRowsFromSupabase(){
     return query;
   }, 1000, 50000);
 }
-async function syncImportantOpsBatchToSupabase(ops){
-  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return { ok:false, synced:0, ids:[] };
-  const cleanOps = readImportantPendingOpsFromArray(ops || []).map(op => ({
-    card_id: normalizeImportantId(op.card_id),
-    marked: !!op.marked,
-    updated_at: op.updated_at || new Date().toISOString()
-  })).filter(op => op.card_id);
-  if(!cleanOps.length) return { ok:true, synced:0, ids:[] };
-
-  const syncedIds = [];
-  const chunkSize = 500;
-  for(let i=0; i<cleanOps.length; i += chunkSize){
-    const chunk = cleanOps.slice(i, i + chunkSize);
-    const payload = chunk.map(op => ({
-      user_id: currentUser.id,
-      card_id: op.card_id,
-      marked: !!op.marked,
-      marked_at: op.marked ? op.updated_at : null,
-      updated_at: op.updated_at
-    }));
-    try{
-      await runSupabaseWithRetry(() => supabaseClient
-        .from("flashcard_importantes")
-        .upsert(payload, { onConflict:"user_id,card_id" }),
-        { label:"sincronizar favoritos em lote", attempts:3, timeoutMs:25000 });
-      syncedIds.push(...chunk.map(op => op.card_id));
-    }catch(error){
-      console.warn("Não foi possível sincronizar lote de favoritos na tabela flashcard_importantes:", error);
-      IMPORTANT_TABLE_READY = false;
-      return { ok:false, synced:syncedIds.length, ids:syncedIds, error };
-    }
-  }
-  IMPORTANT_TABLE_READY = true;
-  return { ok:true, synced:syncedIds.length, ids:syncedIds };
-}
 async function syncImportantOpToSupabase(op){
-  const res = await syncImportantOpsBatchToSupabase([op]);
-  return !!res.ok;
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return false;
+  const card_id = normalizeImportantId(op?.card_id || op?.cardId || op?.id);
+  if(!card_id) return true;
+  const ts = op.updated_at || op.ts || new Date().toISOString();
+  try{
+    const { error } = await supabaseClient
+      .from("flashcard_importantes")
+      .upsert({
+        user_id: currentUser.id,
+        card_id,
+        marked: !!op.marked,
+        marked_at: op.marked ? ts : null,
+        updated_at: ts
+      }, { onConflict:"user_id,card_id" });
+    if(error) throw error;
+    IMPORTANT_TABLE_READY = true;
+    return true;
+  }catch(modernError){
+    console.warn("Não foi possível sincronizar importante na tabela flashcard_importantes:", modernError);
+    IMPORTANT_TABLE_READY = false;
+    return false;
+  }
 }
 async function syncImportantPendingToSupabase(){
   const pending = readImportantPendingOps();
   if(!pending.length) return { synced:0, skipped:0 };
-  const res = await syncImportantOpsBatchToSupabase(pending);
-  (res.ids || []).forEach(id => clearImportantPendingOp(id));
+  let synced = 0, skipped = 0;
+  for(const op of pending){
+    const ok = await syncImportantOpToSupabase(op);
+    if(ok){ clearImportantPendingOp(op.card_id); synced++; }
+    else skipped++;
+  }
   renderSyncPanel();
-  return { synced:res.synced || 0, skipped:res.ok ? 0 : Math.max(0, pending.length - Number(res.synced || 0)) };
+  return { synced, skipped };
 }
 async function syncImportantMissingToSupabase(remoteState=new Map()){
   if(!isOnlineMode || !currentUser?.id || !supabaseClient) return 0;
-  const ts = new Date().toISOString();
-  const ops = [];
+  let sent = 0;
   for(const id of IMPORTANT_CARDS){
     const remote = remoteState.get(id);
     if(remote?.marked) continue;
-    ops.push({ card_id:id, marked:true, updated_at:ts });
+    const ok = await syncImportantOpToSupabase({ card_id:id, marked:true, updated_at:new Date().toISOString() });
+    if(ok) sent++;
   }
-  const res = await syncImportantOpsBatchToSupabase(ops);
-  return Number(res.synced || 0);
+  return sent;
 }
 function buildImportantLocalStateMap(){
   const current = readImportantSetFromStorage(importantStorageKey());
@@ -7670,9 +7305,7 @@ async function loadImportantFromSupabase(){
     importantPendingStateMap()
   );
   IMPORTANT_CARDS = importantSetFromStateMap(finalState);
-  // Não sobrescreve o backup lastGood com lista vazia.
-  // A lista atual continua sendo salva normalmente; o lastGood fica como recuperação contra sync remoto vazio/incompleto.
-  writeLocalImportantCards();
+  writeLocalImportantCards({ allowEmptyLastGood:true });
   syncImportantUi();
 
   try{
@@ -7686,7 +7319,6 @@ async function loadImportantFromSupabase(){
   catch(error){ console.warn("Não consegui salvar importantes no perfil da conta:", error); }
 
   syncImportantUi();
-  refreshActiveImportantDeckAfterSync();
 }
 async function syncImportantNow(){
   if(IMPORTANT_SYNC_BUSY) return;
@@ -7790,40 +7422,35 @@ async function toggleCurrentImportant(event){
 
 async function loadArchivedFromSupabase(){
   setSyncStatus("carregando arquivados...");
+  ARCHIVED_CARDS = new Set();
   ARCHIVE_TABLE_READY = true;
-  try{
-    const data = await fetchSupabasePages((from, to) => {
-      let query = supabaseClient
-        .from("flashcard_arquivados")
-        .select("user_id,card_id,archived_at")
-        .order("archived_at", { ascending:false })
-        .range(from, to);
-      if(currentUser?.id) query = query.eq("user_id", currentUser.id);
-      return query;
-    }, 1000, 50000);
-    const next = new Set();
-    (data || []).forEach(row => { if(row?.card_id) next.add(row.card_id); });
-    ARCHIVED_CARDS = next;
-  }catch(error){
-    console.warn("Arquivados não carregaram; preservando estado local da sessão:", error);
+  let query = supabaseClient
+    .from("flashcard_arquivados")
+    .select("user_id, card_id, archived_at")
+    .order("archived_at", { ascending:false });
+  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  const { data, error } = await query;
+  if(error){
+    console.warn("Tabela de arquivados ainda não disponível:", error);
     ARCHIVE_TABLE_READY = false;
-    setSyncStatus("Arquivados não sincronizaram agora; o estudo continua normalmente.");
+    setSyncStatus("rode a migração de arquivados no Supabase.");
+    return;
   }
+  (data || []).forEach(row => ARCHIVED_CARDS.add(row.card_id));
 }
 
 async function archiveCard(card){
   if(!card) return;
   ARCHIVED_CARDS.add(card.id);
   if(isOnlineMode && currentUser && ARCHIVE_TABLE_READY){
-    try{
-      await runSupabaseWithRetry(() => supabaseClient
-        .from("flashcard_arquivados")
-        .upsert({ user_id: currentUser.id, card_id: card.id, archived_at: new Date().toISOString() }, { onConflict:"user_id,card_id" }),
-        { label:"arquivar card", timeoutMs:20000 });
-    }catch(error){
-      ARCHIVE_TABLE_READY = false;
-      console.warn("Não foi possível sincronizar arquivamento agora; mantendo localmente:", error);
-      showToast("Card arquivado localmente. A sincronização dos Arquivados falhou agora: " + (error.message || error), "warn", 5200);
+    const { error } = await supabaseClient
+      .from("flashcard_arquivados")
+      .upsert({ user_id: currentUser.id, card_id: card.id, archived_at: new Date().toISOString() }, { onConflict:"user_id,card_id" });
+    if(error){
+      ARCHIVED_CARDS.delete(card.id);
+      console.error("Erro ao arquivar card:", error);
+      showToast("Erro ao arquivar card. Verifique se a migração de Arquivados foi rodada no Supabase. " + error.message, "error", 7000);
+      return false;
     }
   }
   return true;
@@ -7837,7 +7464,7 @@ async function archiveCurrentCard(event){
     const ok = await archiveCard(c);
     if(!ok) return;
     deck = deck.filter(card => card.id !== c.id);
-    if(idx >= deck.length) idx = Math.max(0, deck.length - 1);
+    if(idx >= deck.length) idx = Math.max(0, deck.length);
     buildCatPills();
     setSyncStatus("Card arquivado.");
     if(deck.length === 0){ showComplete(); return; }
@@ -7862,24 +7489,23 @@ async function restoreArchivedCard(cardId){
   setSyncStatus("Restaurando card...");
 
   if(isOnlineMode && currentUser && ARCHIVE_TABLE_READY){
-    try{
-      await runSupabaseWithRetry(() => supabaseClient
-        .from("flashcard_arquivados")
-        .delete()
-        .eq("user_id", currentUser.id)
-        .eq("card_id", cardId),
-        { label:"restaurar arquivado", timeoutMs:20000 });
+    const { error } = await supabaseClient
+      .from("flashcard_arquivados")
+      .delete()
+      .eq("user_id", currentUser.id)
+      .eq("card_id", cardId);
 
-      // Recarrega do banco para garantir que a lista local ficou igual ao Supabase.
-      await loadArchivedFromSupabase();
-    }catch(error){
+    if(error){
       if(wasArchived) ARCHIVED_CARDS.add(cardId);
       buildCatPills();
       renderArchivedCards();
       console.error("Erro ao restaurar card:", error);
-      alert("Erro ao restaurar card: " + (error.message || error));
+      alert("Erro ao restaurar card: " + error.message);
       return;
     }
+
+    // Recarrega do banco para garantir que a lista local ficou igual ao Supabase.
+    await loadArchivedFromSupabase();
   }
 
   buildCatPills();
@@ -8020,13 +7646,6 @@ function programmedStudy(){
 }
 
 function importantStudy(){
-  if(!CARDS.length){
-    deck = []; idx = 0; sessionTotal = 0;
-    currentStudy = { type:"important", publicacao:null, assunto:null, mode:"important", label:"Favoritos" };
-    showTab('important');
-    showLoadingCardMessage("Carregando flashcards...");
-    return;
-  }
   const base = importantBaseForActiveFilter();
   const cards = getProgrammedStudyCards(base);
   deck = [...cards];
@@ -8599,15 +8218,8 @@ function setCardActionButtonsDisabled(disabled){
 function showCard(){
   CARD_ANSWER_LOCK = false;
   setCardActionButtonsDisabled(false);
-  recoverInvalidDeckPosition();
-  if(idx >= deck.length || !deck.length){ showComplete(); return; }
-  let c = deck[idx];
-  if(!c || !c.id){
-    recoverInvalidDeckPosition();
-    if(!deck.length){ showComplete(); return; }
-    c = deck[idx];
-  }
-  if(!c || !c.id){ showLoadingCardMessage("Carregando flashcard..."); return; }
+  if(idx >= deck.length){ showComplete(); return; }
+  const c = deck[idx];
   const reviewedInSession = SESSION_RESULTS.has(c.id);
   updateImportantButtons(c);
   isFlipped = false;
@@ -9884,11 +9496,6 @@ async function loadResponsesFromSupabase(options = {}){
   ONLINE_HISTORY = mergeHistoryEvents(readLocalCardHistory(), remoteHistory);
   writeLocalCardHistory(ONLINE_HISTORY);
   invalidateProgrammedRuntimeCaches();
-  markGoalSourceConfirmed("cards");
-  // Atualiza a meta imediatamente após o histórico de flashcards chegar.
-  // Antes, ela esperava todas as tarefas opcionais da inicialização terminarem.
-  renderDailyGoalWidget();
-  if(activeTab === "goals") renderGoalsPage();
   pruneProgrammedDeckAfterDataRefresh();
 }
 
@@ -9896,9 +9503,6 @@ async function startAuthenticatedApp(){
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").style.display = "flex";
   try{
-    GOAL_LAST_REFRESH_STATUS = { cardsOk:null, questionsOk:null };
-    GOAL_LAST_CONFIRMED_AT = 0;
-    clearGoalFastRefreshRetry();
     await loadCardsFromSupabase();
     IMPORTANT_CARDS = readLocalImportantCards();
     loadEmbeddedQuestionResponses();
@@ -9910,40 +9514,22 @@ async function startAuthenticatedApp(){
     initCatDrag();
     selectCat("Todas");
     showTab("study");
-    setSyncStatus(`cards carregados (${visibleCards(CARDS).length}). Carregando meta diária...`);
+    setSyncStatus(`cards carregados (${visibleCards(CARDS).length}). Sincronizando histórico em segundo plano...`);
 
-    // Dispara a consulta curta imediatamente. O histórico completo começa após
-    // no máximo 1,2 s, mesmo que a consulta curta fique presa em timeout.
-    // Assim a meta possui duas rotas independentes de recuperação e nenhuma
-    // bloqueia a outra.
-    const initialGoalRefresh = refreshTodayGoalEventsFromSupabase({ reason:"startup" }).catch(err => {
-      console.warn("Meta diária rápida não carregou na inicialização:", err);
-      scheduleGoalFastRefreshRetry("startup");
-      return { cards:0, questions:0, cardsOk:false, questionsOk:false, anyOk:false, allOk:false };
-    });
+    setTimeout(() => ensureQuestionsLoaded(false), 80);
 
     (async () => {
       let responsesLoaded = false;
       try{
-        const earlyGoalResult = await Promise.race([
-          initialGoalRefresh,
-          waitMs(1200).then(() => null)
-        ]);
-        if(earlyGoalResult?.allOk) setSyncStatus("meta diária atualizada. Sincronizando histórico completo em segundo plano...");
-        else setSyncStatus("cards disponíveis. Confirmando meta e histórico em segundo plano...");
-
         const backgroundTasks = [
           loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
           loadImportantFromSupabase().catch(err => { console.warn("Importantes não carregaram:", err); }),
           loadReviewStateFromSupabase().catch(err => { console.warn("Revisão não carregou:", err); }),
           loadGoalSettingsFromSupabase().catch(err => { console.warn("Metas não carregaram:", err); }),
-          ensureQuestionsLoaded(false).catch(err => { console.warn("Questões não sincronizaram:", err); }),
+          (async () => { await loadQuizResponsesFromSupabase(); await syncLocalQuizAttemptsToSupabase(); })().catch(err => { console.warn("Quiz não sincronizou:", err); }),
           loadResponsesFromSupabase().then(() => { responsesLoaded = true; }).catch(err => { console.warn("Histórico remoto não carregou:", err); })
         ];
         await Promise.allSettled(backgroundTasks);
-
-        const finalGoalResult = await initialGoalRefresh;
-        if(!finalGoalResult?.allOk) scheduleGoalFastRefreshRetry("startup");
 
         try {
           const autoCardSync = await syncPendingCardResponsesToSupabase();
@@ -9962,29 +9548,23 @@ async function startAuthenticatedApp(){
         buildCatPills();
         renderArchivedCards();
         renderImportantTabCount();
-        refreshActiveImportantDeckAfterSync();
         renderDailyGoalWidget();
         renderSyncPanel();
         if(activeTab === "diag") buildDashboard("all");
         if(activeTab === "db") renderSummary("db-summary");
         if(activeTab === "goals") renderGoalsPage();
         if(activeTab === "progress") renderReadingProgress();
-        if(activeTab === "health") renderHealthDashboard();
         setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${importantCards().length} favoritos; ${archivedCards().length} arquivados.`);
       }catch(bgError){
         console.error("Erro no carregamento em segundo plano:", bgError);
         setSyncStatus("app aberto, mas houve erro ao sincronizar em segundo plano: " + (bgError.message || "erro desconhecido"));
         showToast("App abriu, mas houve falha na sincronização em segundo plano.", "warn", 5200);
-        scheduleGoalFastRefreshRetry("background");
       }
     })();
   }catch(error){
     console.error(error);
-    showLoadingCardMessage("Erro ao carregar flashcards. Recarregue a página ou tente novamente em instantes.");
-    buildCatPills();
-    renderSyncPanel();
-    showToast("Erro ao iniciar com Supabase: " + (error.message || error), "error", 6200);
-    setSyncStatus("erro ao carregar cards: " + (error.message || error));
+    showToast("Erro ao iniciar com Supabase: " + error.message, "error", 6200);
+    setSyncStatus("erro: " + error.message);
   }
 }
 
