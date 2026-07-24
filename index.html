@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- AUDITORIA v68.7: 100 passagens adicionais concluídas em 24/07/2026. Mantém o Programado e o carregamento funcional; adiciona proteção contra duplo envio no login/cadastro, recuperação visível quando a carga inicial falha e corrige a identificação do JSON técnico. -->
+<!-- v68.8: corrige JWT excessivo causado por Favoritos no user_metadata. Migra Favoritos para flashcard_importantes, limpa as listas do Auth metadata e preserva Programado, histórico, metas e sincronização. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v68.7 — auditoria completa 100x</title>
+<title>FlashPrático v68.8 — correção JWT dos Favoritos</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1061,7 +1061,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v68.7 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v68.8 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1320,6 +1320,7 @@
           <button class="mini-btn sync-now-btn" id="sync-now-btn" onclick="forceSyncNow()">Sincronizar agora</button>
           <button class="mini-btn" onclick="syncImportantNow()">Sincronizar favoritos</button>
           <button class="mini-btn" onclick="diagnoseImportantSync()">Diagnóstico favoritos</button>
+          <button class="mini-btn" onclick="migrateLegacyImportantMetadataNow()">Corrigir token dos Favoritos</button>
           <button class="mini-btn" onclick="renderSyncPanel()">Atualizar painel</button>
           <button class="mini-btn" onclick="showOrphanCardEvents()">Ver órfãos</button>
           <button class="mini-btn danger-btn" onclick="clearOrphanCardSync()">Limpar órfãos</button>
@@ -1665,6 +1666,9 @@ const IMPORTANT_CARDS_LAST_GOOD_KEY = "flashpratico_important_cards_last_good_v1
 const IMPORTANT_PENDING_SYNC_KEY = "flashpratico_important_pending_sync_v1";
 const IMPORTANT_AUTH_METADATA_KEY = "flashpratico_important_cards";
 const IMPORTANT_AUTH_METADATA_UPDATED_KEY = "flashpratico_important_cards_updated_at";
+const IMPORTANT_AUTH_METADATA_MIGRATED_KEY = "flashpratico_important_cards_migrated_to_table_at";
+const IMPORTANT_AUTH_TOKEN_COMPACT_THRESHOLD = 12000;
+let IMPORTANT_METADATA_MIGRATION_BUSY = false;
 const CARD_PENDING_SYNC_KEY = "flashpratico_card_pending_sync_v1";
 const CARD_ORPHAN_SYNC_KEY = "flashpratico_card_orphan_sync_v1";
 let LAST_SYNC_AT = null;
@@ -7302,29 +7306,126 @@ function updateImportantButtons(card){
 }
 
 async function refreshImportantUserMetadata(){
-  if(!supabaseClient || !currentUser?.id) return new Set();
-  try{
-    const { data, error } = await supabaseClient.auth.getUser();
-    if(error) throw error;
-    if(data?.user) currentUser = data.user;
-    return importantIdsFromUserMetadata(currentUser);
-  }catch(error){
-    console.warn("Não consegui carregar importantes do Supabase Auth:", error);
-    return importantIdsFromUserMetadata(currentUser);
-  }
+  // v68.8: os Favoritos antigos ainda podem ser lidos da sessão local para a
+  // migração única, mas não fazemos auth.getUser() aqui. Além de ser
+  // desnecessário, essa chamada enviaria novamente o JWT antigo e muito grande.
+  return importantIdsFromUserMetadata(currentUser);
 }
 async function syncImportantUserMetadata(){
-  if(!supabaseClient || !currentUser?.id) return false;
-  const ids = [...IMPORTANT_CARDS].map(normalizeImportantId).filter(Boolean);
-  const { data, error } = await supabaseClient.auth.updateUser({
-    data: {
-      [IMPORTANT_AUTH_METADATA_KEY]: ids,
-      [IMPORTANT_AUTH_METADATA_UPDATED_KEY]: new Date().toISOString()
+  // v68.8: Favoritos NÃO são mais gravados em user_metadata. Uma lista grande
+  // nesse campo entra no JWT e passa a ser enviada em toda chamada ao Supabase.
+  // A fonte remota exclusiva agora é a tabela flashcard_importantes.
+  return false;
+}
+function legacyImportantMetadataInfo(user=currentUser){
+  const meta = user?.user_metadata || {};
+  const keys = [IMPORTANT_AUTH_METADATA_KEY, "flashpratico_importantes", "important_cards"];
+  return {
+    ids: importantIdsFromUserMetadata(user),
+    hasPayload: keys.some(key => {
+      if(!Object.prototype.hasOwnProperty.call(meta, key)) return false;
+      const value = meta[key];
+      if(Array.isArray(value)) return value.length > 0;
+      if(value && typeof value === "object") return Object.keys(value).length > 0;
+      return value !== null && value !== undefined && value !== "";
+    })
+  };
+}
+async function upsertImportantSetInBatches(ids, updatedAt=new Date().toISOString()){
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return 0;
+  const rows = [...importantSetFromValue(ids)].map(card_id => ({
+    user_id: currentUser.id,
+    card_id,
+    marked: true,
+    marked_at: updatedAt,
+    updated_at: updatedAt
+  }));
+  let sent = 0;
+  for(let i = 0; i < rows.length; i += 200){
+    const chunk = rows.slice(i, i + 200);
+    const { error } = await supabaseClient
+      .from("flashcard_importantes")
+      .upsert(chunk, { onConflict:"user_id,card_id" });
+    if(error) throw error;
+    sent += chunk.length;
+  }
+  IMPORTANT_TABLE_READY = true;
+  return sent;
+}
+async function migrateLegacyImportantMetadataNow(options={}){
+  const silent = !!options.silent;
+  if(IMPORTANT_METADATA_MIGRATION_BUSY) return { skipped:true, reason:"busy" };
+  if(!supabaseClient || !currentUser?.id || !isOnlineMode) return { skipped:true, reason:"offline" };
+
+  const legacy = legacyImportantMetadataInfo(currentUser);
+  if(!legacy.hasPayload && legacy.ids.size === 0){
+    if(!silent) showToast("O token já está corrigido: Favoritos não estão mais no perfil Auth.", "success", 5200);
+    return { skipped:true, reason:"already-clean", migrated:0 };
+  }
+
+  IMPORTANT_METADATA_MIGRATION_BUSY = true;
+  const now = new Date().toISOString();
+  try{
+    setSyncStatus(`corrigindo token: protegendo ${legacy.ids.size} Favoritos na tabela...`);
+
+    // Une todas as cópias seguras antes de limpar o metadata.
+    IMPORTANT_CARDS = mergeImportantSets(readLocalImportantCards(), IMPORTANT_CARDS, legacy.ids);
+    writeLocalImportantCards({ allowEmptyLastGood:true });
+    syncImportantUi();
+
+    // Confirma a cópia integral na tabela antes de remover o array do Auth.
+    const sent = await upsertImportantSetInBatches(IMPORTANT_CARDS, now);
+
+    const { data, error } = await supabaseClient.auth.updateUser({
+      data: {
+        [IMPORTANT_AUTH_METADATA_KEY]: [],
+        [IMPORTANT_AUTH_METADATA_UPDATED_KEY]: null,
+        flashpratico_importantes: [],
+        important_cards: [],
+        [IMPORTANT_AUTH_METADATA_MIGRATED_KEY]: now
+      }
+    });
+    if(error) throw error;
+    if(data?.user) currentUser = data.user;
+
+    // Emite imediatamente um novo JWT pequeno para este aparelho.
+    let refreshed = null;
+    try{
+      const refreshResult = await supabaseClient.auth.refreshSession();
+      if(refreshResult?.error) throw refreshResult.error;
+      refreshed = refreshResult?.data?.session || null;
+      if(refreshed?.user) currentUser = refreshed.user;
+    }catch(refreshError){
+      console.warn("Metadata limpo, mas a sessão não foi renovada automaticamente:", refreshError);
     }
-  });
-  if(error) throw error;
-  if(data?.user) currentUser = data.user;
-  return true;
+
+    const tokenLength = String(refreshed?.access_token || "").length;
+    setSyncStatus(`token corrigido; ${IMPORTANT_CARDS.size} Favoritos preservados na tabela.`);
+    if(!silent){
+      showToast(`Correção concluída: ${IMPORTANT_CARDS.size} Favoritos preservados. ${tokenLength ? `Novo token: ${tokenLength} caracteres.` : "Saia e entre novamente neste aparelho."}`, "success", 8500);
+    }
+    renderSyncPanel();
+    return { skipped:false, migrated:legacy.ids.size, preserved:IMPORTANT_CARDS.size, sent, tokenLength };
+  }catch(error){
+    console.error("Falha ao migrar Favoritos para fora do Auth metadata:", error);
+    setSyncStatus("não foi possível corrigir o token: " + (error?.message || error));
+    if(!silent) showToast("Falha ao corrigir o token: " + (error?.message || error), "error", 8000);
+    throw error;
+  }finally{
+    IMPORTANT_METADATA_MIGRATION_BUSY = false;
+  }
+}
+async function refreshOversizedAuthSessionIfNeeded(session){
+  const accessToken = String(session?.access_token || "");
+  if(!session || accessToken.length < IMPORTANT_AUTH_TOKEN_COMPACT_THRESHOLD) return session;
+  try{
+    const { data, error } = await supabaseClient.auth.refreshSession();
+    if(error) throw error;
+    return data?.session || session;
+  }catch(error){
+    console.warn("Não foi possível renovar a sessão antiga e grande:", error);
+    return session;
+  }
 }
 function remoteImportantStateMapFromRows(rows){
   const map = new Map();
@@ -7454,8 +7555,12 @@ async function loadImportantFromSupabase(){
     console.warn("Não consegui enviar todos os importantes à tabela:", error);
   }
 
-  try{ await syncImportantUserMetadata(); }
-  catch(error){ console.warn("Não consegui salvar importantes no perfil da conta:", error); }
+  // Migração única v68.8: depois de confirmar a tabela, remove o array de
+  // Favoritos do Auth metadata e renova o JWT. Nunca limpa antes da cópia.
+  if(IMPORTANT_TABLE_READY){
+    try{ await migrateLegacyImportantMetadataNow({ silent:true }); }
+    catch(error){ console.warn("Favoritos foram mantidos localmente; migração do token será tentada novamente:", error); }
+  }
 
   syncImportantUi();
 }
@@ -7491,7 +7596,8 @@ async function diagnoseImportantSync(){
     `Backup local lastGood: ${lastGood.exists ? lastGood.set.size : "sem chave"}`,
     `Legado/global: ${legacy.exists ? legacy.set.size : "sem chave"}`,
     `Pendências locais: ${pending.length}`,
-    `Perfil/Auth metadata: ${metaSet.size}`
+    `Perfil/Auth metadata legado: ${metaSet.size}`,
+    `Fonte remota atual: tabela flashcard_importantes`
   ];
   if(currentUser?.id && supabaseClient){
     try{
@@ -7521,7 +7627,6 @@ async function setImportantCard(card, marked){
   syncImportantUi();
 
   let tableOk = false;
-  let metaOk = false;
   if(isOnlineMode && currentUser && supabaseClient){
     try{
       tableOk = await syncImportantOpToSupabase(pendingOp);
@@ -7529,11 +7634,9 @@ async function setImportantCard(card, marked){
     }catch(error){
       console.warn("Não foi possível sincronizar importante na tabela:", error);
     }
-    try{ metaOk = await syncImportantUserMetadata(); }
-    catch(error){ console.warn("Não foi possível sincronizar importante no perfil:", error); }
   }
 
-  if(tableOk || metaOk){
+  if(tableOk){
     setSyncStatus(marked ? "Card marcado como favorito e sincronizado." : "Card removido dos favoritos e sincronizado.");
   }else if(isOnlineMode && currentUser){
     setSyncStatus("Favorito salvo neste aparelho; sincronização pendente.");
@@ -9328,7 +9431,6 @@ async function applyImportedImportantCards(importantIds){
   let sync = { synced:0, skipped:0 };
   if(isOnlineMode && currentUser?.id && supabaseClient){
     try{ sync = await syncImportantPendingToSupabase(); }catch(e){ console.warn("Não consegui sincronizar importantes importados na tabela:", e); }
-    try{ await syncImportantUserMetadata(); }catch(e){ console.warn("Não consegui sincronizar importantes importados no perfil:", e); }
   }
   return { imported: imported.size, synced:sync.synced || 0, skipped:sync.skipped || 0 };
 }
@@ -9749,7 +9851,8 @@ async function initApp(){
   }
   const { data } = await supabaseClient.auth.getSession();
   if(data.session?.user){
-    currentUser = data.session.user;
+    const compactSession = await refreshOversizedAuthSessionIfNeeded(data.session);
+    currentUser = compactSession?.user || data.session.user;
     await startAuthenticatedApp();
   } else {
     document.getElementById("auth-msg").textContent = "Entre ou crie uma conta para começar.";
@@ -9759,6 +9862,7 @@ async function initApp(){
 window.restoreArchivedCard = restoreArchivedCard;
 window.archiveCurrentCard = archiveCurrentCard;
 window.toggleCurrentImportant = toggleCurrentImportant;
+window.migrateLegacyImportantMetadataNow = migrateLegacyImportantMetadataNow;
 window.importantStudy = importantStudy;
 window.showTab = showTab;
 window.goBackToStudy = goBackToStudy;
@@ -9788,7 +9892,7 @@ window.importReadingPlanFromText = importReadingPlanFromText;
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v68.7";
+const TECHNICAL_DIAG_VERSION = "v68.8";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
@@ -9931,7 +10035,7 @@ function downloadTechnicalDiagnostic(){
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `flashpratico-v68-7-diagnostico-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
+    anchor.download = `flashpratico-v68-8-diagnostico-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
     anchor.style.display = "none";
     document.body.appendChild(anchor);
     anchor.click();
