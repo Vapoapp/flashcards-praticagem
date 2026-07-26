@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.0: mantém a correção do JWT dos Favoritos e a atualização independente da Meta diária. Acrescenta sincronização incremental e periódica do histórico entre dispositivos, gatilhos de retomada no iPhone e carregamento atômico do estado de revisão. A lógica do Programado, metas, intervalos, Favoritos e respostas permanece inalterada. -->
+<!-- v69.1: mantém integralmente a sincronização multidispositivo da v69.0. Alteração visual única: o botão flutuante do diagnóstico técnico exibe somente o ícone, preservando nome acessível e tooltip. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.0 — histórico multidispositivo</title>
+<title>FlashPrático v69.1 — diagnóstico em ícone</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -949,10 +949,15 @@
     border: 1px solid rgba(124,140,248,.58);
     background: rgba(26,29,39,.98);
     color: var(--accent2);
-    border-radius: 999px;
-    padding: 9px 12px;
+    width: 42px;
+    height: 42px;
+    border-radius: 50%;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     font: inherit;
-    font-size: 11px;
+    font-size: 17px;
     font-weight: 950;
     line-height: 1;
     cursor: pointer;
@@ -1057,11 +1062,11 @@
 <body>
 
   <!-- v68.2: diagnóstico técnico flutuante; separado do Diagnóstico de estudo -->
-  <button id="tech-diag-toggle" class="tech-diag-toggle" type="button" aria-expanded="false" aria-controls="tech-diag-panel">🧪 Diagnóstico técnico</button>
+  <button id="tech-diag-toggle" class="tech-diag-toggle" type="button" aria-label="Diagnóstico técnico" title="Diagnóstico técnico" aria-expanded="false" aria-controls="tech-diag-panel">🧪</button>
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.0 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.1 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -10004,7 +10009,7 @@ window.importReadingPlanFromText = importReadingPlanFromText;
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v69.0";
+const TECHNICAL_DIAG_VERSION = "v69.1";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
