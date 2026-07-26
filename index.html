@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v68.8: corrige JWT excessivo causado por Favoritos no user_metadata. Migra Favoritos para flashcard_importantes, limpa as listas do Auth metadata e preserva Programado, histórico, metas e sincronização. -->
+<!-- v69.0: mantém a correção do JWT dos Favoritos e a atualização independente da Meta diária. Acrescenta sincronização incremental e periódica do histórico entre dispositivos, gatilhos de retomada no iPhone e carregamento atômico do estado de revisão. A lógica do Programado, metas, intervalos, Favoritos e respostas permanece inalterada. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v68.8 — correção JWT dos Favoritos</title>
+<title>FlashPrático v69.0 — histórico multidispositivo</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1061,7 +1061,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v68.8 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.0 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1674,6 +1674,14 @@ const CARD_ORPHAN_SYNC_KEY = "flashpratico_card_orphan_sync_v1";
 let LAST_SYNC_AT = null;
 let LAST_GOAL_REMOTE_REFRESH_AT = 0;
 let GOAL_REMOTE_REFRESH_BUSY = false;
+let CARD_HISTORY_REMOTE_LOAD_PROMISE = null;
+let CARD_HISTORY_REMOTE_WATERMARK_ID = 0;
+let CARD_HISTORY_REMOTE_LAST_REFRESH_AT = 0;
+let CARD_HISTORY_REMOTE_LAST_ROWS = 0;
+let REVIEW_REMOTE_LAST_REFRESH_AT = 0;
+const CROSS_DEVICE_HISTORY_REFRESH_MS = 60000;
+const CROSS_DEVICE_REVIEW_REFRESH_MS = 180000;
+let CROSS_DEVICE_HISTORY_TIMER = null;
 let SYNC_BUSY = false;
 let REMOTE_CARD_RESPONSE_IDS = new Set();
 let REMOTE_CARD_RESPONSE_KEYS = new Set();
@@ -1821,6 +1829,13 @@ async function fetchSupabasePages(makeQuery, pageSize=1000, maxRows=50000){
     if(page.length < pageSize) break;
   }
   return rows;
+}
+function promiseWithTimeout(promise, ms, label="operação remota"){
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} excedeu ${Math.round(ms/1000)} s`)), ms);
+  });
+  return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
 }
 
 // Banco de questões embutido no HTML para evitar limite do SQL Editor.
@@ -4518,6 +4533,12 @@ async function loadQuestionResponsesFromSupabase(){
   REMOTE_QUESTION_RESPONSE_KEYS = new Set(remoteAttempts.map(questionAttemptStableKey).filter(Boolean));
   QUESTION_ATTEMPTS = mergeQuestionAttempts(remoteAttempts, readLocalQuestionResponses());
   saveEmbeddedQuestionResponses();
+
+  // v68.9: a Meta diária não pode ficar esperando outras tarefas de fundo.
+  // Assim que as respostas de Questões chegam, atualiza o widget imediatamente.
+  renderDailyGoalWidget();
+  if(activeTab === "goals") renderGoalsPage();
+
   await syncLocalQuestionResponsesToSupabase(remoteAttempts);
 }
 function qEventsFor(questionId){
@@ -5585,37 +5606,71 @@ function renderDailyGoalWidget(){
 }
 
 async function refreshRemoteGoalCounters(reason = "auto"){
-  if(!currentUser?.id || !supabaseClient || GOAL_REMOTE_REFRESH_BUSY) return;
+  if(!currentUser?.id || !supabaseClient || GOAL_REMOTE_REFRESH_BUSY || !navigator.onLine) return;
+  if(document.hidden && reason !== "manual" && reason !== "online") return;
   const now = Date.now();
-  // Evita consultas pesadas repetidas quando o Safari/Chrome dispara foco/visibilidade várias vezes.
-  if(reason !== "manual" && now - LAST_GOAL_REMOTE_REFRESH_AT < 45000) return;
+  // Foco, visibilitychange e pageshow costumam disparar juntos no iPhone.
+  // Mantém uma única atualização e evita baixar o histórico repetidamente.
+  if(reason !== "manual" && now - LAST_GOAL_REMOTE_REFRESH_AT < 30000) return;
   GOAL_REMOTE_REFRESH_BUSY = true;
   LAST_GOAL_REMOTE_REFRESH_AT = now;
   try{
-    try { await loadResponsesFromSupabase({ silent:true }); }
-    catch(err){ console.warn("Não consegui atualizar histórico remoto de flashcards:", err); }
+    // Primeiro envia respostas deste aparelho. Depois busca somente os eventos
+    // novos do Supabase pelo id bigint, que é monotônico e não depende do relógio
+    // de cada dispositivo.
+    try { await syncPendingCardResponsesToSupabase(); }
+    catch(err){ console.warn("Não consegui enviar pendências antes da atualização remota:", err); }
 
-    try { await ensureQuestionsLoaded(false); }
-    catch(err){ console.warn("Não consegui carregar questões para atualizar meta:", err); }
+    try {
+      await loadResponsesFromSupabase({ silent:true, incremental:true });
+      if(REMOTE_CARD_RESPONSE_KEYS?.size) await syncMissingLocalCardHistoryToSupabase();
+    } catch(err){
+      console.warn("Não consegui atualizar histórico remoto de flashcards:", err);
+    }
 
-    if(QUESTION_SOURCE === "supabase"){
-      try { await loadQuestionResponsesFromSupabase(); }
-      catch(err){ console.warn("Não consegui atualizar histórico remoto de questões:", err); }
+    const refreshHeavyState = reason !== "timer" || now - REVIEW_REMOTE_LAST_REFRESH_AT >= CROSS_DEVICE_REVIEW_REFRESH_MS;
+    if(refreshHeavyState){
+      try {
+        const reviewUpdated = await loadReviewStateFromSupabase({ silent:true });
+        if(reviewUpdated) REVIEW_REMOTE_LAST_REFRESH_AT = Date.now();
+      } catch(err){ console.warn("Não consegui atualizar estado remoto do Programado:", err); }
+
+      try { await ensureQuestionsLoaded(false); }
+      catch(err){ console.warn("Não consegui carregar questões para atualizar meta:", err); }
+
+      if(QUESTION_SOURCE === "supabase"){
+        try { await loadQuestionResponsesFromSupabase(); }
+        catch(err){ console.warn("Não consegui atualizar histórico remoto de questões:", err); }
+      }
     }
 
     renderDailyGoalWidget();
     renderSyncPanel();
     if(activeTab === "goals") renderGoalsPage();
     if(activeTab === "db") renderSummary("db-summary");
+    if(activeTab === "diag") buildDashboard("all");
+    if(currentStudy?.mode === "programmed" && activeTab === "programmed") pruneProgrammedDeckAfterDataRefresh();
   } finally {
     GOAL_REMOTE_REFRESH_BUSY = false;
   }
 }
 
+function startCrossDeviceHistoryRefresh(){
+  if(CROSS_DEVICE_HISTORY_TIMER) clearInterval(CROSS_DEVICE_HISTORY_TIMER);
+  CROSS_DEVICE_HISTORY_TIMER = setInterval(() => {
+    if(!document.hidden && navigator.onLine && currentUser?.id){
+      refreshRemoteGoalCounters("timer");
+    }
+  }, CROSS_DEVICE_HISTORY_REFRESH_MS);
+}
+
 window.addEventListener("focus", () => refreshRemoteGoalCounters("focus"));
+window.addEventListener("pageshow", () => refreshRemoteGoalCounters("pageshow"));
+window.addEventListener("online", () => refreshRemoteGoalCounters("online"));
 document.addEventListener("visibilitychange", () => {
   if(!document.hidden) refreshRemoteGoalCounters("visible");
 });
+startCrossDeviceHistoryRefresh();
 
 document.addEventListener("click", (ev) => {
   const panel = document.getElementById("cat-list-panel");
@@ -9706,9 +9761,8 @@ async function loadCardsFromSupabase(){
   invalidateStudyIdentityCaches();
 }
 
-async function loadReviewStateFromSupabase(){
-  setSyncStatus("carregando revisão espaçada...");
-  REVIEW_STATE = new Map();
+async function loadReviewStateFromSupabase(options = {}){
+  if(!options.silent) setSyncStatus("carregando revisão espaçada...");
   REVIEW_TABLE_READY = true;
   try{
     const rows = await fetchSupabasePages((from, to) => {
@@ -9716,59 +9770,101 @@ async function loadReviewStateFromSupabase(){
         .from("estado_cards_usuario")
         .select("user_id,card_id,acertos_seguidos,intervalo_dias,proxima_revisao,ultima_revisao,ultimo_resultado,total_acertos,total_erros,total_dificeis,total_pulos,updated_at")
         .order("updated_at", { ascending:true })
+        .order("card_id", { ascending:true })
         .range(from, to);
       if(currentUser?.id) query = query.eq("user_id", currentUser.id);
       return query;
     }, 1000, 50000);
 
+    // Carregamento atômico: uma falha de rede no celular não pode apagar o
+    // estado de revisão que já estava válido em memória.
+    const nextState = new Map();
     (rows || [])
       .filter(row => !currentUser?.id || !row.user_id || row.user_id === currentUser.id)
-      .forEach(row => REVIEW_STATE.set(cardIdKey(row.card_id), row));
+      .forEach(row => nextState.set(cardIdKey(row.card_id), row));
+    REVIEW_STATE = nextState;
   }catch(error){
     console.warn("Tabela de revisão espaçada ainda não disponível:", error);
     REVIEW_TABLE_READY = false;
-    setSyncStatus("rode a migração de revisão espaçada no Supabase.");
-    return;
+    if(!options.silent) setSyncStatus("rode a migração de revisão espaçada no Supabase.");
+    return false;
   }
   invalidateStudyIdentityCaches();
   pruneProgrammedDeckAfterDataRefresh();
+  return true;
 }
 
 async function loadResponsesFromSupabase(options = {}){
-  if(!options.silent) setSyncStatus("carregando histórico...");
-  const data = await fetchSupabasePages((from, to) => {
-    let query = supabaseClient
-      .from("respostas")
-      .select("id,user_id,card_id,resultado,created_at")
-      .order("created_at", { ascending:true })
-      .range(from, to);
-    if(currentUser?.id) query = query.eq("user_id", currentUser.id);
-    return query;
-  }, 1000, 50000);
-  REMOTE_CARD_RESPONSE_IDS = new Set((data || []).map(r => String(r.id)));
-  REMOTE_CARD_RESPONSE_KEYS = new Set((data || []).map(cardResponseKeyFromRemoteRow).filter(Boolean));
-  const cardMap = new Map(CARDS.map(c => [cardIdKey(c), c]));
-  const remoteHistory = (data || [])
-    .filter(r => !currentUser?.id || !r.user_id || r.user_id === currentUser.id)
-    .map(r => {
-    const c = cardMap.get(cardIdKey(r.card_id)) || {};
-    return {
-      id:String(r.id),
-      user_id: r.user_id || currentUser?.id || null,
-      card_id:r.card_id,
-      publicacao:cleanLabel(c.publicacao, "Geral"),
-      assunto:cleanLabel(c.assunto, "Geral"),
-      logical_key: c.id ? studySessionKey(c) : "",
-      result:r.resultado,
-      ts:r.created_at
-    };
-  });
-  ONLINE_HISTORY = mergeHistoryEvents(readLocalCardHistory(), remoteHistory);
-  writeLocalCardHistory(ONLINE_HISTORY);
-  invalidateProgrammedRuntimeCaches();
-  pruneProgrammedDeckAfterDataRefresh();
-}
+  // Uma única leitura por vez. No iPhone, foco + visibilitychange + pageshow
+  // podem ocorrer juntos; sem este bloqueio, uma resposta antiga podia terminar
+  // por último e deixar a interface temporariamente defasada.
+  if(CARD_HISTORY_REMOTE_LOAD_PROMISE) return CARD_HISTORY_REMOTE_LOAD_PROMISE;
 
+  CARD_HISTORY_REMOTE_LOAD_PROMISE = (async () => {
+    if(!options.silent) setSyncStatus("carregando histórico...");
+    const incremental = !!options.incremental && CARD_HISTORY_REMOTE_WATERMARK_ID > 0;
+    const requestWatermark = incremental ? CARD_HISTORY_REMOTE_WATERMARK_ID : 0;
+    const fetchPromise = fetchSupabasePages((from, to) => {
+      let query = supabaseClient
+        .from("respostas")
+        .select("id,user_id,card_id,resultado,created_at")
+        .order("id", { ascending:true });
+      if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+      if(incremental) query = query.gt("id", requestWatermark);
+      return query.range(from, to);
+    }, 1000, incremental ? 10000 : 50000);
+    const data = await promiseWithTimeout(fetchPromise, incremental ? 20000 : 45000, incremental ? "atualização incremental do histórico" : "carga completa do histórico");
+
+    const rows = data || [];
+    if(!incremental){
+      REMOTE_CARD_RESPONSE_IDS = new Set();
+      REMOTE_CARD_RESPONSE_KEYS = new Set();
+      CARD_HISTORY_REMOTE_WATERMARK_ID = 0;
+    }
+    rows.forEach(row => {
+      REMOTE_CARD_RESPONSE_IDS.add(String(row.id));
+      const key = cardResponseKeyFromRemoteRow(row);
+      if(key) REMOTE_CARD_RESPONSE_KEYS.add(key);
+      const n = Number(row.id);
+      if(Number.isFinite(n)) CARD_HISTORY_REMOTE_WATERMARK_ID = Math.max(CARD_HISTORY_REMOTE_WATERMARK_ID, n);
+    });
+
+    const cardMap = new Map(CARDS.map(c => [cardIdKey(c), c]));
+    const remoteHistory = rows
+      .filter(r => !currentUser?.id || !r.user_id || r.user_id === currentUser.id)
+      .map(r => {
+        const c = cardMap.get(cardIdKey(r.card_id)) || {};
+        return {
+          id:String(r.id),
+          user_id: r.user_id || currentUser?.id || null,
+          card_id:r.card_id,
+          publicacao:cleanLabel(c.publicacao, "Geral"),
+          assunto:cleanLabel(c.assunto, "Geral"),
+          logical_key: c.id ? studySessionKey(c) : "",
+          result:r.resultado,
+          ts:r.created_at
+        };
+      });
+
+    ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory(), remoteHistory);
+    writeLocalCardHistory(ONLINE_HISTORY);
+    CARD_HISTORY_REMOTE_LAST_REFRESH_AT = Date.now();
+    CARD_HISTORY_REMOTE_LAST_ROWS = rows.length;
+    invalidateProgrammedRuntimeCaches();
+    pruneProgrammedDeckAfterDataRefresh();
+
+    renderDailyGoalWidget();
+    if(activeTab === "goals") renderGoalsPage();
+    if(activeTab === "db") renderSummary("db-summary");
+    return { incremental, rows:rows.length, total:ONLINE_HISTORY.length, watermark:CARD_HISTORY_REMOTE_WATERMARK_ID };
+  })();
+
+  try{
+    return await CARD_HISTORY_REMOTE_LOAD_PROMISE;
+  } finally {
+    CARD_HISTORY_REMOTE_LOAD_PROMISE = null;
+  }
+}
 async function startAuthenticatedApp(){
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").style.display = "flex";
@@ -9793,9 +9889,25 @@ async function startAuthenticatedApp(){
           loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
           loadImportantFromSupabase().catch(err => { console.warn("Importantes não carregaram:", err); }),
           loadReviewStateFromSupabase().catch(err => { console.warn("Revisão não carregou:", err); }),
-          loadGoalSettingsFromSupabase().catch(err => { console.warn("Metas não carregaram:", err); }),
-          ensureQuestionsLoaded(false).catch(err => { console.warn("Questões não sincronizaram:", err); }),
-          loadResponsesFromSupabase().then(() => { responsesLoaded = true; }).catch(err => { console.warn("Histórico remoto não carregou:", err); })
+          loadGoalSettingsFromSupabase()
+            .then(() => {
+              renderDailyGoalWidget();
+              if(activeTab === "goals") renderGoalsPage();
+            })
+            .catch(err => { console.warn("Metas não carregaram:", err); }),
+          ensureQuestionsLoaded(false)
+            .then(() => {
+              renderDailyGoalWidget();
+              if(activeTab === "goals") renderGoalsPage();
+            })
+            .catch(err => { console.warn("Questões não sincronizaram:", err); }),
+          loadResponsesFromSupabase()
+            .then(() => {
+              responsesLoaded = true;
+              renderDailyGoalWidget();
+              if(activeTab === "goals") renderGoalsPage();
+            })
+            .catch(err => { console.warn("Histórico remoto não carregou:", err); })
         ];
         await Promise.allSettled(backgroundTasks);
 
@@ -9892,7 +10004,7 @@ window.importReadingPlanFromText = importReadingPlanFromText;
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v68.8";
+const TECHNICAL_DIAG_VERSION = "v69.0";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
@@ -9927,7 +10039,13 @@ function technicalDiagState(){
     active_tab: typeof activeTab !== "undefined" ? activeTab : null,
     active_category: typeof activeCat !== "undefined" ? activeCat : null,
     history_ready: typeof APP_HISTORY_READY !== "undefined" ? APP_HISTORY_READY : null,
+    browser_history_ready: typeof APP_HISTORY_READY !== "undefined" ? APP_HISTORY_READY : null,
+    remote_history_ready: CARD_HISTORY_REMOTE_LAST_REFRESH_AT > 0,
     online_history: Array.isArray(ONLINE_HISTORY) ? ONLINE_HISTORY.length : null,
+    history_remote_watermark_id: CARD_HISTORY_REMOTE_WATERMARK_ID || 0,
+    history_remote_last_rows: CARD_HISTORY_REMOTE_LAST_ROWS || 0,
+    history_remote_last_refresh_at: CARD_HISTORY_REMOTE_LAST_REFRESH_AT ? new Date(CARD_HISTORY_REMOTE_LAST_REFRESH_AT).toISOString() : null,
+    history_pending_local: typeof readPendingCardSync === "function" ? readPendingCardSync().length : null,
     review_state: REVIEW_STATE instanceof Map ? REVIEW_STATE.size : null,
     answer_locked: typeof CARD_ANSWER_LOCK !== "undefined" ? CARD_ANSWER_LOCK : null,
     sync_busy: typeof SYNC_BUSY !== "undefined" ? SYNC_BUSY : null
