@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.1: mantém integralmente a sincronização multidispositivo da v69.0. Alteração visual única: o botão flutuante do diagnóstico técnico exibe somente o ícone, preservando nome acessível e tooltip. -->
+<!-- v69.2: mantém integralmente a sincronização multidispositivo da v69.1 e adiciona Modo Áudio local, sem API externa, sem alterar Programado, meta diária ou histórico. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.1 — diagnóstico em ícone</title>
+<title>FlashPrático v69.2 — modo áudio</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1057,6 +1057,163 @@
     .tech-diag-actions { justify-content: flex-start; margin-top: 9px; }
   }
 
+
+  /* MODO ÁUDIO — leitura local pelo navegador, sem API externa */
+  .audio-mode-open-btn {
+    background: rgba(61,184,176,.14);
+    border-color: rgba(61,184,176,.40);
+    color: var(--teal);
+  }
+  .audio-mode-open-btn.running {
+    background: rgba(61,184,176,.27);
+    border-color: rgba(61,184,176,.72);
+    color: #d9fffb;
+    box-shadow: 0 0 0 2px rgba(61,184,176,.12) inset;
+  }
+  .audio-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 31000;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    padding: 14px;
+    background: rgba(0,0,0,.74);
+    backdrop-filter: blur(4px);
+  }
+  .audio-modal-backdrop.show { display: flex; }
+  .audio-modal {
+    width: min(620px, 100%);
+    max-height: min(94dvh, 850px);
+    overflow: auto;
+    background: var(--surface);
+    border: 1px solid rgba(61,184,176,.46);
+    border-radius: 20px;
+    box-shadow: 0 28px 100px rgba(0,0,0,.62);
+  }
+  .audio-modal-head {
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 15px 16px;
+    background: rgba(26,29,39,.98);
+    border-bottom: 1px solid var(--border);
+  }
+  .audio-modal-title { font-size: 18px; font-weight: 950; color: var(--text); }
+  .audio-modal-sub { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .audio-close {
+    flex: 0 0 auto;
+    width: 38px;
+    height: 36px;
+    border: 1px solid var(--border2);
+    background: var(--surface2);
+    color: var(--text);
+    border-radius: 12px;
+    font-size: 20px;
+    cursor: pointer;
+  }
+  .audio-modal-body { padding: 14px 16px 17px; }
+  .audio-status-line { display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  .audio-support-pill {
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    border:1px solid var(--border2);
+    background: var(--surface2);
+    color: var(--muted);
+    border-radius:999px;
+    padding:5px 9px;
+    font-size:11px;
+    font-weight:900;
+  }
+  .audio-support-pill.ok { color: var(--green); border-color: rgba(76,175,125,.40); background: rgba(76,175,125,.12); }
+  .audio-support-pill.bad { color: var(--red); border-color: rgba(224,92,92,.40); background: rgba(224,92,92,.12); }
+  .audio-progress-label { color: var(--accent2); font-size: 12px; font-weight: 900; }
+  .audio-now {
+    margin-top: 11px;
+    border: 1px solid var(--border);
+    background: rgba(255,255,255,.035);
+    border-radius: 15px;
+    padding: 12px;
+  }
+  .audio-now-kicker { color: var(--teal); font-size: 10px; font-weight: 950; letter-spacing:.5px; text-transform: uppercase; }
+  .audio-now-title { margin-top:5px; color:var(--text); font-size:14px; font-weight:900; line-height:1.4; }
+  .audio-now-status { margin-top:7px; color:var(--muted); font-size:12px; line-height:1.45; min-height:18px; }
+  .audio-track { margin-top:10px; height:7px; border-radius:999px; overflow:hidden; background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.06); }
+  .audio-track-fill { width:0%; height:100%; border-radius:999px; background:linear-gradient(90deg,var(--teal),var(--accent2)); transition:width .25s ease; }
+  .audio-settings {
+    display:grid;
+    grid-template-columns: 1.4fr .6fr .6fr;
+    gap:10px;
+    margin-top:12px;
+  }
+  .audio-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .audio-field label { color:var(--muted); font-size:11px; font-weight:900; }
+  .audio-field select,
+  .audio-field input[type="number"] {
+    width:100%;
+    min-width:0;
+    border:1px solid var(--border);
+    background:var(--surface2);
+    color:var(--text);
+    border-radius:12px;
+    padding:10px 11px;
+    font-size:13px;
+    outline:none;
+  }
+  .audio-rate-row { display:grid; grid-template-columns:minmax(0,1fr) 46px; gap:8px; align-items:center; }
+  .audio-rate-row input[type="range"] { width:100%; accent-color:var(--teal); }
+  .audio-rate-value { text-align:center; color:var(--teal); font-size:12px; font-weight:950; }
+  .audio-options { display:grid; gap:8px; margin-top:12px; }
+  .audio-check {
+    display:flex;
+    align-items:flex-start;
+    gap:9px;
+    color:var(--text);
+    font-size:12px;
+    line-height:1.4;
+    border:1px solid var(--border);
+    background:rgba(255,255,255,.025);
+    border-radius:12px;
+    padding:9px 10px;
+  }
+  .audio-check input { margin-top:2px; accent-color:var(--teal); }
+  .audio-controls { display:grid; grid-template-columns:repeat(4,1fr); gap:8px; margin-top:13px; }
+  .audio-btn {
+    border:1px solid var(--border);
+    background:var(--surface2);
+    color:var(--text);
+    border-radius:13px;
+    padding:11px 8px;
+    font-size:12px;
+    font-weight:900;
+    cursor:pointer;
+  }
+  .audio-btn.primary { background:rgba(61,184,176,.20); color:var(--teal); border-color:rgba(61,184,176,.48); }
+  .audio-btn.warn { background:rgba(224,92,92,.13); color:var(--red); border-color:rgba(224,92,92,.36); }
+  .audio-btn:disabled { opacity:.48; cursor:not-allowed; }
+  .audio-note {
+    margin-top:12px;
+    color:var(--muted);
+    font-size:11px;
+    line-height:1.5;
+    border-left:3px solid rgba(61,184,176,.55);
+    padding-left:10px;
+  }
+  @media (max-width: 620px) {
+    .audio-modal-backdrop { padding:7px; }
+    .audio-modal { max-height:96dvh; border-radius:16px; }
+    .audio-modal-head { padding:13px; }
+    .audio-modal-body { padding:12px 13px 15px; }
+    .audio-settings { grid-template-columns:1fr 1fr; }
+    .audio-field.voice-field { grid-column:1 / -1; }
+    .audio-controls { grid-template-columns:1fr 1fr; }
+  }
+
 </style>
 </head>
 <body>
@@ -1066,7 +1223,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.1 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.2 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1510,7 +1667,72 @@
     <div class="nav-row">
       <button class="btn-nav" onclick="prevCard()">← Anterior</button>
       <button class="btn-nav btn-shuffle" onclick="shuffleCards()">🔀 Embaralhar</button>
+      <button class="btn-nav audio-mode-open-btn" id="audio-mode-open-btn" type="button" onclick="openAudioMode(event)">🎧 Áudio</button>
       <button class="btn-nav" id="card-next-btn" onclick="nextCardAction()">Pular →</button>
+    </div>
+  </div>
+
+
+  <!-- MODO ÁUDIO -->
+  <div class="audio-modal-backdrop" id="audio-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="audio-modal-title" onclick="closeAudioMode(event)">
+    <div class="audio-modal" onclick="event.stopPropagation()">
+      <div class="audio-modal-head">
+        <div>
+          <div class="audio-modal-title" id="audio-modal-title">🎧 Modo Áudio</div>
+          <div class="audio-modal-sub">Narra o baralho atual em sequência: pergunta, pausa, resposta e próximo card.</div>
+        </div>
+        <button class="audio-close" type="button" onclick="closeAudioMode(event)" aria-label="Fechar modo áudio">×</button>
+      </div>
+      <div class="audio-modal-body">
+        <div class="audio-status-line">
+          <span class="audio-support-pill" id="audio-support-pill">Verificando voz…</span>
+          <span class="audio-progress-label" id="audio-progress-label">0 / 0</span>
+        </div>
+
+        <div class="audio-now">
+          <div class="audio-now-kicker">Card atual</div>
+          <div class="audio-now-title" id="audio-now-title">Abra um baralho para começar.</div>
+          <div class="audio-now-status" id="audio-now-status">O áudio não registra acerto ou erro.</div>
+          <div class="audio-track"><div class="audio-track-fill" id="audio-track-fill"></div></div>
+        </div>
+
+        <div class="audio-settings">
+          <div class="audio-field voice-field">
+            <label for="audio-voice-select">Voz</label>
+            <select id="audio-voice-select" onchange="saveAudioSettingsFromUi()"></select>
+          </div>
+          <div class="audio-field">
+            <label for="audio-question-pause">Pausa após pergunta</label>
+            <input id="audio-question-pause" type="number" min="1" max="60" step="1" inputmode="numeric" value="8" onchange="saveAudioSettingsFromUi()">
+          </div>
+          <div class="audio-field">
+            <label for="audio-answer-pause">Pausa após resposta</label>
+            <input id="audio-answer-pause" type="number" min="1" max="30" step="1" inputmode="numeric" value="3" onchange="saveAudioSettingsFromUi()">
+          </div>
+        </div>
+
+        <div class="audio-field" style="margin-top:12px;">
+          <label for="audio-rate">Velocidade</label>
+          <div class="audio-rate-row">
+            <input id="audio-rate" type="range" min="0.7" max="1.8" step="0.1" value="1" oninput="updateAudioRateLabel(); saveAudioSettingsFromUi()">
+            <span class="audio-rate-value" id="audio-rate-value">1,0×</span>
+          </div>
+        </div>
+
+        <div class="audio-options">
+          <label class="audio-check"><input id="audio-skip-images" type="checkbox" checked onchange="saveAudioSettingsFromUi()"><span>Pular cards cuja pergunta depende de imagem.</span></label>
+          <label class="audio-check"><input id="audio-read-context" type="checkbox" onchange="saveAudioSettingsFromUi()"><span>Ler publicação e assunto antes da pergunta.</span></label>
+        </div>
+
+        <div class="audio-controls">
+          <button class="audio-btn" id="audio-prev-btn" type="button" onclick="audioJump(-1)">← Anterior</button>
+          <button class="audio-btn primary" id="audio-start-btn" type="button" onclick="startOrResumeAudioMode()">▶ Iniciar</button>
+          <button class="audio-btn warn" id="audio-stop-btn" type="button" onclick="stopAudioMode()">■ Parar</button>
+          <button class="audio-btn" id="audio-next-btn" type="button" onclick="audioJump(1)">Próximo →</button>
+        </div>
+
+        <div class="audio-note">A reprodução é feita pela voz do próprio aparelho. Não usa chave de API, não envia o texto para um serviço configurado no app e não altera Programado, histórico, favoritos ou meta diária. Para evitar interrupções, mantenha esta janela aberta durante a reprodução.</div>
+      </div>
     </div>
   </div>
 
@@ -1729,6 +1951,27 @@ let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", labe
 let LAST_STUDY_TAB = "study";
 let APP_HISTORY_READY = false;
 let AUTH_ACTION_BUSY = false;
+
+// Modo Áudio local. Não grava respostas e não participa do agendamento.
+const AUDIO_SETTINGS_KEY = "flashpratico_audio_settings_v1";
+const AUDIO_MODE = {
+  supported: "speechSynthesis" in window && "SpeechSynthesisUtterance" in window,
+  active: false,
+  paused: false,
+  phase: "idle",
+  runToken: 0,
+  audioIndex: 0,
+  timer: null,
+  timerEndsAt: 0,
+  timerRemainingMs: 0,
+  timerCallback: null,
+  statusTicker: null,
+  currentUtterance: null,
+  voiceList: [],
+  skippedImages: 0,
+  wakeLock: null,
+  settings: null
+};
 
 // Índices leves para o Programado. Evitam varrer todos os cards e todo o
 // histórico a cada clique/troca de aba. Sem isso, com milhares de eventos o
@@ -8509,6 +8752,616 @@ function answerAutoQuiz(choice, event){
   setTimeout(() => answer(right ? "right" : "wrong"), 520);
 }
 
+
+/* =========================
+   MODO ÁUDIO
+   ========================= */
+function audioClamp(value, min, max, fallback){
+  const n = Number(value);
+  return Number.isFinite(n) ? Math.min(max, Math.max(min, n)) : fallback;
+}
+
+function getAudioSettings(){
+  const defaults = {
+    voiceURI: "",
+    rate: 1,
+    questionPause: 8,
+    answerPause: 3,
+    skipImages: true,
+    readContext: false
+  };
+  let saved = {};
+  if(AUDIO_MODE.settings){
+    saved = AUDIO_MODE.settings;
+  }else{
+    try{ saved = JSON.parse(localStorage.getItem(AUDIO_SETTINGS_KEY) || "{}"); }
+    catch(_){ saved = {}; }
+  }
+  const normalized = {
+    voiceURI: String(saved.voiceURI || ""),
+    rate: audioClamp(saved.rate, .7, 1.8, defaults.rate),
+    questionPause: audioClamp(saved.questionPause, 1, 60, defaults.questionPause),
+    answerPause: audioClamp(saved.answerPause, 1, 30, defaults.answerPause),
+    skipImages: saved.skipImages !== false,
+    readContext: saved.readContext === true
+  };
+  AUDIO_MODE.settings = normalized;
+  return normalized;
+}
+
+function applyAudioSettingsToUi(){
+  const settings = getAudioSettings();
+  const voice = document.getElementById("audio-voice-select");
+  const rate = document.getElementById("audio-rate");
+  const questionPause = document.getElementById("audio-question-pause");
+  const answerPause = document.getElementById("audio-answer-pause");
+  const skipImages = document.getElementById("audio-skip-images");
+  const readContext = document.getElementById("audio-read-context");
+  if(voice && settings.voiceURI) voice.value = settings.voiceURI;
+  if(rate) rate.value = String(settings.rate);
+  if(questionPause) questionPause.value = String(settings.questionPause);
+  if(answerPause) answerPause.value = String(settings.answerPause);
+  if(skipImages) skipImages.checked = settings.skipImages;
+  if(readContext) readContext.checked = settings.readContext;
+  updateAudioRateLabel();
+}
+
+function saveAudioSettingsFromUi(){
+  const settings = {
+    voiceURI: document.getElementById("audio-voice-select")?.value || "",
+    rate: audioClamp(document.getElementById("audio-rate")?.value, .7, 1.8, 1),
+    questionPause: audioClamp(document.getElementById("audio-question-pause")?.value, 1, 60, 8),
+    answerPause: audioClamp(document.getElementById("audio-answer-pause")?.value, 1, 30, 3),
+    skipImages: document.getElementById("audio-skip-images")?.checked !== false,
+    readContext: document.getElementById("audio-read-context")?.checked === true
+  };
+  AUDIO_MODE.settings = settings;
+  try{ localStorage.setItem(AUDIO_SETTINGS_KEY, JSON.stringify(settings)); }catch(_){ }
+  return settings;
+}
+
+function updateAudioRateLabel(){
+  const rate = audioClamp(document.getElementById("audio-rate")?.value, .7, 1.8, 1);
+  const label = document.getElementById("audio-rate-value");
+  if(label) label.textContent = rate.toFixed(1).replace(".", ",") + "×";
+}
+
+function populateAudioVoices(){
+  const select = document.getElementById("audio-voice-select");
+  if(!select || !AUDIO_MODE.supported) return;
+  const voices = window.speechSynthesis.getVoices() || [];
+  AUDIO_MODE.voiceList = voices.slice().sort((a,b) => {
+    const ap = /^pt(-|_)/i.test(a.lang || "") ? 0 : 1;
+    const bp = /^pt(-|_)/i.test(b.lang || "") ? 0 : 1;
+    return ap - bp || String(a.lang).localeCompare(String(b.lang)) || String(a.name).localeCompare(String(b.name));
+  });
+  const saved = getAudioSettings();
+  select.innerHTML = "";
+  if(!AUDIO_MODE.voiceList.length){
+    const option = document.createElement("option");
+    option.value = "";
+    option.textContent = "Voz padrão do aparelho";
+    select.appendChild(option);
+  }else{
+    AUDIO_MODE.voiceList.forEach(voice => {
+      const option = document.createElement("option");
+      option.value = voice.voiceURI || voice.name;
+      option.textContent = `${voice.name} — ${voice.lang || "idioma não informado"}${voice.default ? " (padrão)" : ""}`;
+      select.appendChild(option);
+    });
+    const preferred = AUDIO_MODE.voiceList.find(v => (v.voiceURI || v.name) === saved.voiceURI)
+      || AUDIO_MODE.voiceList.find(v => /^pt-BR$/i.test(v.lang || ""))
+      || AUDIO_MODE.voiceList.find(v => /^pt(-|_)/i.test(v.lang || ""))
+      || AUDIO_MODE.voiceList.find(v => v.default)
+      || AUDIO_MODE.voiceList[0];
+    if(preferred) select.value = preferred.voiceURI || preferred.name;
+  }
+  saveAudioSettingsFromUi();
+}
+
+function selectedAudioVoice(){
+  const key = document.getElementById("audio-voice-select")?.value || getAudioSettings().voiceURI;
+  return AUDIO_MODE.voiceList.find(v => (v.voiceURI || v.name) === key)
+    || AUDIO_MODE.voiceList.find(v => /^pt-BR$/i.test(v.lang || ""))
+    || AUDIO_MODE.voiceList.find(v => /^pt(-|_)/i.test(v.lang || ""))
+    || null;
+}
+
+function plainTextForSpeech(value){
+  const holder = document.createElement("div");
+  holder.innerHTML = String(value ?? "");
+  holder.querySelectorAll("script,style,noscript,svg,canvas,video,audio").forEach(el => el.remove());
+  holder.querySelectorAll("br").forEach(el => el.replaceWith(document.createTextNode(". ")));
+  holder.querySelectorAll("p,div,li,tr,h1,h2,h3,h4,h5,h6").forEach(el => el.appendChild(document.createTextNode(". ")));
+  holder.querySelectorAll("img").forEach(el => {
+    const alt = String(el.getAttribute("alt") || "").trim();
+    el.replaceWith(document.createTextNode(alt ? `. Imagem: ${alt}. ` : " "));
+  });
+  let text = holder.textContent || "";
+  text = text
+    .replace(/&nbsp;/gi, " ")
+    .replace(/\u00a0/g, " ")
+    .replace(/\s+/g, " ")
+    .replace(/\s+([,.;:!?])/g, "$1")
+    .trim();
+  return normalizeAudioPronunciation(text);
+}
+
+function normalizeAudioPronunciation(text){
+  return String(text || "")
+    .replace(/\b([A-ZÁÉÍÓÚÇ]{2,6})\b/g, token => token.split("").join(" "))
+    .replace(/≥/g, " maior ou igual a ")
+    .replace(/≤/g, " menor ou igual a ")
+    .replace(/≈/g, " aproximadamente ")
+    .replace(/°C\b/g, " graus Celsius")
+    .replace(/°/g, " graus ")
+    .replace(/%/g, " por cento ")
+    .replace(/\bm³\/s\b/gi, " metros cúbicos por segundo")
+    .replace(/\bm\/s\b/gi, " metros por segundo")
+    .replace(/\bkm\/h\b/gi, " quilômetros por hora")
+    .replace(/\bkn\b/gi, " nós")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitAudioText(text, maxLength = 230){
+  const clean = String(text || "").trim();
+  if(!clean) return [];
+  const sentences = clean.match(/[^.!?;:]+[.!?;:]?|.+$/g) || [clean];
+  const chunks = [];
+  let current = "";
+  for(const raw of sentences){
+    const sentence = raw.trim();
+    if(!sentence) continue;
+    if((current + " " + sentence).trim().length <= maxLength){
+      current = (current + " " + sentence).trim();
+      continue;
+    }
+    if(current) chunks.push(current);
+    if(sentence.length <= maxLength){
+      current = sentence;
+    }else{
+      const words = sentence.split(/\s+/);
+      current = "";
+      for(const word of words){
+        if((current + " " + word).trim().length > maxLength){
+          if(current) chunks.push(current);
+          current = word;
+        }else{
+          current = (current + " " + word).trim();
+        }
+      }
+    }
+  }
+  if(current) chunks.push(current);
+  return chunks;
+}
+
+function audioCardHasQuestionImage(card){
+  return !!String(card?.image_q_url || "").trim() || /<img\b/i.test(String(card?.q || ""));
+}
+
+function audioQuestionText(card){
+  const settings = getAudioSettings();
+  const parts = [];
+  if(settings.readContext){
+    const publication = plainTextForSpeech(card?.publicacao || card?.cat || "");
+    const topic = plainTextForSpeech(card?.assunto || card?.topic || "");
+    if(publication) parts.push(`Publicação: ${publication}.`);
+    if(topic && topic !== publication) parts.push(`Assunto: ${topic}.`);
+  }
+  if(audioCardHasQuestionImage(card) && !settings.skipImages){
+    parts.push("Atenção. Este card contém uma imagem na pergunta.");
+  }
+  parts.push(plainTextForSpeech(card?.q || frontQuestionText(card)));
+  return parts.filter(Boolean).join(" ");
+}
+
+function audioAnswerText(card){
+  const answer = plainTextForSpeech(card?.a || "");
+  return answer ? `Resposta. ${answer}` : "Resposta não disponível.";
+}
+
+function audioFindPlayableIndex(start, direction = 1){
+  const settings = getAudioSettings();
+  if(!deck.length) return -1;
+  let i = Number(start);
+  if(!Number.isFinite(i)) i = direction < 0 ? deck.length - 1 : 0;
+  if(direction >= 0 && i >= deck.length) return -1;
+  if(direction < 0 && i < 0) return -1;
+  i = Math.max(0, Math.min(deck.length - 1, i));
+  while(i >= 0 && i < deck.length){
+    if(!settings.skipImages || !audioCardHasQuestionImage(deck[i])) return i;
+    AUDIO_MODE.skippedImages++;
+    i += direction;
+  }
+  return -1;
+}
+
+function audioSetStatus(text){
+  const el = document.getElementById("audio-now-status");
+  if(el) el.textContent = text || "";
+}
+
+function audioPhaseLabel(){
+  if(AUDIO_MODE.paused) return "Pausado";
+  if(AUDIO_MODE.phase === "speaking-question") return "Lendo a pergunta";
+  if(AUDIO_MODE.phase === "waiting-answer") return "Tempo para pensar";
+  if(AUDIO_MODE.phase === "speaking-answer") return "Lendo a resposta";
+  if(AUDIO_MODE.phase === "waiting-next") return "Preparando o próximo card";
+  if(AUDIO_MODE.phase === "complete") return "Baralho de áudio concluído";
+  return "Pronto para iniciar";
+}
+
+function updateAudioPanel(card = null){
+  const current = card || deck[AUDIO_MODE.audioIndex] || deck[idx] || null;
+  const total = deck.length;
+  const pos = AUDIO_MODE.phase === "complete" && total
+    ? total
+    : (current && total ? Math.min(total, AUDIO_MODE.audioIndex + 1) : 0);
+  const progress = total ? Math.round((pos / total) * 100) : 0;
+  const title = document.getElementById("audio-now-title");
+  const label = document.getElementById("audio-progress-label");
+  const fill = document.getElementById("audio-track-fill");
+  if(title) title.textContent = current ? String(current.q || frontQuestionText(current)).trim() : "Abra um baralho para começar.";
+  if(label) label.textContent = `${pos} / ${total}${AUDIO_MODE.skippedImages ? ` · ${AUDIO_MODE.skippedImages} com imagem pulado${AUDIO_MODE.skippedImages === 1 ? "" : "s"}` : ""}`;
+  if(fill) fill.style.width = `${progress}%`;
+
+  const start = document.getElementById("audio-start-btn");
+  const stop = document.getElementById("audio-stop-btn");
+  const prev = document.getElementById("audio-prev-btn");
+  const next = document.getElementById("audio-next-btn");
+  if(start) start.textContent = AUDIO_MODE.active
+    ? (AUDIO_MODE.paused ? "▶ Continuar" : "⏸ Pausar")
+    : (AUDIO_MODE.phase === "complete" ? "↻ Recomeçar" : "▶ Iniciar");
+  if(start) start.disabled = !AUDIO_MODE.supported || !total;
+  if(stop) stop.disabled = !AUDIO_MODE.active && AUDIO_MODE.phase !== "complete";
+  if(prev) prev.disabled = !total || AUDIO_MODE.audioIndex <= 0;
+  if(next) next.disabled = !total || AUDIO_MODE.audioIndex >= total - 1;
+
+  const openBtn = document.getElementById("audio-mode-open-btn");
+  if(openBtn){
+    openBtn.classList.toggle("running", AUDIO_MODE.active && !AUDIO_MODE.paused);
+    openBtn.textContent = AUDIO_MODE.active && !AUDIO_MODE.paused ? "🎧 Ouvindo" : "🎧 Áudio";
+  }
+}
+
+function startAudioStatusTicker(){
+  stopAudioStatusTicker();
+  AUDIO_MODE.statusTicker = setInterval(() => {
+    if(!AUDIO_MODE.active || AUDIO_MODE.paused) return;
+    if(AUDIO_MODE.timer && AUDIO_MODE.timerEndsAt){
+      const seconds = Math.max(0, Math.ceil((AUDIO_MODE.timerEndsAt - Date.now()) / 1000));
+      if(AUDIO_MODE.phase === "waiting-answer") audioSetStatus(`Tempo para pensar: ${seconds}s`);
+      else if(AUDIO_MODE.phase === "waiting-next") audioSetStatus(`Próximo card em ${seconds}s`);
+    }else{
+      audioSetStatus(audioPhaseLabel());
+    }
+  }, 250);
+}
+
+function stopAudioStatusTicker(){
+  if(AUDIO_MODE.statusTicker){
+    clearInterval(AUDIO_MODE.statusTicker);
+    AUDIO_MODE.statusTicker = null;
+  }
+}
+
+function clearAudioTimer(){
+  if(AUDIO_MODE.timer){
+    clearTimeout(AUDIO_MODE.timer);
+    AUDIO_MODE.timer = null;
+  }
+  AUDIO_MODE.timerEndsAt = 0;
+}
+
+function scheduleAudioWait(ms, phase, callback){
+  clearAudioTimer();
+  AUDIO_MODE.phase = phase;
+  AUDIO_MODE.timerRemainingMs = Math.max(0, Number(ms) || 0);
+  AUDIO_MODE.timerCallback = callback;
+  AUDIO_MODE.timerEndsAt = Date.now() + AUDIO_MODE.timerRemainingMs;
+  AUDIO_MODE.timer = setTimeout(() => {
+    AUDIO_MODE.timer = null;
+    AUDIO_MODE.timerEndsAt = 0;
+    AUDIO_MODE.timerRemainingMs = 0;
+    const cb = AUDIO_MODE.timerCallback;
+    AUDIO_MODE.timerCallback = null;
+    if(AUDIO_MODE.active && !AUDIO_MODE.paused && typeof cb === "function") cb();
+  }, AUDIO_MODE.timerRemainingMs);
+  updateAudioPanel();
+}
+
+function cancelAudioSpeech(){
+  try{ window.speechSynthesis?.cancel(); }catch(_){ }
+  AUDIO_MODE.currentUtterance = null;
+}
+
+function speakAudioText(text, phase, onComplete, token = AUDIO_MODE.runToken){
+  const chunks = splitAudioText(text);
+  if(!chunks.length){
+    if(AUDIO_MODE.active && token === AUDIO_MODE.runToken) onComplete?.();
+    return;
+  }
+  const settings = getAudioSettings();
+  const voice = selectedAudioVoice();
+  AUDIO_MODE.phase = phase;
+  let chunkIndex = 0;
+
+  const speakNext = () => {
+    if(!AUDIO_MODE.active || AUDIO_MODE.paused || token !== AUDIO_MODE.runToken) return;
+    if(chunkIndex >= chunks.length){
+      AUDIO_MODE.currentUtterance = null;
+      onComplete?.();
+      return;
+    }
+    const utterance = new SpeechSynthesisUtterance(chunks[chunkIndex++]);
+    AUDIO_MODE.currentUtterance = utterance;
+    utterance.lang = voice?.lang || "pt-BR";
+    utterance.rate = settings.rate;
+    utterance.pitch = 1;
+    utterance.volume = 1;
+    if(voice) utterance.voice = voice;
+    utterance.onend = () => {
+      if(token !== AUDIO_MODE.runToken || !AUDIO_MODE.active) return;
+      AUDIO_MODE.currentUtterance = null;
+      speakNext();
+    };
+    utterance.onerror = event => {
+      if(token !== AUDIO_MODE.runToken || event?.error === "canceled" || event?.error === "interrupted") return;
+      console.warn("Falha no Modo Áudio:", event?.error || event);
+      AUDIO_MODE.currentUtterance = null;
+      audioSetStatus("A voz foi interrompida pelo navegador. Toque em Continuar.");
+      AUDIO_MODE.paused = true;
+      updateAudioPanel();
+    };
+    try{
+      window.speechSynthesis.speak(utterance);
+      audioSetStatus(audioPhaseLabel());
+      updateAudioPanel();
+    }catch(error){
+      console.warn("Não foi possível iniciar a voz:", error);
+      audioSetStatus("Não foi possível iniciar a voz neste aparelho.");
+      stopAudioMode({ keepStatus:true });
+    }
+  };
+  speakNext();
+}
+
+async function requestAudioWakeLock(){
+  try{
+    if("wakeLock" in navigator && document.visibilityState === "visible"){
+      AUDIO_MODE.wakeLock = await navigator.wakeLock.request("screen");
+      AUDIO_MODE.wakeLock.addEventListener?.("release", () => { AUDIO_MODE.wakeLock = null; });
+    }
+  }catch(_){
+    AUDIO_MODE.wakeLock = null;
+  }
+}
+
+async function releaseAudioWakeLock(){
+  try{ await AUDIO_MODE.wakeLock?.release(); }catch(_){ }
+  AUDIO_MODE.wakeLock = null;
+}
+
+function revealAudioAnswer(){
+  isFlipped = true;
+  document.getElementById("card")?.classList.add("flipped");
+  const buttons = document.getElementById("btn-row");
+  if(buttons) buttons.style.display = "none";
+}
+
+function audioPlayCurrentCard(){
+  if(!AUDIO_MODE.active || AUDIO_MODE.paused) return;
+  if(!deck.length){
+    stopAudioMode({ keepStatus:true });
+    audioSetStatus("Não há cards no baralho atual.");
+    return;
+  }
+
+  const playable = audioFindPlayableIndex(AUDIO_MODE.audioIndex, 1);
+  if(playable < 0){
+    AUDIO_MODE.active = false;
+    AUDIO_MODE.paused = false;
+    AUDIO_MODE.phase = "complete";
+    cancelAudioSpeech();
+    clearAudioTimer();
+    stopAudioStatusTicker();
+    releaseAudioWakeLock();
+    audioSetStatus(AUDIO_MODE.skippedImages ? "Fim do baralho. Os cards visuais foram pulados." : "Fim do baralho de áudio.");
+    updateAudioPanel();
+    return;
+  }
+
+  AUDIO_MODE.audioIndex = playable;
+  idx = playable;
+  isFlipped = false;
+  showCard();
+  const card = deck[playable];
+  updateAudioPanel(card);
+  const token = AUDIO_MODE.runToken;
+  speakAudioText(audioQuestionText(card), "speaking-question", () => {
+    if(token !== AUDIO_MODE.runToken || !AUDIO_MODE.active) return;
+    const settings = getAudioSettings();
+    scheduleAudioWait(settings.questionPause * 1000, "waiting-answer", () => {
+      if(token !== AUDIO_MODE.runToken || !AUDIO_MODE.active) return;
+      revealAudioAnswer();
+      speakAudioText(audioAnswerText(card), "speaking-answer", () => {
+        if(token !== AUDIO_MODE.runToken || !AUDIO_MODE.active) return;
+        const latest = getAudioSettings();
+        scheduleAudioWait(latest.answerPause * 1000, "waiting-next", () => {
+          if(token !== AUDIO_MODE.runToken || !AUDIO_MODE.active) return;
+          AUDIO_MODE.audioIndex = playable + 1;
+          audioPlayCurrentCard();
+        });
+      }, token);
+    });
+  }, token);
+}
+
+function pauseAudioMode(){
+  if(!AUDIO_MODE.active || AUDIO_MODE.paused) return;
+  AUDIO_MODE.paused = true;
+  if(AUDIO_MODE.timer){
+    AUDIO_MODE.timerRemainingMs = Math.max(0, AUDIO_MODE.timerEndsAt - Date.now());
+    clearAudioTimer();
+  }
+  try{
+    if(window.speechSynthesis?.speaking && !window.speechSynthesis.paused) window.speechSynthesis.pause();
+  }catch(_){ }
+  audioSetStatus("Pausado.");
+  updateAudioPanel();
+}
+
+function resumeAudioMode(){
+  if(!AUDIO_MODE.active || !AUDIO_MODE.paused) return;
+  AUDIO_MODE.paused = false;
+  requestAudioWakeLock();
+  try{
+    if(window.speechSynthesis?.paused){
+      window.speechSynthesis.resume();
+      audioSetStatus(audioPhaseLabel());
+    }else if(AUDIO_MODE.timerCallback && AUDIO_MODE.timerRemainingMs > 0){
+      scheduleAudioWait(AUDIO_MODE.timerRemainingMs, AUDIO_MODE.phase, AUDIO_MODE.timerCallback);
+    }else if(AUDIO_MODE.currentUtterance){
+      // Alguns navegadores descartam a fala ao pausar por muito tempo.
+      AUDIO_MODE.runToken++;
+      cancelAudioSpeech();
+      audioPlayCurrentCard();
+    }else{
+      audioPlayCurrentCard();
+    }
+  }catch(_){
+    audioPlayCurrentCard();
+  }
+  updateAudioPanel();
+}
+
+function startOrResumeAudioMode(){
+  if(!AUDIO_MODE.supported){
+    showToast("Este navegador não disponibilizou leitura em voz alta.", "error", 5200);
+    return;
+  }
+  if(AUDIO_MODE.active){
+    if(AUDIO_MODE.paused) resumeAudioMode();
+    else pauseAudioMode();
+    return;
+  }
+  if(!deck.length){
+    showToast("Abra um baralho com cards antes de iniciar o áudio.", "warn");
+    return;
+  }
+  saveAudioSettingsFromUi();
+  AUDIO_MODE.runToken++;
+  AUDIO_MODE.active = true;
+  AUDIO_MODE.paused = false;
+  AUDIO_MODE.phase = "idle";
+  AUDIO_MODE.skippedImages = 0;
+  if(AUDIO_MODE.phase === "complete") idx = 0;
+  AUDIO_MODE.audioIndex = Math.max(0, Math.min(idx, deck.length - 1));
+  cancelAudioSpeech();
+  clearAudioTimer();
+  requestAudioWakeLock();
+  startAudioStatusTicker();
+  updateAudioPanel();
+  audioPlayCurrentCard();
+}
+
+function stopAudioMode(options = {}){
+  AUDIO_MODE.runToken++;
+  AUDIO_MODE.active = false;
+  AUDIO_MODE.paused = false;
+  AUDIO_MODE.phase = "idle";
+  AUDIO_MODE.timerRemainingMs = 0;
+  AUDIO_MODE.timerCallback = null;
+  cancelAudioSpeech();
+  clearAudioTimer();
+  stopAudioStatusTicker();
+  releaseAudioWakeLock();
+  if(!options.keepStatus) audioSetStatus("Reprodução parada.");
+  updateAudioPanel();
+}
+
+function audioJump(direction){
+  if(!deck.length) return;
+  const wasActive = AUDIO_MODE.active;
+  AUDIO_MODE.runToken++;
+  cancelAudioSpeech();
+  clearAudioTimer();
+  const targetStart = Math.max(0, Math.min(deck.length - 1, AUDIO_MODE.audioIndex + (direction < 0 ? -1 : 1)));
+  const target = audioFindPlayableIndex(targetStart, direction < 0 ? -1 : 1);
+  if(target < 0){
+    audioSetStatus(direction < 0 ? "Não há card anterior disponível." : "Não há próximo card disponível.");
+    updateAudioPanel();
+    return;
+  }
+  AUDIO_MODE.audioIndex = target;
+  idx = target;
+  isFlipped = false;
+  showCard();
+  updateAudioPanel(deck[target]);
+  if(wasActive){
+    AUDIO_MODE.active = true;
+    AUDIO_MODE.paused = false;
+    AUDIO_MODE.runToken++;
+    audioPlayCurrentCard();
+  }else{
+    audioSetStatus("Card selecionado. Toque em Iniciar.");
+  }
+}
+
+function openAudioMode(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const backdrop = document.getElementById("audio-modal-backdrop");
+  if(!backdrop) return;
+  AUDIO_MODE.audioIndex = Math.max(0, Math.min(idx, Math.max(0, deck.length - 1)));
+  backdrop.classList.add("show");
+  document.body.classList.add("audio-modal-open");
+  populateAudioVoices();
+  applyAudioSettingsToUi();
+  updateAudioPanel();
+  audioSetStatus(AUDIO_MODE.active ? audioPhaseLabel() : (deck.length ? "Pronto para iniciar. O áudio não registra respostas." : "Abra um baralho para começar."));
+  setTimeout(() => document.getElementById("audio-start-btn")?.focus({ preventScroll:true }), 0);
+}
+
+function closeAudioMode(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  stopAudioMode({ keepStatus:true });
+  document.getElementById("audio-modal-backdrop")?.classList.remove("show");
+  document.body.classList.remove("audio-modal-open");
+  document.getElementById("audio-mode-open-btn")?.focus({ preventScroll:true });
+}
+
+function installAudioMode(){
+  const support = document.getElementById("audio-support-pill");
+  if(support){
+    support.textContent = AUDIO_MODE.supported ? "✓ Voz disponível no navegador" : "✗ Voz indisponível neste navegador";
+    support.classList.toggle("ok", AUDIO_MODE.supported);
+    support.classList.toggle("bad", !AUDIO_MODE.supported);
+  }
+  applyAudioSettingsToUi();
+  if(AUDIO_MODE.supported){
+    populateAudioVoices();
+    if(typeof window.speechSynthesis.addEventListener === "function"){
+      window.speechSynthesis.addEventListener("voiceschanged", populateAudioVoices);
+    }else{
+      window.speechSynthesis.onvoiceschanged = populateAudioVoices;
+    }
+  }
+  document.addEventListener("keydown", event => {
+    const open = document.getElementById("audio-modal-backdrop")?.classList.contains("show");
+    if(!open) return;
+    if(event.key === "Escape") closeAudioMode(event);
+    if(event.code === "Space" && !/INPUT|SELECT|TEXTAREA|BUTTON/.test(document.activeElement?.tagName || "")){
+      event.preventDefault();
+      startOrResumeAudioMode();
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if(document.visibilityState === "visible" && AUDIO_MODE.active && !AUDIO_MODE.paused) requestAudioWakeLock();
+  });
+}
+
 function setCardActionButtonsDisabled(disabled){
   document.querySelectorAll('#btn-row .btn, .nav-row .btn-nav').forEach(btn => {
     btn.disabled = !!disabled;
@@ -9702,6 +10555,7 @@ async function signupSupabase(){
 }
 
 async function logoutSupabase(){
+  if(typeof stopAudioMode === "function") stopAudioMode({ keepStatus:true });
   await supabaseClient.auth.signOut();
   currentUser = null;
   ONLINE_HISTORY = [];
@@ -10004,12 +10858,20 @@ window.resetReadingProgress = resetReadingProgress;
 window.exportReadingProgress = exportReadingProgress;
 window.toggleReadingImportPanel = toggleReadingImportPanel;
 window.importReadingPlanFromText = importReadingPlanFromText;
+window.openAudioMode = openAudioMode;
+window.closeAudioMode = closeAudioMode;
+window.startOrResumeAudioMode = startOrResumeAudioMode;
+window.stopAudioMode = stopAudioMode;
+window.audioJump = audioJump;
+window.saveAudioSettingsFromUi = saveAudioSettingsFromUi;
+window.updateAudioRateLabel = updateAudioRateLabel;
 
+installAudioMode();
 
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v69.1";
+const TECHNICAL_DIAG_VERSION = "v69.2";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
@@ -10053,7 +10915,10 @@ function technicalDiagState(){
     history_pending_local: typeof readPendingCardSync === "function" ? readPendingCardSync().length : null,
     review_state: REVIEW_STATE instanceof Map ? REVIEW_STATE.size : null,
     answer_locked: typeof CARD_ANSWER_LOCK !== "undefined" ? CARD_ANSWER_LOCK : null,
-    sync_busy: typeof SYNC_BUSY !== "undefined" ? SYNC_BUSY : null
+    sync_busy: typeof SYNC_BUSY !== "undefined" ? SYNC_BUSY : null,
+    audio_supported: typeof AUDIO_MODE !== "undefined" ? AUDIO_MODE.supported : null,
+    audio_active: typeof AUDIO_MODE !== "undefined" ? AUDIO_MODE.active : null,
+    audio_phase: typeof AUDIO_MODE !== "undefined" ? AUDIO_MODE.phase : null
   };
 }
 
