@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.2.2: mantém o Modo Áudio e toda a lógica de estudo da v69.2. Otimiza o carregamento inicial das metas e protege o cache por usuário. -->
+<!-- v69.2.4: as metas Hoje/Semana/Mês carregam por uma consulta recente e independente; o histórico completo permanece em segundo plano. Mantém Modo Áudio, Programado, metas e histórico. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.2.2 — metas instantâneas auditadas</title>
+<title>FlashPrático v69.2.4 — metas rápidas</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1223,7 +1223,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.2.2 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.2.4 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1874,6 +1874,18 @@ CARDS.forEach(c => {
 
 // Adaptive Study Engine
 const DB_KEY = "flashpratico_history_v2";
+// Cache de cards para abrir o app mesmo quando a primeira consulta REST demora.
+// IndexedDB é o armazenamento principal; o localStorage antigo é lido apenas
+// como compatibilidade. O cache nunca é aguardado antes de iniciar a rede.
+const CARDS_CACHE_DB_NAME = "flashpratico_runtime_cache_v1";
+const CARDS_CACHE_DB_VERSION = 1;
+const CARDS_CACHE_STORE = "snapshots";
+const CARDS_CACHE_RECORD_KEY = "active_cards";
+const LEGACY_CARDS_CACHE_KEY = "flashpratico_cards_cache_v1";
+const CARDS_CACHE_READ_TIMEOUT_MS = 1400;
+const CARDS_REMOTE_PAGE_TIMEOUT_MS = 12000;
+const CARDS_REMOTE_TOTAL_TIMEOUT_MS = 24000;
+let CARDS_LOAD_PROMISE = null;
 const SETTINGS_KEY = "flashpratico_settings_v2";
 const GOALS_KEY = "flashpratico_goals_v1";
 const CARD_HISTORY_LAST_GOOD_KEY = "flashpratico_history_last_good_v1";
@@ -1906,6 +1918,14 @@ let CARD_HISTORY_REMOTE_LOAD_PROMISE = null;
 let CARD_HISTORY_REMOTE_WATERMARK_ID = 0;
 let CARD_HISTORY_REMOTE_LAST_REFRESH_AT = 0;
 let CARD_HISTORY_REMOTE_LAST_ROWS = 0;
+let CARD_HISTORY_INITIAL_FULL_LOAD_DONE = false;
+let FAST_GOAL_REMOTE_LOAD_PROMISE = null;
+let FAST_GOAL_REMOTE_LAST_REFRESH_AT = 0;
+let FAST_GOAL_REMOTE_CARD_ROWS = 0;
+let FAST_GOAL_REMOTE_QUESTION_ROWS = 0;
+const FAST_GOAL_REMOTE_PAGE_TIMEOUT_MS = 8000;
+const FAST_GOAL_REMOTE_TOTAL_TIMEOUT_MS = 15000;
+const FAST_GOAL_REMOTE_MAX_ROWS = 6000;
 let REVIEW_REMOTE_LAST_REFRESH_AT = 0;
 const CROSS_DEVICE_HISTORY_REFRESH_MS = 60000;
 const CROSS_DEVICE_REVIEW_REFRESH_MS = 180000;
@@ -6005,8 +6025,15 @@ async function refreshRemoteGoalCounters(reason = "auto"){
     catch(err){ console.warn("Não consegui enviar pendências antes da atualização remota:", err); }
 
     try {
-      await loadResponsesFromSupabase({ silent:true, incremental:true });
-      if(REMOTE_CARD_RESPONSE_KEYS?.size) await syncMissingLocalCardHistoryToSupabase();
+      if(CARD_HISTORY_INITIAL_FULL_LOAD_DONE){
+        await loadResponsesFromSupabase({ silent:true, incremental:true });
+        if(REMOTE_CARD_RESPONSE_KEYS?.size) await syncMissingLocalCardHistoryToSupabase();
+      }else{
+        // Enquanto a carga histórica completa ainda está em andamento, atualizar
+        // foco/visibilidade não deve disparar outro lote pesado. Busca somente o
+        // período atual, suficiente para Hoje/Semana/Mês.
+        await loadRecentGoalEventsFromSupabase({ silent:true });
+      }
     } catch(err){
       console.warn("Não consegui atualizar histórico remoto de flashcards:", err);
     }
@@ -7863,9 +7890,9 @@ async function refreshOversizedAuthSessionIfNeeded(session){
   const accessToken = String(session?.access_token || "");
   if(!session || accessToken.length < IMPORTANT_AUTH_TOKEN_COMPACT_THRESHOLD) return session;
   try{
-    const { data, error } = await supabaseClient.auth.refreshSession();
-    if(error) throw error;
-    return data?.session || session;
+    const result = await promiseWithTimeout(supabaseClient.auth.refreshSession(), 12000, "renovação da sessão");
+    if(result?.error) throw result.error;
+    return result?.data?.session || session;
   }catch(error){
     console.warn("Não foi possível renovar a sessão antiga e grande:", error);
     return session;
@@ -10704,57 +10731,156 @@ async function logoutSupabase(){
   document.getElementById("auth-msg").textContent = "Você saiu da conta.";
 }
 
-async function loadCardsFromSupabase(){
-  setSyncStatus("carregando cards...");
-  let data = null;
-  let error = null;
 
-  const fieldsWithImages = "id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption";
-  const fieldsBasic = "id,publicacao,assunto,icon,diff,src,q,a,ativo";
+function waitMs(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function cardCacheOpenDb(){
+  return new Promise((resolve, reject) => {
+    if(!("indexedDB" in window)) return reject(new Error("IndexedDB indisponível"));
+    let request;
+    try{ request = indexedDB.open(CARDS_CACHE_DB_NAME, CARDS_CACHE_DB_VERSION); }
+    catch(error){ reject(error); return; }
+    request.onupgradeneeded = () => {
+      const db = request.result;
+      if(!db.objectStoreNames.contains(CARDS_CACHE_STORE)) db.createObjectStore(CARDS_CACHE_STORE);
+    };
+    request.onsuccess = () => resolve(request.result);
+    request.onerror = () => reject(request.error || new Error("Falha ao abrir cache de cards"));
+    request.onblocked = () => reject(new Error("Cache de cards bloqueado por outra aba"));
+  });
+}
+
+async function readCardsCacheBounded(){
+  // Compatibilidade imediata com versões antigas que gravavam no localStorage.
+  try{
+    const legacy = JSON.parse(localStorage.getItem(LEGACY_CARDS_CACHE_KEY) || "null");
+    if(Array.isArray(legacy) && legacy.length) return legacy;
+  }catch(_){ }
 
   try{
-    data = await fetchSupabasePages((from, to) => supabaseClient
-      .from("cards")
-      .select(fieldsWithImages)
-      .eq("ativo", true)
-      .order("publicacao", { ascending:true })
-      .order("assunto", { ascending:true })
-      .range(from, to), 1000, 50000);
-  }catch(err){
-    error = err;
-    console.warn("Consulta com imagens falhou; tentando consulta básica:", err);
-    data = await fetchSupabasePages((from, to) => supabaseClient
-      .from("cards")
-      .select(fieldsBasic)
-      .eq("ativo", true)
-      .order("publicacao", { ascending:true })
-      .order("assunto", { ascending:true })
-      .range(from, to), 1000, 50000);
-    error = null;
+    const db = await promiseWithTimeout(cardCacheOpenDb(), CARDS_CACHE_READ_TIMEOUT_MS, "abertura do cache de cards");
+    const rows = await promiseWithTimeout(new Promise((resolve, reject) => {
+      const tx = db.transaction(CARDS_CACHE_STORE, "readonly");
+      const req = tx.objectStore(CARDS_CACHE_STORE).get(CARDS_CACHE_RECORD_KEY);
+      req.onsuccess = () => resolve(Array.isArray(req.result?.rows) ? req.result.rows : []);
+      req.onerror = () => reject(req.error || new Error("Falha ao ler cache de cards"));
+    }), CARDS_CACHE_READ_TIMEOUT_MS, "leitura do cache de cards");
+    try{ db.close(); }catch(_){ }
+    return rows;
+  }catch(error){
+    console.warn("Cache local de cards indisponível ou lento; seguindo pela rede:", error);
+    return [];
   }
+}
 
-  if(error) throw error;
+async function writeCardsCacheAsync(rows){
+  if(!Array.isArray(rows) || !rows.length) return false;
+  try{
+    const db = await promiseWithTimeout(cardCacheOpenDb(), 2200, "abertura do cache para gravação");
+    await promiseWithTimeout(new Promise((resolve, reject) => {
+      const tx = db.transaction(CARDS_CACHE_STORE, "readwrite");
+      tx.objectStore(CARDS_CACHE_STORE).put({
+        version:1,
+        saved_at:new Date().toISOString(),
+        rows
+      }, CARDS_CACHE_RECORD_KEY);
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => reject(tx.error || new Error("Falha ao gravar cache de cards"));
+      tx.onabort = () => reject(tx.error || new Error("Gravação do cache de cards abortada"));
+    }), 3200, "gravação do cache de cards");
+    try{ db.close(); }catch(_){ }
+    return true;
+  }catch(error){
+    // Cache é contingência; falha de quota/IndexedDB não pode travar o app.
+    console.warn("Não foi possível atualizar o cache local de cards:", error);
+    return false;
+  }
+}
 
-  CARDS.length = 0;
-  (data || []).forEach(c => CARDS.push({
+function isMissingCardImageColumnError(error){
+  const msg = String(error?.message || error || "");
+  return /(?:image_q_url|image_a_url|image_caption).*(?:does not exist|not found|schema cache)|(?:42703|PGRST204)/i.test(msg);
+}
+
+function applyLoadedCardRows(rows){
+  if(!Array.isArray(rows) || !rows.length) return 0;
+  const mapped = rows.map(c => ({
     id:c.id,
-    cat:cleanLabel(c.publicacao || c.src, "Geral"),
-    publicacao:cleanLabel(c.publicacao || c.src, "Geral"),
-    assunto:cleanLabel(c.assunto, "Geral"),
-    topic:cleanLabel(c.assunto, "Geral"),
+    cat:cleanLabel(c.publicacao || c.src || c.cat, "Geral"),
+    publicacao:cleanLabel(c.publicacao || c.src || c.cat, "Geral"),
+    assunto:cleanLabel(c.assunto || c.topic, "Geral"),
+    topic:cleanLabel(c.assunto || c.topic, "Geral"),
     icon:c.icon || "📘",
     diff:c.diff || "m",
-    src:c.src || c.publicacao,
+    src:c.src || c.publicacao || c.cat,
     q:c.q,
     a:c.a,
-    ativo:c.ativo,
+    ativo:c.ativo !== false,
     image_q_url:c.image_q_url || "",
     image_a_url:c.image_a_url || "",
     image_caption:c.image_caption || ""
-  }));
+  })).filter(c => c.id != null && c.q != null && c.a != null && c.ativo !== false);
+  if(!mapped.length) return 0;
+  mapped.sort((a, b) => {
+    const pub = String(a.publicacao || "").localeCompare(String(b.publicacao || ""), "pt-BR", { sensitivity:"base" });
+    if(pub) return pub;
+    const topic = String(a.assunto || "").localeCompare(String(b.assunto || ""), "pt-BR", { sensitivity:"base" });
+    if(topic) return topic;
+    return String(a.id || "").localeCompare(String(b.id || ""));
+  });
+  CARDS.length = 0;
+  mapped.forEach(c => CARDS.push(c));
   normalizeCards();
   CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
   invalidateStudyIdentityCaches();
+  return CARDS.length;
+}
+
+async function fetchCardRowsWithFields(fields, label){
+  const fullLoad = fetchSupabasePages((from, to) => {
+    const pageQuery = supabaseClient
+      .from("cards")
+      .select(fields)
+      .eq("ativo", true)
+      // Ordenação pela chave primária reduz custo no servidor. A apresentação
+      // continua ordenada por publicação/assunto em applyLoadedCardRows().
+      .order("id", { ascending:true })
+      .range(from, to);
+    return promiseWithTimeout(pageQuery, CARDS_REMOTE_PAGE_TIMEOUT_MS, `${label} — página ${Math.floor(from / 1000) + 1}`);
+  }, 1000, 50000);
+  return await promiseWithTimeout(fullLoad, CARDS_REMOTE_TOTAL_TIMEOUT_MS, label);
+}
+
+async function loadCardsFromSupabase(){
+  if(CARDS_LOAD_PROMISE) return CARDS_LOAD_PROMISE;
+
+  CARDS_LOAD_PROMISE = (async () => {
+    setSyncStatus("carregando cards...");
+    const fieldsWithImages = "id,publicacao,assunto,icon,diff,src,q,a,ativo,image_q_url,image_a_url,image_caption";
+    const fieldsBasic = "id,publicacao,assunto,icon,diff,src,q,a,ativo";
+    let rows;
+    try{
+      rows = await fetchCardRowsWithFields(fieldsWithImages, "carga dos flashcards");
+    }catch(firstError){
+      // Não repetir toda a consulta por uma falha de rede. A segunda consulta
+      // só existe para bancos antigos sem as três colunas de imagem.
+      if(!isMissingCardImageColumnError(firstError)) throw firstError;
+      console.warn("Colunas de imagem ausentes; tentando campos básicos:", firstError);
+      rows = await fetchCardRowsWithFields(fieldsBasic, "carga básica dos flashcards");
+    }
+    const count = applyLoadedCardRows(rows || []);
+    if(!count) throw new Error("O Supabase não retornou flashcards ativos válidos.");
+    void writeCardsCacheAsync(rows);
+    return count;
+  })();
+
+  try{
+    return await CARDS_LOAD_PROMISE;
+  }finally{
+    CARDS_LOAD_PROMISE = null;
+  }
 }
 
 async function loadReviewStateFromSupabase(options = {}){
@@ -10788,6 +10914,126 @@ async function loadReviewStateFromSupabase(options = {}){
   invalidateStudyIdentityCaches();
   pruneProgrammedDeckAfterDataRefresh();
   return true;
+}
+
+
+function fastGoalRemoteWindowStart(now = new Date()){
+  // A semana pode começar no mês anterior. Baixa apenas o menor período capaz
+  // de calcular corretamente Hoje, Semana e Mês atuais.
+  const weekStart = startOfLocalWeek(now).getTime();
+  const monthStart = startOfLocalMonth(now).getTime();
+  return new Date(Math.min(weekStart, monthStart)).toISOString();
+}
+
+async function loadRecentGoalEventsFromSupabase(options = {}){
+  if(FAST_GOAL_REMOTE_LOAD_PROMISE) return FAST_GOAL_REMOTE_LOAD_PROMISE;
+  if(!currentUser?.id || !supabaseClient || !navigator.onLine) return { cardRows:0, questionRows:0, skipped:true };
+
+  FAST_GOAL_REMOTE_LOAD_PROMISE = (async () => {
+    const startedAt = Date.now();
+    const sinceIso = fastGoalRemoteWindowStart();
+    try { technicalDiagLog("metas rápidas: consulta iniciada", { since:sinceIso }, "info"); } catch(_){ }
+
+    const cardTask = promiseWithTimeout(
+      fetchSupabasePages((from, to) => promiseWithTimeout(
+        supabaseClient
+          .from("respostas")
+          .select("id,user_id,card_id,resultado,created_at")
+          .eq("user_id", currentUser.id)
+          .gte("created_at", sinceIso)
+          .order("created_at", { ascending:true })
+          .order("id", { ascending:true })
+          .range(from, to),
+        FAST_GOAL_REMOTE_PAGE_TIMEOUT_MS,
+        `metas rápidas — respostas página ${Math.floor(from / 1000) + 1}`
+      ), 1000, FAST_GOAL_REMOTE_MAX_ROWS),
+      FAST_GOAL_REMOTE_TOTAL_TIMEOUT_MS,
+      "metas rápidas — respostas do período atual"
+    );
+
+    const questionTask = promiseWithTimeout(
+      fetchSupabasePages((from, to) => promiseWithTimeout(
+        supabaseClient
+          .from("questoes_respostas")
+          .select("id,user_id,questao_id,publicacao,assunto,numero,resposta,resultado,created_at")
+          .eq("user_id", currentUser.id)
+          .gte("created_at", sinceIso)
+          .order("created_at", { ascending:true })
+          .order("id", { ascending:true })
+          .range(from, to),
+        FAST_GOAL_REMOTE_PAGE_TIMEOUT_MS,
+        `metas rápidas — questões página ${Math.floor(from / 1000) + 1}`
+      ), 1000, FAST_GOAL_REMOTE_MAX_ROWS),
+      FAST_GOAL_REMOTE_TOTAL_TIMEOUT_MS,
+      "metas rápidas — questões do período atual"
+    );
+
+    const [cardResult, questionResult] = await Promise.allSettled([cardTask, questionTask]);
+    const cardRows = cardResult.status === "fulfilled" ? (cardResult.value || []) : [];
+    const questionRows = questionResult.status === "fulfilled" ? (questionResult.value || []) : [];
+
+    if(cardResult.status === "rejected") console.warn("Metas rápidas: respostas recentes não carregaram:", cardResult.reason);
+    if(questionResult.status === "rejected") console.warn("Metas rápidas: questões recentes não carregaram:", questionResult.reason);
+
+    if(cardRows.length){
+      const recentCardHistory = cardRows.map(r => ({
+        id:String(r.id),
+        user_id:r.user_id || currentUser.id,
+        card_id:r.card_id,
+        publicacao:"Geral",
+        assunto:"Geral",
+        logical_key:"",
+        result:r.resultado,
+        ts:r.created_at,
+        kind:"card"
+      }));
+      ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory(), recentCardHistory);
+      writeLocalCardHistory(ONLINE_HISTORY);
+    }
+
+    if(questionRows.length){
+      const recentQuestionAttempts = questionRows.map(r => normalizeQuestionAttempt({
+        id:String(r.id),
+        question_id:r.questao_id,
+        publicacao:r.publicacao,
+        assunto:r.assunto,
+        numero:r.numero,
+        resposta:r.resposta,
+        result:r.resultado,
+        ts:r.created_at
+      })).filter(Boolean);
+      QUESTION_ATTEMPTS = mergeQuestionAttempts(QUESTION_ATTEMPTS, recentQuestionAttempts, readLocalQuestionResponses());
+      saveEmbeddedQuestionResponses();
+    }
+
+    FAST_GOAL_REMOTE_CARD_ROWS = cardRows.length;
+    FAST_GOAL_REMOTE_QUESTION_ROWS = questionRows.length;
+    FAST_GOAL_REMOTE_LAST_REFRESH_AT = Date.now();
+    invalidateGoalRuntimeCaches();
+
+    const snapshot = goalTotalsSnapshot();
+    renderDailyGoalWidgetFast(snapshot);
+    if(activeTab === "goals") renderGoalsPage();
+
+    try {
+      technicalDiagLog("metas rápidas: consulta concluída", {
+        elapsed_ms:Date.now() - startedAt,
+        card_rows:cardRows.length,
+        question_rows:questionRows.length,
+        daily:snapshot.totals.daily,
+        weekly:snapshot.totals.weekly,
+        monthly:snapshot.totals.monthly
+      }, "ok");
+    } catch(_){ }
+
+    return { cardRows:cardRows.length, questionRows:questionRows.length, since:sinceIso };
+  })();
+
+  try{
+    return await FAST_GOAL_REMOTE_LOAD_PROMISE;
+  }finally{
+    FAST_GOAL_REMOTE_LOAD_PROMISE = null;
+  }
 }
 
 async function loadResponsesFromSupabase(options = {}){
@@ -10846,6 +11092,7 @@ async function loadResponsesFromSupabase(options = {}){
     writeLocalCardHistory(ONLINE_HISTORY);
     CARD_HISTORY_REMOTE_LAST_REFRESH_AT = Date.now();
     CARD_HISTORY_REMOTE_LAST_ROWS = rows.length;
+    if(!incremental) CARD_HISTORY_INITIAL_FULL_LOAD_DONE = true;
     invalidateProgrammedRuntimeCaches();
     pruneProgrammedDeckAfterDataRefresh();
 
@@ -10861,35 +11108,90 @@ async function loadResponsesFromSupabase(options = {}){
     CARD_HISTORY_REMOTE_LOAD_PROMISE = null;
   }
 }
+
+function renderInitialStudyAfterCards(){
+  IMPORTANT_CARDS = readLocalImportantCards();
+  buildCatPills();
+  renderArchivedCards();
+  renderImportantTabCount();
+  renderDailyGoalWidget();
+  renderSyncPanel();
+  initCatDrag();
+  if(!CATS.includes(activeCat)) activeCat = "Todas";
+  selectCat(activeCat || "Todas");
+  showTab("study");
+}
+
+function refreshCardUiAfterRemoteUpdate(){
+  buildCatPills();
+  renderCategoryList(document.getElementById("cat-list-search")?.value || "");
+  renderImportantTabCount();
+  if(activeTab === "diag") buildDashboard("all");
+  if(activeTab === "db") renderSummary("db-summary");
+}
+
 async function startAuthenticatedApp(){
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").style.display = "flex";
 
-  // Local-first: exibe o último total confirmado sem esperar cards, histórico
-  // remoto, Favoritos ou estado do Programado. Logo depois recalcula usando o
-  // histórico deste aparelho enquanto a rede trabalha em paralelo.
+  // Exibe metas e dados locais antes de qualquer chamada de rede. Na versão
+  // anterior isso foi agendado por setTimeout, mas o caminho crítico dos cards
+  // continuava bloqueado. Agora a atualização local ocorre de forma síncrona.
   invalidateGoalRuntimeCaches();
-  renderDailyGoalWidgetFromCache();
   loadEmbeddedQuestionResponses();
-  scheduleLocalGoalWarmup();
+  renderDailyGoalWidgetFromCache();
+  try{ renderDailyGoalWidget(); }catch(error){ console.warn("Falha no cálculo local inicial das metas:", error); }
+  renderSyncPanel();
 
+  // A meta não precisa aguardar cards nem o histórico completo. Esta consulta
+  // baixa apenas o período atual e já pinta Hoje/Semana/Mês. O histórico integral
+  // continua em segundo plano para Programado, Diagnóstico e reconstruções.
+  const fastGoalTask = loadRecentGoalEventsFromSupabase({ silent:true })
+    .then(result => ({ ok:true, result }))
+    .catch(error => ({ ok:false, error }));
+
+  // A rede começa ANTES da leitura do cache. Isso evita o deadlock já observado
+  // no Safari quando IndexedDB demora para responder.
+  const remoteCardsTask = loadCardsFromSupabase()
+    .then(count => ({ ok:true, count }))
+    .catch(error => ({ ok:false, error }));
+
+  let openedFromCache = false;
   try{
-    await loadCardsFromSupabase();
-    IMPORTANT_CARDS = readLocalImportantCards();
-    buildCatPills();
-    renderArchivedCards();
-    renderImportantTabCount();
-    renderDailyGoalWidget();
-    renderSyncPanel();
-    initCatDrag();
-    selectCat("Todas");
-    showTab("study");
-    setSyncStatus(`cards carregados (${visibleCards(CARDS).length}). Sincronizando histórico em segundo plano...`);
+    const cachedRows = await readCardsCacheBounded();
+
+    // Se a rede terminou durante a leitura limitada do cache, CARDS já contém
+    // a versão atual e o cache antigo não deve sobrescrevê-la.
+    if(CARDS.length){
+      renderInitialStudyAfterCards();
+      setSyncStatus(`cards carregados (${visibleCards(CARDS).length}). Sincronizando histórico em segundo plano...`);
+    }else if(cachedRows.length && applyLoadedCardRows(cachedRows)){
+      openedFromCache = true;
+      renderInitialStudyAfterCards();
+      setSyncStatus(`cache local aberto (${visibleCards(CARDS).length} cards). Atualizando o Supabase em segundo plano...`);
+    }else{
+      const remoteResult = await remoteCardsTask;
+      if(!remoteResult.ok) throw remoteResult.error;
+      renderInitialStudyAfterCards();
+      setSyncStatus(`cards carregados (${visibleCards(CARDS).length}). Sincronizando histórico em segundo plano...`);
+    }
 
     (async () => {
       let responsesLoaded = false;
       try{
+        // Se o app abriu pelo cache, deixa a consulta principal de cards acabar
+        // antes de disparar várias consultas pesadas simultâneas.
+        const remoteResult = await remoteCardsTask;
+        if(remoteResult.ok && openedFromCache){
+          refreshCardUiAfterRemoteUpdate();
+          setSyncStatus(`cards atualizados (${visibleCards(CARDS).length}). Sincronizando histórico...`);
+        }else if(!remoteResult.ok && openedFromCache){
+          console.warn("Cards remotos não atualizaram; sessão continua pelo cache:", remoteResult.error);
+          setSyncStatus(`usando cache local; atualização remota falhou: ${remoteResult.error?.message || remoteResult.error}`);
+        }
+
         const backgroundTasks = [
+          fastGoalTask.then(r => { if(!r.ok) console.warn("Metas rápidas não carregaram:", r.error); }),
           loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
           loadImportantFromSupabase().catch(err => { console.warn("Importantes não carregaram:", err); }),
           loadReviewStateFromSupabase().catch(err => { console.warn("Revisão não carregou:", err); }),
@@ -10949,12 +11251,10 @@ async function startAuthenticatedApp(){
     console.error(error);
     const message = error?.message || String(error || "erro desconhecido");
     setSyncStatus("erro: " + message);
-    // Se a carga inicial dos cards falhar, não deixa o usuário preso em uma
-    // tela vazia. Volta ao login para permitir nova tentativa sem recarregar.
     document.getElementById("app").style.display = "none";
     document.getElementById("auth-screen").style.display = "flex";
-    document.getElementById("auth-msg").textContent = "Não foi possível carregar os cards: " + message + ". Tente entrar novamente.";
-    showToast("Não foi possível carregar os cards. Tente entrar novamente.", "error", 6200);
+    document.getElementById("auth-msg").textContent = "Não foi possível carregar os cards em até 24 segundos e não existe cache local válido: " + message + ". Tente entrar novamente.";
+    showToast("A carga dos cards falhou. A espera foi interrompida para não deixar o app preso.", "error", 7200);
   }
 }
 
@@ -10965,13 +11265,18 @@ async function initApp(){
     document.getElementById("auth-msg").textContent = "Não foi possível carregar a biblioteca do Supabase. Atualize a página ou verifique a conexão.";
     return;
   }
-  const { data } = await supabaseClient.auth.getSession();
-  if(data.session?.user){
-    const compactSession = await refreshOversizedAuthSessionIfNeeded(data.session);
-    currentUser = compactSession?.user || data.session.user;
-    await startAuthenticatedApp();
-  } else {
-    document.getElementById("auth-msg").textContent = "Entre ou crie uma conta para começar.";
+  try{
+    const { data } = await promiseWithTimeout(supabaseClient.auth.getSession(), 12000, "leitura da sessão");
+    if(data.session?.user){
+      const compactSession = await refreshOversizedAuthSessionIfNeeded(data.session);
+      currentUser = compactSession?.user || data.session.user;
+      await startAuthenticatedApp();
+    } else {
+      document.getElementById("auth-msg").textContent = "Entre ou crie uma conta para começar.";
+    }
+  }catch(error){
+    console.error("Falha ao ler sessão:", error);
+    document.getElementById("auth-msg").textContent = "A sessão demorou demais para responder. Recarregue a página ou entre novamente.";
   }
 }
 
@@ -11016,7 +11321,7 @@ installAudioMode();
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v69.2";
+const TECHNICAL_DIAG_VERSION = "v69.2.4";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
@@ -11057,6 +11362,11 @@ function technicalDiagState(){
     history_remote_watermark_id: CARD_HISTORY_REMOTE_WATERMARK_ID || 0,
     history_remote_last_rows: CARD_HISTORY_REMOTE_LAST_ROWS || 0,
     history_remote_last_refresh_at: CARD_HISTORY_REMOTE_LAST_REFRESH_AT ? new Date(CARD_HISTORY_REMOTE_LAST_REFRESH_AT).toISOString() : null,
+    history_initial_full_load_done: CARD_HISTORY_INITIAL_FULL_LOAD_DONE,
+    fast_goal_remote_ready: FAST_GOAL_REMOTE_LAST_REFRESH_AT > 0,
+    fast_goal_remote_last_refresh_at: FAST_GOAL_REMOTE_LAST_REFRESH_AT ? new Date(FAST_GOAL_REMOTE_LAST_REFRESH_AT).toISOString() : null,
+    fast_goal_remote_card_rows: FAST_GOAL_REMOTE_CARD_ROWS || 0,
+    fast_goal_remote_question_rows: FAST_GOAL_REMOTE_QUESTION_ROWS || 0,
     history_pending_local: typeof readPendingCardSync === "function" ? readPendingCardSync().length : null,
     review_state: REVIEW_STATE instanceof Map ? REVIEW_STATE.size : null,
     answer_locked: typeof CARD_ANSWER_LOCK !== "undefined" ? CARD_ANSWER_LOCK : null,
