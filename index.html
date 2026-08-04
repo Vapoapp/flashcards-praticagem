@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.2: mantém integralmente a sincronização multidispositivo da v69.1 e adiciona Modo Áudio local, sem API externa, sem alterar Programado, meta diária ou histórico. -->
+<!-- v69.2.2: mantém o Modo Áudio e toda a lógica de estudo da v69.2. Otimiza o carregamento inicial das metas e protege o cache por usuário. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.2 — modo áudio</title>
+<title>FlashPrático v69.2.2 — metas instantâneas auditadas</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1223,7 +1223,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.2 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.2.2 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1879,6 +1879,7 @@ const GOALS_KEY = "flashpratico_goals_v1";
 const CARD_HISTORY_LAST_GOOD_KEY = "flashpratico_history_last_good_v1";
 const CARD_HISTORY_RESET_MARK_KEY = "flashpratico_history_reset_marker_v1";
 const GOAL_SNAPSHOT_KEY = "flashpratico_goal_snapshot_v1";
+const GOAL_DASHBOARD_CACHE_KEY = "flashpratico_goal_dashboard_cache_v1";
 const GOAL_CELEBRATION_KEY = "flashpratico_goal_celebrations_v1";
 const GOAL_BEST_STREAK_KEY = "flashpratico_best_streak_v1";
 const GOAL_BEST_STREAK_METADATA_KEY = "flashpratico_best_streak";
@@ -1981,6 +1982,15 @@ let HISTORY_ACTIVE_CACHE = null;
 let STUDY_IDENTITY_INDEX_CACHE = null;
 let HISTORY_LOGICAL_INDEX_CACHE = null;
 let EFFECTIVE_PROGRAMMED_STATE_CACHE = new Map();
+
+// Cache exclusivo das metas. O histórico já deduplicado e as estatísticas por
+// período são reutilizados entre o widget, a página de metas e as atualizações
+// de fundo. Não participa do Programado nem altera qualquer resposta.
+let GOAL_HISTORY_RAW_CACHE = null;
+let GOAL_HISTORY_CACHE = null;
+let GOAL_PERIOD_STATS_CACHE = new Map();
+let GOAL_STREAK_CACHE = null;
+let GOAL_LOCAL_WARMUP_TIMER = null;
 
 let QUESTION_BANK = [];
 let QUESTION_ATTEMPTS = [];
@@ -2149,6 +2159,7 @@ function mergeQuestionAttempts(...lists){
 }
 function loadEmbeddedQuestionResponses(){
   QUESTION_ATTEMPTS = readLocalQuestionResponses();
+  invalidateGoalRuntimeCaches();
 }
 function saveEmbeddedQuestionResponses(){
   try {
@@ -3008,6 +3019,7 @@ function clearHistorySafetyBackups(){
   try{
     localStorage.removeItem(CARD_HISTORY_LAST_GOOD_KEY);
     localStorage.removeItem(GOAL_SNAPSHOT_KEY);
+    localStorage.removeItem(GOAL_DASHBOARD_CACHE_KEY);
   }catch(e){}
 }
 function readLocalCardHistory(){
@@ -3157,11 +3169,15 @@ function dedupeGoalEvents(events){
   return clean;
 }
 function getGoalHistory(options = {}){
-  const raw = [
-    ...getHistory({includeOrphans:true}).map(ev => ({...ev, kind: ev.kind || "card"})),
-    ...getQuestionGoalEvents()
-  ];
-  return options.raw ? raw : dedupeGoalEvents(raw);
+  if(!GOAL_HISTORY_RAW_CACHE){
+    GOAL_HISTORY_RAW_CACHE = [
+      ...getHistory({includeOrphans:true}).map(ev => ({...ev, kind: ev.kind || "card"})),
+      ...getQuestionGoalEvents()
+    ];
+  }
+  if(options.raw) return GOAL_HISTORY_RAW_CACHE;
+  if(!GOAL_HISTORY_CACHE) GOAL_HISTORY_CACHE = dedupeGoalEvents(GOAL_HISTORY_RAW_CACHE);
+  return GOAL_HISTORY_CACHE;
 }
 async function saveEvent(card, result){
   invalidateSyncSummaryCache();
@@ -3379,11 +3395,19 @@ function addToSetMap(map, key, value){
   map.get(key).add(value);
 }
 
+function invalidateGoalRuntimeCaches(){
+  GOAL_HISTORY_RAW_CACHE = null;
+  GOAL_HISTORY_CACHE = null;
+  GOAL_PERIOD_STATS_CACHE = new Map();
+  GOAL_STREAK_CACHE = null;
+}
+
 function invalidateProgrammedRuntimeCaches(){
   HISTORY_UNION_CACHE = null;
   HISTORY_ACTIVE_CACHE = null;
   HISTORY_LOGICAL_INDEX_CACHE = null;
   EFFECTIVE_PROGRAMMED_STATE_CACHE = new Map();
+  invalidateGoalRuntimeCaches();
 }
 
 function invalidateStudyIdentityCaches(){
@@ -4780,6 +4804,7 @@ async function loadQuestionResponsesFromSupabase(){
   })).filter(Boolean);
   REMOTE_QUESTION_RESPONSE_KEYS = new Set(remoteAttempts.map(questionAttemptStableKey).filter(Boolean));
   QUESTION_ATTEMPTS = mergeQuestionAttempts(remoteAttempts, readLocalQuestionResponses());
+  invalidateGoalRuntimeCaches();
   saveEmbeddedQuestionResponses();
 
   // v68.9: a Meta diária não pode ficar esperando outras tarefas de fundo.
@@ -5271,6 +5296,7 @@ async function saveQuestionEvent(q, selected, result){
     ts: new Date().toISOString()
   };
   QUESTION_ATTEMPTS = mergeQuestionAttempts(QUESTION_ATTEMPTS, [event]);
+  invalidateGoalRuntimeCaches();
   saveEmbeddedQuestionResponses(); // backup imediato no aparelho antes de tentar nuvem
   renderDailyGoalWidget();
   // v43: não travar a tela esperando o Supabase. Salva local na hora e sincroniza em segundo plano.
@@ -5475,16 +5501,15 @@ function eventsBetween(start, end){
   const e = end.getTime();
   return getGoalHistory()
     .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
-    .filter(ev => { const t = new Date(ev.ts).getTime(); return !isNaN(t) && t >= s && t <= e; })
-    .sort((a,b) => new Date(a.ts) - new Date(b.ts));
+    .filter(ev => { const t = goalEventTimestamp(ev); return Number.isFinite(t) && t >= s && t <= e; });
 }
 
 function calcPeriodStats(start, end){
-  const all = getGoalHistory()
-    .filter(ev => ev && isAnsweredResult(ev.result) && ev.ts)
-    .sort((a,b) => new Date(a.ts) - new Date(b.ts));
   const startMs = start.getTime();
   const endMs = end.getTime();
+  const cacheKey = `${startMs}|${endMs}`;
+  if(GOAL_PERIOD_STATS_CACHE.has(cacheKey)) return GOAL_PERIOD_STATS_CACHE.get(cacheKey);
+  const all = getGoalHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts);
   const seenBefore = new Set();
   const wrongBefore = new Set();
   all.forEach(ev => {
@@ -5534,7 +5559,7 @@ function calcPeriodStats(start, end){
   const errosRecuperados = Array.from(wrongUniqueIds).filter(id => lastByCard.get(id)?.result === "right").length;
   const pct = total ? Math.round((right / total) * 100) : null;
   const uniquePct = unique.size ? Math.round((uniqueRight / unique.size) * 100) : null;
-  return {
+  const result = {
     right,
     wrong,
     total,
@@ -5550,6 +5575,8 @@ function calcPeriodStats(start, end){
     errosRecuperados,
     daily
   };
+  GOAL_PERIOD_STATS_CACHE.set(cacheKey, result);
+  return result;
 }
 
 function todayStats(){
@@ -5570,6 +5597,117 @@ function monthStats(){
 function readGoalSnapshot(){
   try{ return JSON.parse(localStorage.getItem(GOAL_SNAPSHOT_KEY) || "null"); }
   catch(e){ return null; }
+}
+
+function goalPeriodKeys(now = new Date()){
+  return {
+    today: dateKeyLocal(now),
+    week: dateKeyLocal(startOfLocalWeek(now)),
+    month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+  };
+}
+
+function readGoalDashboardCache(){
+  try{
+    const cached = JSON.parse(localStorage.getItem(GOAL_DASHBOARD_CACHE_KEY) || "null");
+    if(!cached || typeof cached !== "object") return null;
+    const keys = goalPeriodKeys();
+    if(cached.today_key !== keys.today || cached.week_key !== keys.week || cached.month_key !== keys.month) return null;
+    // Com usuário autenticado, aceite somente cache explicitamente pertencente
+    // à mesma conta. Um cache legado sem owner_id não pode piscar dados de outra
+    // conta em navegador compartilhado; o warm-up local recalcula logo em seguida.
+    if(currentUser?.id && cached.owner_id !== currentUser.id) return null;
+    return cached;
+  }catch(e){ return null; }
+}
+
+function compactGoalPeriodStats(stats){
+  if(!stats) return null;
+  return {
+    right:Number(stats.right || 0), wrong:Number(stats.wrong || 0), total:Number(stats.total || 0),
+    pct:stats.pct === null ? null : Number(stats.pct), unique:Number(stats.unique || 0),
+    uniqueRight:Number(stats.uniqueRight || 0), uniqueWrong:Number(stats.uniqueWrong || 0),
+    uniquePct:stats.uniquePct === null ? null : Number(stats.uniquePct),
+    wrongUnique:Number(stats.wrongUnique || 0), pendingUnique:Number(stats.pendingUnique || 0),
+    novos:Number(stats.novos || 0), revisoes:Number(stats.revisoes || 0),
+    errosRecuperados:Number(stats.errosRecuperados || 0)
+  };
+}
+
+function saveGoalDashboardCache(snapshot, streak, details = null){
+  if(!snapshot?.totals || !snapshot?.goals) return;
+  const keys = goalPeriodKeys();
+  let previous = null;
+  try{ previous = JSON.parse(localStorage.getItem(GOAL_DASHBOARD_CACHE_KEY) || "null"); }catch(e){}
+  const samePeriods = previous && previous.today_key === keys.today && previous.week_key === keys.week && previous.month_key === keys.month;
+  const payload = {
+    version:1,
+    owner_id:currentUser?.id || previous?.owner_id || null,
+    saved_at:new Date().toISOString(),
+    today_key:keys.today,
+    week_key:keys.week,
+    month_key:keys.month,
+    goals:{
+      daily:Number(snapshot.goals.daily || 0),
+      weekly:Number(snapshot.goals.weekly || 0),
+      monthly:Number(snapshot.goals.monthly || 0)
+    },
+    totals:{
+      daily:Number(snapshot.totals.daily || 0),
+      weekly:Number(snapshot.totals.weekly || 0),
+      monthly:Number(snapshot.totals.monthly || 0)
+    },
+    streak:{
+      current:Number(streak?.current ?? previous?.streak?.current ?? 0),
+      best:Number(streak?.best ?? previous?.streak?.best ?? readProtectedBestStreak())
+    },
+    details: details ? {
+      daily:compactGoalPeriodStats(details.daily),
+      weekly:compactGoalPeriodStats(details.weekly),
+      monthly:compactGoalPeriodStats(details.monthly)
+    } : (samePeriods ? previous?.details || null : null)
+  };
+  try{ localStorage.setItem(GOAL_DASHBOARD_CACHE_KEY, JSON.stringify(payload)); }
+  catch(e){ console.warn("Não consegui salvar o cache compacto das metas:", e); }
+}
+
+function paintDailyGoalWidget(total, goals, streakCurrent){
+  const widget = document.getElementById("daily-goal-widget");
+  if(!widget) return false;
+  const safeGoals = goals || getGoalSettings();
+  const progress = goalProgress(Number(total || 0), Number(safeGoals.daily || 0));
+  document.getElementById("goal-daily-text").textContent = `${Number(total || 0)} / ${safeGoals.daily} questões/cards`;
+  document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;
+  document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
+    ? `Faltam ${progress.remaining} questões/cards para bater a meta.`
+    : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
+  document.getElementById("goal-streak-mini").textContent = `🔥 ${Number(streakCurrent || 0)} dias`;
+  return true;
+}
+
+function renderDailyGoalWidgetFromCache(){
+  const cached = readGoalDashboardCache();
+  if(cached) return paintDailyGoalWidget(cached.totals?.daily || 0, cached.goals || getGoalSettings(), cached.streak?.current || 0);
+
+  // Compatibilidade com o snapshot antigo: ao menos o total do dia e a sequência
+  // aparecem imediatamente enquanto o histórico local é recalculado.
+  const legacy = readGoalSnapshot();
+  const todayKey = dateKeyLocal(new Date());
+  if(!currentUser?.id && legacy?.today_key === todayKey){
+    return paintDailyGoalWidget(Number(legacy.today_count || 0), getGoalSettings(), Number(legacy.current || 0));
+  }
+  return false;
+}
+
+function scheduleLocalGoalWarmup(){
+  if(GOAL_LOCAL_WARMUP_TIMER) clearTimeout(GOAL_LOCAL_WARMUP_TIMER);
+  GOAL_LOCAL_WARMUP_TIMER = setTimeout(() => {
+    GOAL_LOCAL_WARMUP_TIMER = null;
+    try{
+      renderDailyGoalWidget();
+      if(activeTab === "goals") renderGoalsPage();
+    }catch(error){ console.warn("Não consegui aquecer as metas pelo histórico local:", error); }
+  }, 0);
 }
 
 function readProtectedActiveStreak(){
@@ -5667,6 +5805,8 @@ function saveGoalSnapshot(streak, dayCounts){
 }
 
 function calcStreaks(){
+  const cacheDay = dateKeyLocal(new Date());
+  if(GOAL_STREAK_CACHE?.day === cacheDay) return GOAL_STREAK_CACHE.value;
   const dayCounts = new Map();
   getGoalHistory().filter(ev => ev && isAnsweredResult(ev.result) && ev.ts).forEach(ev => {
     const key = dateKeyLocal(ev.ts);
@@ -5705,6 +5845,7 @@ function calcStreaks(){
     current = Number(snap.current || 0);
   }
   const result = { current, best, dayCounts };
+  GOAL_STREAK_CACHE = { day:cacheDay, value:result };
   saveGoalSnapshot(result, dayCounts);
   syncProtectedBestStreak(result.best);
   return result;
@@ -5841,16 +5982,10 @@ function celebrateReachedGoals(before, after){
 function renderDailyGoalWidget(){
   const widget = document.getElementById("daily-goal-widget");
   if(!widget) return;
-  const goals = getGoalSettings();
-  const st = todayStats();
-  const progress = goalProgress(st.total, goals.daily);
+  const snapshot = goalTotalsSnapshot();
   const streak = calcStreaks();
-  document.getElementById("goal-daily-text").textContent = `${st.total} / ${goals.daily} questões/cards`;
-  document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;
-  document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
-    ? `Faltam ${progress.remaining} questões/cards para bater a meta.`
-    : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
-  document.getElementById("goal-streak-mini").textContent = `🔥 ${streak.current} dias`;
+  paintDailyGoalWidget(snapshot.totals.daily, snapshot.goals, streak.current);
+  saveGoalDashboardCache(snapshot, streak);
 }
 
 async function refreshRemoteGoalCounters(reason = "auto"){
@@ -6071,6 +6206,11 @@ function renderGoalsPage(){
   const streak = calcStreaks();
 
   const now = new Date();
+  saveGoalDashboardCache({
+    goals,
+    totals:{ daily:t.total, weekly:w.total, monthly:m.total },
+    periods:{ daily:dateKeyLocal(now), weekly:dateKeyLocal(startOfLocalWeek(now)), monthly:`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` }
+  }, streak, { daily:t, weekly:w, monthly:m });
   const dayIndex = (now.getDay() + 6) % 7;
   const elapsedWeekDays = dayIndex + 1;
   const remainingWeekDays = Math.max(1, 7 - dayIndex);
@@ -6134,11 +6274,12 @@ function renderGoalsPage(){
       alertBox.innerHTML = `<div class="goal-alert good">Meta diária e semanal em dia. Continue mantendo a sequência.</div>`;
     }
   }
-  renderDailyGoalWidget();
+  renderDailyGoalWidgetFromCache();
 }
 
 function openGoalsPage(){
-  renderGoalsPage();
+  // showTab("goals") já renderiza a página. A chamada anterior duplicava toda
+  // a varredura de hoje/semana/mês na primeira abertura.
   showTab("goals");
 }
 
@@ -9431,14 +9572,10 @@ let GOAL_WIDGET_REFRESH_TIMER = null;
 function renderDailyGoalWidgetFast(snapshot){
   const widget = document.getElementById("daily-goal-widget");
   if(!widget || !snapshot) return;
-  const goals = snapshot.goals || getGoalSettings();
-  const total = Number(snapshot.totals?.daily || 0);
-  const progress = goalProgress(total, goals.daily);
-  document.getElementById("goal-daily-text").textContent = `${total} / ${goals.daily} questões/cards`;
-  document.getElementById("goal-daily-fill").style.width = `${progress.pct}%`;
-  document.getElementById("goal-daily-sub").textContent = progress.remaining > 0
-    ? `Faltam ${progress.remaining} questões/cards para bater a meta.`
-    : `Meta batida: +${progress.extra} item${progress.extra === 1 ? "" : "s"} extra${progress.extra === 1 ? "" : "s"}.`;
+  const cached = readGoalDashboardCache();
+  const streak = cached?.streak || { current:readProtectedActiveStreak().count, best:readProtectedBestStreak() };
+  paintDailyGoalWidget(Number(snapshot.totals?.daily || 0), snapshot.goals || getGoalSettings(), streak.current);
+  saveGoalDashboardCache(snapshot, streak);
 }
 
 function scheduleDeferredGoalWidgetRefresh(){
@@ -10727,10 +10864,18 @@ async function loadResponsesFromSupabase(options = {}){
 async function startAuthenticatedApp(){
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").style.display = "flex";
+
+  // Local-first: exibe o último total confirmado sem esperar cards, histórico
+  // remoto, Favoritos ou estado do Programado. Logo depois recalcula usando o
+  // histórico deste aparelho enquanto a rede trabalha em paralelo.
+  invalidateGoalRuntimeCaches();
+  renderDailyGoalWidgetFromCache();
+  loadEmbeddedQuestionResponses();
+  scheduleLocalGoalWarmup();
+
   try{
     await loadCardsFromSupabase();
     IMPORTANT_CARDS = readLocalImportantCards();
-    loadEmbeddedQuestionResponses();
     buildCatPills();
     renderArchivedCards();
     renderImportantTabCount();
