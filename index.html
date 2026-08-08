@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.2.30: exportação de backup otimizada. Quando o histórico remoto completo já está carregado, a exportação confere a contagem remota e busca apenas eventos novos; carga completa fica reservada para primeira carga ou detecção de exclusão/reset remoto. Mantém níveis, cores, deduplicação, Programado 3/6/9/12/15/20/30, metas e Favoritos. -->
+<!-- v69.2.33: carga completa do histórico acelerada por paginação paralela limitada, timeout/retry por página, validação por contagem remota e captura da cauda criada durante a própria carga. O painel diferencia carregando/erro/completo. Mantém backup incremental, níveis, cores, deduplicação, Programado 3/6/9/12/15/20/30, metas e Favoritos. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.2.30 — backup rápido e seguro</title>
+<title>FlashPrático v69.2.33 — histórico rápido e seguro</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -1234,7 +1234,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.2.30 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.2.33 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1896,11 +1896,23 @@ let LAST_SYNC_AT = null;
 let LAST_GOAL_REMOTE_REFRESH_AT = 0;
 let GOAL_REMOTE_REFRESH_BUSY = false;
 let CARD_HISTORY_REMOTE_LOAD_PROMISE = null;
+let CARD_HISTORY_REMOTE_LOAD_MODE = null;
+let CARD_HISTORY_REMOTE_LAST_ERROR = "";
+let CARD_HISTORY_REMOTE_LAST_ATTEMPT_AT = 0;
+let CARD_HISTORY_REMOTE_EXPECTED_ROWS = 0;
+let CARD_HISTORY_REMOTE_LOADED_PAGES = 0;
+let CARD_HISTORY_REMOTE_TOTAL_PAGES = 0;
 let CARD_HISTORY_REMOTE_WATERMARK_ID = 0;
 let CARD_HISTORY_REMOTE_LAST_REFRESH_AT = 0;
 let CARD_HISTORY_REMOTE_LAST_ROWS = 0;
 let CARD_HISTORY_INITIAL_FULL_LOAD_DONE = false;
 let HISTORY_KNOWN_COMPLETE = false;
+const CARD_HISTORY_REMOTE_PAGE_SIZE = 1000;
+const CARD_HISTORY_REMOTE_PAGE_TIMEOUT_MS = 12000;
+const CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS = 10000;
+const CARD_HISTORY_REMOTE_PAGE_RETRIES = 2;
+const CARD_HISTORY_REMOTE_CONCURRENCY = 6;
+const CARD_HISTORY_REMOTE_RETRY_INTERVAL_MS = 45000;
 let FAST_GOAL_REMOTE_LOAD_PROMISE = null;
 let FAST_GOAL_REMOTE_LAST_REFRESH_AT = 0;
 let FAST_GOAL_REMOTE_CARD_ROWS = 0;
@@ -2986,7 +2998,13 @@ function syncSummary(){
     cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, importantPending, totalPending,
     localCards, localQuestions, localCacheTotal: localCards + localQuestions,
     loadedCardHistory, loadedQuestionHistory, historyTotal,
-    historyComplete: !!CARD_HISTORY_INITIAL_FULL_LOAD_DONE
+    historyComplete: !!(CARD_HISTORY_INITIAL_FULL_LOAD_DONE && HISTORY_KNOWN_COMPLETE),
+    historyLoading: !!CARD_HISTORY_REMOTE_LOAD_PROMISE,
+    historyLoadMode: CARD_HISTORY_REMOTE_LOAD_MODE,
+    historyLoadError: CARD_HISTORY_REMOTE_LAST_ERROR || "",
+    historyExpectedRows: CARD_HISTORY_REMOTE_EXPECTED_ROWS || 0,
+    historyLoadedPages: CARD_HISTORY_REMOTE_LOADED_PAGES || 0,
+    historyTotalPages: CARD_HISTORY_REMOTE_TOTAL_PAGES || 0
   };
   SYNC_SUMMARY_CACHE = result;
   SYNC_SUMMARY_CACHE_AT = now;
@@ -3028,9 +3046,19 @@ function renderSyncPanel(){
     const important = summary.importantPending ? ` ${summary.importantPending} marcação(ões) de favorito aguardam sincronização.` : "";
     const orphan = summary.orphanCardPending ? ` ${summary.orphanCardPending} evento(s) local(is) referem-se a cards que não existem mais na tabela cards; eles continuam contando na meta local, mas não podem subir para a tabela respostas por causa da chave estrangeira.` : "";
     const cacheInfo = ` Cache local: ${summary.localCacheTotal} evento(s) (${summary.localCards} flashcards + ${summary.localQuestions} questões).`;
-    const historyInfo = summary.historyComplete
-      ? ` Histórico carregado: ${summary.historyTotal} evento(s).`
-      : ` Histórico carregado até agora: ${summary.historyTotal} evento(s); a carga remota completa ainda está em andamento.`;
+    let historyInfo;
+    if(summary.historyComplete){
+      historyInfo = ` Histórico carregado: ${summary.historyTotal} evento(s).`;
+    }else if(summary.historyLoading){
+      const progress = summary.historyTotalPages
+        ? ` (${summary.historyLoadedPages}/${summary.historyTotalPages} páginas${summary.historyExpectedRows ? `; ${summary.historyExpectedRows} linhas remotas esperadas` : ""})`
+        : "";
+      historyInfo = ` Histórico carregado até agora: ${summary.historyTotal} evento(s); carga remota ${summary.historyLoadMode === "incremental" ? "incremental" : "completa"} em andamento${progress}.`;
+    }else if(summary.historyLoadError){
+      historyInfo = ` Histórico carregado até agora: ${summary.historyTotal} evento(s); a última carga remota falhou: ${summary.historyLoadError}.`;
+    }else{
+      historyInfo = ` Histórico carregado até agora: ${summary.historyTotal} evento(s); a carga remota completa ainda não foi confirmada.`;
+    }
     msg.textContent = summary.totalPending
       ? `Há dados salvos neste aparelho aguardando envio.${details}${important}${orphan}${historyInfo}${cacheInfo}${last}`
       : `Nenhuma pendência local detectada.${orphan}${historyInfo}${cacheInfo}${last}`;
@@ -6535,10 +6563,16 @@ async function refreshRemoteGoalCounters(reason = "auto"){
         await loadResponsesFromSupabase({ silent:true, incremental:true });
         if(REMOTE_CARD_RESPONSE_KEYS?.size) await syncMissingLocalCardHistoryToSupabase();
       }else{
-        // Enquanto a carga histórica completa ainda está em andamento, atualizar
-        // foco/visibilidade não deve disparar outro lote pesado. Busca somente o
-        // período atual, suficiente para Hoje/Semana/Mês.
+        // Mantém Hoje/Semana/Mês responsivos mesmo sem o histórico integral.
         await loadRecentGoalEventsFromSupabase({ silent:true });
+        // Se a primeira carga completa falhou, versões anteriores nunca a tentavam
+        // de novo e a sessão podia ficar indefinidamente presa no cache de ~5 mil.
+        // Retenta automaticamente com backoff, sem empilhar leituras concorrentes.
+        const sinceLastFullAttempt = Date.now() - CARD_HISTORY_REMOTE_LAST_ATTEMPT_AT;
+        if(!CARD_HISTORY_REMOTE_LOAD_PROMISE && sinceLastFullAttempt >= CARD_HISTORY_REMOTE_RETRY_INTERVAL_MS){
+          try { await loadResponsesFromSupabase({ silent:true }); }
+          catch(err){ console.warn("Nova tentativa automática do histórico completo falhou:", err); }
+        }
       }
     } catch(err){
       console.warn("Não consegui atualizar histórico remoto de flashcards:", err);
@@ -10637,29 +10671,157 @@ async function loadRecentGoalEventsFromSupabase(options = {}){
   }
 }
 
-async function loadResponsesFromSupabase(options = {}){
-  // Uma única leitura por vez. No iPhone, foco + visibilitychange + pageshow
-  // podem ocorrer juntos; sem este bloqueio, uma resposta antiga podia terminar
-  // por último e deixar a interface temporariamente defasada.
-  if(CARD_HISTORY_REMOTE_LOAD_PROMISE) return CARD_HISTORY_REMOTE_LOAD_PROMISE;
 
-  CARD_HISTORY_REMOTE_LOAD_PROMISE = (async () => {
-    if(!options.silent) setSyncStatus("carregando histórico...");
-    const incremental = !!options.incremental && CARD_HISTORY_REMOTE_WATERMARK_ID > 0;
-    const requestWatermark = incremental ? CARD_HISTORY_REMOTE_WATERMARK_ID : 0;
-    const fetchPromise = fetchSupabasePages((from, to) => {
+async function remoteCardResponseCountForLoad(incremental = false, watermark = 0){
+  let query = supabaseClient
+    .from("respostas")
+    .select("id", { count:"exact", head:true });
+  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  if(incremental && watermark > 0) query = query.gt("id", watermark);
+  const response = await promiseWithTimeout(
+    query,
+    CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS,
+    incremental ? "contagem incremental do histórico" : "contagem completa do histórico"
+  );
+  if(response?.error) throw response.error;
+  const count = Number(response?.count);
+  if(!Number.isFinite(count) || count < 0) throw new Error("O Supabase não informou a quantidade de respostas do histórico.");
+  return count;
+}
+
+async function fetchCardHistoryPageWithRetry(from, to, incremental, watermark, pageIndex){
+  let lastError = null;
+  for(let attempt = 0; attempt <= CARD_HISTORY_REMOTE_PAGE_RETRIES; attempt++){
+    try{
       let query = supabaseClient
         .from("respostas")
         .select("id,user_id,card_id,resultado,created_at")
         .order("id", { ascending:true });
       if(currentUser?.id) query = query.eq("user_id", currentUser.id);
-      if(incremental) query = query.gt("id", requestWatermark);
-      return query.range(from, to);
-    }, 1000, Number.MAX_SAFE_INTEGER);
-    const data = await promiseWithTimeout(fetchPromise, incremental ? 20000 : 45000, incremental ? "atualização incremental do histórico" : "carga completa do histórico");
+      if(incremental && watermark > 0) query = query.gt("id", watermark);
+      const response = await promiseWithTimeout(
+        query.range(from, to),
+        CARD_HISTORY_REMOTE_PAGE_TIMEOUT_MS,
+        `${incremental ? "histórico incremental" : "histórico completo"} — página ${pageIndex + 1}`
+      );
+      if(response?.error) throw response.error;
+      return response?.data || [];
+    }catch(error){
+      lastError = error;
+      if(attempt >= CARD_HISTORY_REMOTE_PAGE_RETRIES) break;
+      await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
+    }
+  }
+  throw lastError || new Error(`Falha ao carregar a página ${pageIndex + 1} do histórico.`);
+}
 
-    const rows = data || [];
-    if(!incremental){
+async function fetchCardHistoryRowsParallel(incremental = false, watermark = 0){
+  const expectedRows = await remoteCardResponseCountForLoad(incremental, watermark);
+  CARD_HISTORY_REMOTE_EXPECTED_ROWS = expectedRows;
+  const pageSize = CARD_HISTORY_REMOTE_PAGE_SIZE;
+  const totalPages = Math.ceil(expectedRows / pageSize);
+  CARD_HISTORY_REMOTE_TOTAL_PAGES = totalPages;
+  CARD_HISTORY_REMOTE_LOADED_PAGES = 0;
+  if(!expectedRows) return { rows:[], expectedRows:0, totalPages:0 };
+
+  const pages = new Array(totalPages);
+  let nextPage = 0;
+  const worker = async () => {
+    while(true){
+      const pageIndex = nextPage++;
+      if(pageIndex >= totalPages) return;
+      const from = pageIndex * pageSize;
+      const to = Math.min(from + pageSize - 1, expectedRows - 1);
+      pages[pageIndex] = await fetchCardHistoryPageWithRetry(from, to, incremental, watermark, pageIndex);
+      CARD_HISTORY_REMOTE_LOADED_PAGES += 1;
+      invalidateSyncSummaryCache();
+      if(activeTab === "db") renderSyncPanel();
+    }
+  };
+  const workers = Array.from({ length:Math.min(CARD_HISTORY_REMOTE_CONCURRENCY, totalPages) }, () => worker());
+  await Promise.all(workers);
+  const rows = pages.flat();
+  const uniqueIds = new Set(rows.map(row => String(row?.id ?? "")).filter(Boolean));
+  if(rows.length !== expectedRows || uniqueIds.size !== rows.length){
+    throw new Error(`Carga do histórico inconsistente: esperado ${expectedRows}, recebido ${rows.length}, IDs únicos ${uniqueIds.size}.`);
+  }
+
+  // Detecta remoções ocorridas durante uma carga completa. Se novas respostas
+  // entrarem durante a leitura, loadResponsesFromSupabase buscará a cauda antes
+  // de marcar o histórico como completo.
+  let finalCount = expectedRows;
+  if(!incremental){
+    finalCount = await remoteCardResponseCountForLoad(false, 0);
+    if(finalCount < expectedRows){
+      throw new Error(`O histórico remoto mudou durante a carga (${expectedRows} → ${finalCount}). Tentando novamente evita pular linhas após uma exclusão.`);
+    }
+  }
+  return { rows, expectedRows, totalPages, finalCount };
+}
+
+async function loadResponsesFromSupabase(options = {}){
+  // Uma única leitura por vez. A carga completa usa páginas paralelas limitadas;
+  // isso evita o antigo timeout global de 45 s que descartava cargas válidas no Safari.
+  if(CARD_HISTORY_REMOTE_LOAD_PROMISE){
+    return CARD_HISTORY_REMOTE_LOAD_PROMISE;
+  }
+
+  const requestedIncremental = !!options.incremental && CARD_HISTORY_REMOTE_WATERMARK_ID > 0;
+  CARD_HISTORY_REMOTE_LOAD_MODE = requestedIncremental ? "incremental" : "full";
+  CARD_HISTORY_REMOTE_LAST_ATTEMPT_AT = Date.now();
+  CARD_HISTORY_REMOTE_LAST_ERROR = "";
+  CARD_HISTORY_REMOTE_EXPECTED_ROWS = 0;
+  CARD_HISTORY_REMOTE_LOADED_PAGES = 0;
+  CARD_HISTORY_REMOTE_TOTAL_PAGES = 0;
+  invalidateSyncSummaryCache();
+  renderSyncPanel();
+
+  CARD_HISTORY_REMOTE_LOAD_PROMISE = (async () => {
+    if(!options.silent) setSyncStatus(requestedIncremental ? "atualizando histórico..." : "carregando histórico completo...");
+    const requestWatermark = requestedIncremental ? CARD_HISTORY_REMOTE_WATERMARK_ID : 0;
+    let loadResult;
+    try{
+      loadResult = await fetchCardHistoryRowsParallel(requestedIncremental, requestWatermark);
+    }catch(firstError){
+      // Uma exclusão simultânea pode deslocar ranges de uma carga completa.
+      // Repetir uma vez do zero é seguro e ainda muito mais rápido que a paginação
+      // sequencial antiga. Erros de página já possuem retries próprios.
+      if(requestedIncremental) throw firstError;
+      console.warn("Primeira tentativa de carga completa do histórico falhou; repetindo uma vez:", firstError);
+      loadResult = await fetchCardHistoryRowsParallel(false, 0);
+    }
+
+    let rows = loadResult.rows || [];
+    if(!requestedIncremental){
+      // Enquanto as páginas estavam em voo, outro aparelho (ou esta própria aba)
+      // pode ter criado novas respostas. Captura somente IDs posteriores ao maior
+      // já recebido e repete a conferência até estabilizar, sem refazer as 12 páginas.
+      let physicalIds = new Set(rows.map(row => String(row?.id ?? "")).filter(Boolean));
+      let maxLoadedId = rows.reduce((max, row) => {
+        const n = Number(row?.id);
+        return Number.isFinite(n) ? Math.max(max, n) : max;
+      }, 0);
+      for(let tailPass = 0; tailPass < 3; tailPass++){
+        const remoteCountNow = await remoteCardResponseCountForLoad(false, 0);
+        if(remoteCountNow < physicalIds.size){
+          throw new Error(`O histórico remoto perdeu linhas durante a carga (${physicalIds.size} conhecidas; ${remoteCountNow} no servidor).`);
+        }
+        if(remoteCountNow === physicalIds.size) break;
+        const tailResult = await fetchCardHistoryRowsParallel(true, maxLoadedId);
+        for(const row of tailResult.rows || []){
+          const id = String(row?.id ?? "");
+          if(!id || physicalIds.has(id)) continue;
+          physicalIds.add(id);
+          rows.push(row);
+          const n = Number(row?.id);
+          if(Number.isFinite(n)) maxLoadedId = Math.max(maxLoadedId, n);
+        }
+      }
+      const finalRemoteCount = await remoteCardResponseCountForLoad(false, 0);
+      if(finalRemoteCount !== physicalIds.size){
+        throw new Error(`Não foi possível estabilizar o histórico remoto: ${physicalIds.size} linhas carregadas de ${finalRemoteCount}.`);
+      }
+      rows.sort((a,b) => Number(a?.id || 0) - Number(b?.id || 0));
       REMOTE_CARD_RESPONSE_IDS = new Set();
       REMOTE_CARD_RESPONSE_KEYS = new Set();
       CARD_HISTORY_REMOTE_WATERMARK_ID = 0;
@@ -10689,7 +10851,7 @@ async function loadResponsesFromSupabase(options = {}){
         };
       });
 
-    if(incremental){
+    if(requestedIncremental){
       ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory(), remoteHistory);
       writeLocalCardHistory(ONLINE_HISTORY);
     }else{
@@ -10700,26 +10862,50 @@ async function loadResponsesFromSupabase(options = {}){
         .filter(ev => ev?.id && !isRemoteCardHistoryId(ev.id));
       ONLINE_HISTORY = mergeHistoryEvents(remoteHistory, localUnsynced);
       writeLocalCardHistory(ONLINE_HISTORY, { allowShrink:true, authoritative:true, reason:"remote-full-reconcile" });
-    }
-    CARD_HISTORY_REMOTE_LAST_REFRESH_AT = Date.now();
-    CARD_HISTORY_REMOTE_LAST_ROWS = rows.length;
-    if(!incremental){
       CARD_HISTORY_INITIAL_FULL_LOAD_DONE = true;
       HISTORY_KNOWN_COMPLETE = true;
     }
+
+    CARD_HISTORY_REMOTE_LAST_REFRESH_AT = Date.now();
+    CARD_HISTORY_REMOTE_LAST_ROWS = rows.length;
+    CARD_HISTORY_REMOTE_LAST_ERROR = "";
     invalidateProgrammedRuntimeCaches();
+    invalidateSyncSummaryCache();
     pruneProgrammedDeckAfterDataRefresh();
 
     renderDailyGoalWidget();
+    renderSyncPanel();
     if(activeTab === "goals") renderGoalsPage();
     if(activeTab === "db") renderSummary("db-summary");
-    return { incremental, rows:rows.length, total:ONLINE_HISTORY.length, watermark:CARD_HISTORY_REMOTE_WATERMARK_ID };
+    try{
+      technicalDiagLog("histórico remoto: carga concluída", {
+        mode: requestedIncremental ? "incremental" : "full",
+        physical_rows:rows.length,
+        expected_rows:loadResult.expectedRows,
+        pages:loadResult.totalPages,
+        logical_history:ONLINE_HISTORY.length,
+        watermark:CARD_HISTORY_REMOTE_WATERMARK_ID
+      }, "ok");
+    }catch(_){ }
+    return { incremental:requestedIncremental, rows:rows.length, total:ONLINE_HISTORY.length, watermark:CARD_HISTORY_REMOTE_WATERMARK_ID };
   })();
 
   try{
     return await CARD_HISTORY_REMOTE_LOAD_PROMISE;
+  }catch(error){
+    CARD_HISTORY_REMOTE_LAST_ERROR = String(error?.message || error || "erro desconhecido");
+    invalidateSyncSummaryCache();
+    renderSyncPanel();
+    try{ technicalDiagLog("histórico remoto: carga falhou", { mode:CARD_HISTORY_REMOTE_LOAD_MODE, error:CARD_HISTORY_REMOTE_LAST_ERROR }, "err"); }catch(_){ }
+    throw error;
   } finally {
     CARD_HISTORY_REMOTE_LOAD_PROMISE = null;
+    CARD_HISTORY_REMOTE_LOAD_MODE = null;
+    CARD_HISTORY_REMOTE_EXPECTED_ROWS = 0;
+    CARD_HISTORY_REMOTE_LOADED_PAGES = 0;
+    CARD_HISTORY_REMOTE_TOTAL_PAGES = 0;
+    invalidateSyncSummaryCache();
+    renderSyncPanel();
   }
 }
 
@@ -10925,7 +11111,7 @@ installAudioMode();
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v69.2.30";
+const TECHNICAL_DIAG_VERSION = "v69.2.33";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
@@ -10968,6 +11154,12 @@ function technicalDiagState(){
     history_remote_last_refresh_at: CARD_HISTORY_REMOTE_LAST_REFRESH_AT ? new Date(CARD_HISTORY_REMOTE_LAST_REFRESH_AT).toISOString() : null,
     history_initial_full_load_done: CARD_HISTORY_INITIAL_FULL_LOAD_DONE,
     history_known_complete: HISTORY_KNOWN_COMPLETE,
+    history_load_mode: CARD_HISTORY_REMOTE_LOAD_MODE,
+    history_load_error: CARD_HISTORY_REMOTE_LAST_ERROR || null,
+    history_last_attempt_at: CARD_HISTORY_REMOTE_LAST_ATTEMPT_AT ? new Date(CARD_HISTORY_REMOTE_LAST_ATTEMPT_AT).toISOString() : null,
+    history_expected_rows: CARD_HISTORY_REMOTE_EXPECTED_ROWS || 0,
+    history_loaded_pages: CARD_HISTORY_REMOTE_LOADED_PAGES || 0,
+    history_total_pages: CARD_HISTORY_REMOTE_TOTAL_PAGES || 0,
     fast_goal_remote_ready: FAST_GOAL_REMOTE_LAST_REFRESH_AT > 0,
     fast_goal_remote_last_refresh_at: FAST_GOAL_REMOTE_LAST_REFRESH_AT ? new Date(FAST_GOAL_REMOTE_LAST_REFRESH_AT).toISOString() : null,
     fast_goal_remote_card_rows: FAST_GOAL_REMOTE_CARD_ROWS || 0,
