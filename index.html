@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.2.22: cabeçalho do flashcard mostra Nível 0–7 e permite alteração manual do nível com sincronização do review_state. Mantém deduplicação, Programado 3/6/9/12/15/20/30, metas, Favoritos e demais correções da v69.2.15. -->
+<!-- v69.2.30: exportação de backup otimizada. Quando o histórico remoto completo já está carregado, a exportação confere a contagem remota e busca apenas eventos novos; carga completa fica reservada para primeira carga ou detecção de exclusão/reset remoto. Mantém níveis, cores, deduplicação, Programado 3/6/9/12/15/20/30, metas e Favoritos. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.2.22 — nível editável</title>
+<title>FlashPrático v69.2.30 — backup rápido e seguro</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -109,10 +109,30 @@
   }
   .level-badge-btn:hover { filter: brightness(1.08); }
   .level-badge-btn:active { transform: scale(.95); }
-  .level-badge-btn.level-0 { background: rgba(124,140,248,0.18); color: var(--accent2); border: 1px solid rgba(124,140,248,0.40); }
-  .level-badge-btn.level-1, .level-badge-btn.level-2 { background: rgba(61,184,176,0.16); color: var(--teal); border: 1px solid rgba(61,184,176,0.38); }
-  .level-badge-btn.level-3, .level-badge-btn.level-4 { background: rgba(240,160,75,0.16); color: var(--amber); border: 1px solid rgba(240,160,75,0.40); }
-  .level-badge-btn.level-5, .level-badge-btn.level-6, .level-badge-btn.level-7 { background: rgba(76,175,125,0.18); color: var(--green); border: 1px solid rgba(76,175,125,0.42); }
+  /* O número continua indicando o nível; a COR indica a última resposta real. */
+  .level-badge-btn.level-0,
+  .level-badge-btn.level-1,
+  .level-badge-btn.level-2,
+  .level-badge-btn.level-3,
+  .level-badge-btn.level-4,
+  .level-badge-btn.level-5,
+  .level-badge-btn.level-6,
+  .level-badge-btn.level-7,
+  .level-badge-btn.result-neutral {
+    background: rgba(124,140,248,0.16);
+    color: var(--accent2);
+    border: 1px solid rgba(124,140,248,0.38);
+  }
+  .level-badge-btn.result-right {
+    background: rgba(76,175,125,0.18);
+    color: var(--green);
+    border: 1px solid rgba(76,175,125,0.48);
+  }
+  .level-badge-btn.result-wrong {
+    background: rgba(240,160,75,0.18);
+    color: #ffd36a;
+    border: 1px solid rgba(240,160,75,0.52);
+  }
 
   .level-modal-backdrop {
     position: fixed; inset: 0; z-index: 10040; display: none; align-items: center; justify-content: center;
@@ -1214,7 +1234,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.2.22 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.2.30 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1421,7 +1441,7 @@
           <div class="sync-card"><div class="sync-n" id="sync-card-pending">0</div><div class="sync-l">flashcards pendentes</div></div>
           <div class="sync-card"><div class="sync-n" id="sync-question-pending">0</div><div class="sync-l">questões pendentes</div></div>
           <div class="sync-card"><div class="sync-n" id="sync-card-orphan">0</div><div class="sync-l">locais não sincronizáveis</div></div>
-          <div class="sync-card"><div class="sync-n" id="sync-local-total">0</div><div class="sync-l">eventos locais</div></div>
+          <div class="sync-card"><div class="sync-n" id="sync-local-total">0</div><div class="sync-l">eventos no histórico</div></div>
         </div>
         <div class="db-actions">
           <button class="mini-btn sync-now-btn" id="sync-now-btn" onclick="forceSyncNow()">Sincronizar agora</button>
@@ -2955,8 +2975,19 @@ function syncSummary(){
   const importantPending = readImportantPendingOps().length;
   const localCards = readLocalCardHistory().length;
   const localQuestions = readLocalQuestionResponses().length;
+  // O cache local é propositalmente limitado para caber com segurança no Safari/iPhone.
+  // Para o painel, porém, o número útil é o histórico REAL atualmente carregado:
+  // histórico completo do Supabase + eventos locais ainda não sincronizados.
+  const loadedCardHistory = getHistory().length;
+  const loadedQuestionHistory = Array.isArray(QUESTION_ATTEMPTS) ? QUESTION_ATTEMPTS.length : localQuestions;
+  const historyTotal = loadedCardHistory + loadedQuestionHistory;
   const totalPending = cardPending + questionPending + importantPending;
-  const result = { cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, importantPending, totalPending, localCards, localQuestions, localTotal: localCards + localQuestions };
+  const result = {
+    cardPending, queuedCardPending, missingCardPending, orphanCardPending, questionPending, importantPending, totalPending,
+    localCards, localQuestions, localCacheTotal: localCards + localQuestions,
+    loadedCardHistory, loadedQuestionHistory, historyTotal,
+    historyComplete: !!CARD_HISTORY_INITIAL_FULL_LOAD_DONE
+  };
   SYNC_SUMMARY_CACHE = result;
   SYNC_SUMMARY_CACHE_AT = now;
   return result;
@@ -2984,7 +3015,7 @@ function renderSyncPanel(){
   if(byId("sync-card-pending")) byId("sync-card-pending").textContent = summary.cardPending;
   if(byId("sync-question-pending")) byId("sync-question-pending").textContent = summary.questionPending;
   if(byId("sync-card-orphan")) byId("sync-card-orphan").textContent = summary.orphanCardPending;
-  if(byId("sync-local-total")) byId("sync-local-total").textContent = summary.localTotal;
+  if(byId("sync-local-total")) byId("sync-local-total").textContent = summary.historyTotal;
   const pill = byId("sync-state-pill");
   if(pill){
     pill.className = "sync-state-pill " + (summary.totalPending ? "warn" : "ok");
@@ -2996,9 +3027,13 @@ function renderSyncPanel(){
     const details = summary.missingCardPending ? ` ${summary.missingCardPending} flashcard(s) antigo(s) salvo(s) localmente ainda não constam no Supabase.` : "";
     const important = summary.importantPending ? ` ${summary.importantPending} marcação(ões) de favorito aguardam sincronização.` : "";
     const orphan = summary.orphanCardPending ? ` ${summary.orphanCardPending} evento(s) local(is) referem-se a cards que não existem mais na tabela cards; eles continuam contando na meta local, mas não podem subir para a tabela respostas por causa da chave estrangeira.` : "";
+    const cacheInfo = ` Cache local: ${summary.localCacheTotal} evento(s) (${summary.localCards} flashcards + ${summary.localQuestions} questões).`;
+    const historyInfo = summary.historyComplete
+      ? ` Histórico carregado: ${summary.historyTotal} evento(s).`
+      : ` Histórico carregado até agora: ${summary.historyTotal} evento(s); a carga remota completa ainda está em andamento.`;
     msg.textContent = summary.totalPending
-      ? `Há dados salvos neste aparelho aguardando envio.${details}${important}${orphan}${last}`
-      : `Nenhuma pendência local detectada.${orphan}${last}`;
+      ? `Há dados salvos neste aparelho aguardando envio.${details}${important}${orphan}${historyInfo}${cacheInfo}${last}`
+      : `Nenhuma pendência local detectada.${orphan}${historyInfo}${cacheInfo}${last}`;
   }
 }
 async function syncPendingCardResponsesToSupabase(){
@@ -3483,8 +3518,34 @@ function getGoalHistory(options = {}){
   if(!GOAL_HISTORY_CACHE) GOAL_HISTORY_CACHE = dedupeGoalEvents(GOAL_HISTORY_RAW_CACHE);
   return GOAL_HISTORY_CACHE;
 }
+function displayedProgrammedLevelForAnswer(card){
+  const current = deck?.[idx] || null;
+  if(current && card && studySessionKey(current) === studySessionKey(card)){
+    const preferredId = isFlipped ? "back-diff" : "front-diff";
+    const fallbackId = isFlipped ? "front-diff" : "back-diff";
+    const badge = document.getElementById(preferredId) || document.getElementById(fallbackId);
+    const displayed = Number(badge?.dataset?.level);
+    if(Number.isFinite(displayed)) return Math.max(0, Math.min(7, Math.trunc(displayed)));
+  }
+  return programmedLevelFor(card);
+}
+
 async function saveEvent(card, result){
   invalidateSyncSummaryCache();
+
+  // Captura o MESMO nível que o usuário está vendo antes de inserir o evento.
+  // O histórico pode conter estados legados ou respostas ainda sem review_state;
+  // a resposta atual nunca deve recalcular o passado e fazer um acerto reduzir nível.
+  const effectiveStateBeforeAnswer = effectiveProgrammedReviewState(card)
+    || latestStoredReviewStateForLogicalKey(card)
+    || reviewStateFor(card)
+    || null;
+  const visibleLevelBeforeAnswer = displayedProgrammedLevelForAnswer(card);
+  const answerContext = {
+    preAnswerLevel: visibleLevelBeforeAnswer,
+    preAnswerState: effectiveStateBeforeAnswer ? {...effectiveStateBeforeAnswer} : null
+  };
+
   const event = {
     id: makeClientId(),
     user_id: currentUser?.id || null,
@@ -3501,7 +3562,7 @@ async function saveEvent(card, result){
 
   // O estado usado pelo Programado é atualizado localmente antes de avançar.
   // A rede não bloqueia mais a passagem para o próximo flashcard.
-  await updateStudyReviewState(card, result);
+  await updateStudyReviewState(card, result, answerContext);
 
   if(isOnlineMode && currentUser){
     // rememberLocalCardEvent() já incorporou o evento ao ONLINE_HISTORY.
@@ -4246,39 +4307,120 @@ function historyEventsCoverReviewState(events, st){
   return Number.isFinite(lastMs) && lastMs >= stateMs - 1000;
 }
 
+function advanceStoredProgrammedStateWithNewHistory(card, stored){
+  if(!stored) return programmedReviewStateFromHistory(card);
+
+  const events = studyEventsForLogicalKey(card)
+    .filter(ev => ev && hasStudyResult(ev.result) && ev.ts)
+    .sort((a,b) => new Date(a.ts) - new Date(b.ts));
+  if(!events.length) return stored;
+
+  const stateReviewMs = stored?.ultima_revisao
+    ? new Date(stored.ultima_revisao).getTime()
+    : (stored?.updated_at ? new Date(stored.updated_at).getTime() : 0);
+  if(!Number.isFinite(stateReviewMs) || stateReviewMs <= 0){
+    // Sem qualquer âncora temporal confiável, preserva o checkpoint existente.
+    return stored;
+  }
+
+  // Localiza o evento já representado pelo review_state. A tolerância absorve
+  // created_at do servidor alguns segundos diferente do timestamp local.
+  let anchorIndex = -1;
+  let anchorDistance = Infinity;
+  const storedResult = String(stored?.ultimo_resultado || "");
+  events.forEach((ev, i) => {
+    const t = new Date(ev.ts).getTime();
+    if(!Number.isFinite(t)) return;
+    const sameResult = !storedResult || storedResult === "skip" || String(ev.result) === storedResult;
+    const distance = Math.abs(t - stateReviewMs);
+    if(sameResult && distance <= 5000 && distance < anchorDistance){
+      anchorIndex = i;
+      anchorDistance = distance;
+    }
+  });
+
+  let unseen = [];
+  if(anchorIndex >= 0){
+    unseen = events.slice(anchorIndex + 1);
+  } else {
+    // Sem âncora exata, só aceita eventos claramente posteriores ao estado.
+    unseen = events.filter(ev => {
+      const t = new Date(ev.ts).getTime();
+      return Number.isFinite(t) && t > stateReviewMs + 5000;
+    });
+  }
+  if(!unseen.length) return stored;
+
+  let level = Math.max(0, Math.min(7, Number(stored.acertos_seguidos || 0)));
+  let intervalDays = Number(stored.intervalo_dias || programmedIntervalDays(level));
+  let next = stored.proxima_revisao ? new Date(stored.proxima_revisao) : new Date(stateReviewMs);
+  let lastDate = stored.ultima_revisao ? new Date(stored.ultima_revisao) : null;
+  let lastResult = stored.ultimo_resultado || null;
+  let totalAcertos = Number(stored.total_acertos || 0);
+  let totalErros = Number(stored.total_erros || 0);
+  let totalDificeis = Number(stored.total_dificeis || 0);
+
+  const attemptsByDay = new Map();
+  events.forEach(ev => {
+    const d = new Date(ev.ts);
+    if(isNaN(d.getTime())) return;
+    const dk = `${d.getFullYear()}-${d.getMonth()+1}-${d.getDate()}`;
+    attemptsByDay.set(dk, (attemptsByDay.get(dk) || 0) + 1);
+  });
+
+  unseen.forEach(ev => {
+    const evDate = new Date(ev.ts);
+    if(isNaN(evDate.getTime())) return;
+    lastDate = evDate;
+    lastResult = ev.result;
+    if(ev.result === "right"){
+      level = Math.min(7, level + 1);
+      intervalDays = programmedIntervalDays(level);
+      next = addDays(evDate, intervalDays);
+      totalAcertos++;
+    } else if(ev.result === "wrong" || ev.result === "hard"){
+      level = Math.max(0, level - 1);
+      intervalDays = level === 0 ? 0 : programmedIntervalDays(level);
+      if(level === 0){
+        const dk = `${evDate.getFullYear()}-${evDate.getMonth()+1}-${evDate.getDate()}`;
+        const attemptsThisDay = attemptsByDay.get(dk) || 1;
+        next = attemptsThisDay >= 2 ? addDays(evDate, 1) : addMinutes(evDate, PROGRAMMED_REINFORCEMENT_MINUTES);
+      } else {
+        next = addDays(evDate, intervalDays);
+      }
+      if(ev.result === "wrong") totalErros++;
+      else totalDificeis++;
+    }
+  });
+
+  return {
+    ...stored,
+    card_id: card.id,
+    acertos_seguidos: level,
+    intervalo_dias: intervalDays,
+    proxima_revisao: next && !isNaN(next.getTime()) ? next.toISOString() : stored.proxima_revisao,
+    ultima_revisao: lastDate && !isNaN(lastDate.getTime()) ? lastDate.toISOString() : stored.ultima_revisao,
+    ultimo_resultado: lastResult,
+    total_acertos: Math.max(Number(stored.total_acertos || 0), totalAcertos),
+    total_erros: Math.max(Number(stored.total_erros || 0), totalErros),
+    total_dificeis: Math.max(Number(stored.total_dificeis || 0), totalDificeis)
+  };
+}
+
 function effectiveProgrammedReviewState(card){
   const key = studySessionKey(card);
   if(key && EFFECTIVE_PROGRAMMED_STATE_CACHE.has(key)) return EFFECTIVE_PROGRAMMED_STATE_CACHE.get(key);
 
-  const st = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card);
-  const hist = programmedReviewStateFromHistory(card);
-  const last = lastStudyEventForLogicalKey(card);
-  // Para saber se o histórico contém a mesma revisão do estado, a referência
-  // correta é ultima_revisao. updated_at pode mudar por importação/upsert sem
-  // significar que houve uma resposta nova.
-  const stateReviewMs = st?.ultima_revisao ? new Date(st.ultima_revisao).getTime() : 0;
-  const lastMs = last?.ts ? new Date(last.ts).getTime() : 0;
-  let result = null;
+  const stored = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card) || null;
+  // O review_state é o checkpoint do nível corrente. O histórico só avança esse
+  // checkpoint com eventos realmente posteriores. Isso impede que mudanças de
+  // algoritmo/duplicação no passado recalcularem o nível para baixo ao responder.
+  const result = stored
+    ? advanceStoredProgrammedStateWithNewHistory(card, stored)
+    : programmedReviewStateFromHistory(card);
 
-  // Se ultima_revisao não existe (estados legados), mas há histórico válido,
-  // o histórico é a única fonte capaz de reconstruir o Programado. Se existe,
-  // só usamos o histórico quando ele alcançou aquela revisão real.
-  const histEvents = studyEventsForLogicalKey(card);
-  const historyCompleteForState = historyEventsCoverReviewState(histEvents, st);
-  if(hist && historyCompleteForState && (!Number.isFinite(stateReviewMs) || !stateReviewMs || (Number.isFinite(lastMs) && lastMs >= stateReviewMs - 1000))){
-    result = hist;
-  } else if(st?.proxima_revisao || st?.ultimo_resultado){
-    // Se o estado salvo é mais recente que o histórico carregado neste aparelho,
-    // preservamos o estado para respeitar respostas feitas em outro aparelho.
-    result = st;
-  } else {
-    // Fallback importante: se a tabela estado_cards_usuario ainda não existir,
-    // falhar ao sincronizar, ou estiver desatualizada, reconstruímos a próxima
-    // revisão pelo histórico de respostas.
-    result = hist;
-  }
   if(key) EFFECTIVE_PROGRAMMED_STATE_CACHE.set(key, result || null);
-  return result;
+  return result || null;
 }
 
 function isProgrammedDue(card){
@@ -4294,7 +4436,18 @@ function isProgrammedAvailableNow(card){
   return isProgrammedDue(card) && !answeredRightTodayLogicalKeys().has(studySessionKey(card));
 }
 
+function refreshVisibleCardLevelBadges(){
+  const current = deck?.[idx] || null;
+  if(!current) return;
+  applyPerformanceBadge("front-diff", current);
+  applyPerformanceBadge("back-diff", current);
+}
+
 function pruneProgrammedDeckAfterDataRefresh(){
+  // O review_state pode mudar em segundo plano (outro aparelho, sync pendente,
+  // alteração manual). Mesmo que a composição do deck não mude, o badge
+  // visível precisa refletir a mesma fonte de nível usada pelo modal.
+  refreshVisibleCardLevelBadges();
   if(currentStudy?.mode !== "programmed" && currentStudy?.mode !== "important") return;
   const currentKey = studySessionKey(deck[idx]);
   const refreshBase = currentStudy?.mode === "important" ? importantBaseForActiveFilter() : baseCardsForActiveFilter();
@@ -4308,6 +4461,7 @@ function pruneProgrammedDeckAfterDataRefresh(){
     return allowedKeys.has(key);
   });
   if(beforeLength === deck.length){
+    refreshVisibleCardLevelBadges();
     updateStudyTitle();
     return;
   }
@@ -4385,9 +4539,9 @@ function getProgrammedStudyCards(baseCards = null){
   return out;
 }
 
-function spacedIntervalFor(result, previous, card=null){
+function spacedIntervalFor(result, previous, card=null, answerContext=null){
   if(card){
-    const scheduled = programmedScheduleFor(card, result, previous || null);
+    const scheduled = programmedScheduleFor(card, result, previous || null, answerContext);
     return { streak:scheduled.level, intervalDays:scheduled.intervalDays, next:scheduled.next };
   }
   const now = new Date();
@@ -4398,9 +4552,9 @@ function spacedIntervalFor(result, previous, card=null){
   else if(result === "skip"){ next = previous?.proxima_revisao ? new Date(previous.proxima_revisao) : now; }
   return { streak:level, intervalDays, next };
 }
-async function updateReviewState(card, result){
-  const previous = reviewStateFor(card) || {};
-  const { streak, intervalDays, next } = spacedIntervalFor(result, previous, card);
+async function updateReviewState(card, result, answerContext=null){
+  const previous = answerContext?.preAnswerState || reviewStateFor(card) || {};
+  const { streak, intervalDays, next } = spacedIntervalFor(result, previous, card, answerContext);
   const row = {
     user_id: currentUser?.id,
     card_id: card.id,
@@ -4430,9 +4584,12 @@ async function updateReviewState(card, result){
   }
 }
 
-function programmedScheduleFor(card, result, previous){
+function programmedScheduleFor(card, result, previous, answerContext=null){
   const now = new Date();
-  const oldLevel = programmedLevelBeforeAnswer(card, result, previous);
+  const capturedLevel = Number(answerContext?.preAnswerLevel);
+  const oldLevel = Number.isFinite(capturedLevel)
+    ? Math.max(0, Math.min(7, Math.trunc(capturedLevel)))
+    : programmedLevelBeforeAnswer(card, result, previous);
   let level = oldLevel;
   let next = now;
   let intervalDays = 0;
@@ -4469,9 +4626,9 @@ function programmedScheduleFor(card, result, previous){
   return { level, intervalDays, next };
 }
 
-async function updateProgrammedReviewState(card, result){
-  const previous = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card) || null;
-  const { level, intervalDays, next } = programmedScheduleFor(card, result, previous);
+async function updateProgrammedReviewState(card, result, answerContext=null){
+  const previous = answerContext?.preAnswerState || latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card) || null;
+  const { level, intervalDays, next } = programmedScheduleFor(card, result, previous, answerContext);
   const row = {
     user_id: currentUser?.id,
     card_id: card.id,
@@ -4501,9 +4658,9 @@ async function updateProgrammedReviewState(card, result){
   }
 }
 
-async function updateStudyReviewState(card, result){
-  if(currentStudy?.mode === "programmed" || currentStudy?.mode === "important") return updateProgrammedReviewState(card, result);
-  return updateReviewState(card, result);
+async function updateStudyReviewState(card, result, answerContext=null){
+  if(currentStudy?.mode === "programmed" || currentStudy?.mode === "important") return updateProgrammedReviewState(card, result, answerContext);
+  return updateReviewState(card, result, answerContext);
 }
 function uniqueCards(cards){
   const seen = new Set();
@@ -7714,13 +7871,39 @@ function programmedLevelBeforeAnswer(card, result, previous){
   return programmedLevelFromEvents(beforeEvents);
 }
 
+function lastAnsweredResultForLevelBadge(card){
+  if(!card) return null;
+  // Cor = última RESPOSTA real. Ajuste manual de nível usa "skip" no review_state
+  // e não deve apagar a indicação do último acerto/erro verdadeiro.
+  const last = lastStudyEventForLogicalKey(card);
+  const st = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card) || null;
+  const lastMs = last?.ts ? new Date(last.ts).getTime() : 0;
+  const stateMs = st ? stateTimestampMs(st) : 0;
+
+  // Se outro aparelho já trouxe um review_state mais recente, mas o evento ainda
+  // não entrou no histórico local, usa o resultado do estado somente se for uma
+  // resposta verdadeira (right/wrong/hard). "skip" permanece neutro para a lógica,
+  // mas a cor continua baseada no último evento real conhecido.
+  if(st && hasStudyResult(st.ultimo_resultado) && Number.isFinite(stateMs) && stateMs > (Number.isFinite(lastMs) ? lastMs : 0))
+    return st.ultimo_resultado;
+  if(last && hasStudyResult(last.result)) return last.result;
+  if(st && hasStudyResult(st.ultimo_resultado)) return st.ultimo_resultado;
+  return null;
+}
+
 function cardLevelInfo(card){
   const level = programmedLevelFor(card);
   const days = programmedIntervalDays(level);
+  const lastResult = lastAnsweredResultForLevelBadge(card);
+  const resultClass = lastResult === "right" ? "result-right" : ((lastResult === "wrong" || lastResult === "hard") ? "result-wrong" : "result-neutral");
+  const resultText = lastResult === "right" ? "Última resposta: certa" : ((lastResult === "wrong" || lastResult === "hard") ? "Última resposta: errada" : "Sem resposta anterior");
   return {
     level,
     label: `Nível ${level}`,
-    detail: level === 0 ? "Sem intervalo de nível" : `Próxima revisão em ${days} dia${days === 1 ? "" : "s"}`
+    detail: level === 0 ? "Sem intervalo de nível" : `Próxima revisão em ${days} dia${days === 1 ? "" : "s"}`,
+    lastResult,
+    resultClass,
+    resultText
   };
 }
 
@@ -7728,11 +7911,12 @@ function applyPerformanceBadge(elementId, card){
   const el = document.getElementById(elementId);
   if(!el) return;
   const info = cardLevelInfo(card);
-  el.className = `diff-badge status-badge level-badge-btn level-${info.level}`;
+  el.className = `diff-badge status-badge level-badge-btn level-${info.level} ${info.resultClass}`;
   el.textContent = info.label;
-  el.title = `${info.label} · ${info.detail}. Clique para alterar.`;
-  el.setAttribute("aria-label", `${info.label}. Clique para alterar o nível do card.`);
+  el.title = `${info.label} · ${info.resultText} · ${info.detail}. Clique para alterar.`;
+  el.setAttribute("aria-label", `${info.label}. ${info.resultText}. Clique para alterar o nível do card.`);
   el.dataset.level = String(info.level);
+  el.dataset.lastResult = info.lastResult || "";
 }
 
 let LEVEL_MODAL_CARD_ID = null;
@@ -9895,10 +10079,72 @@ function restoreFullJsonBackup(event){
   event.target.value = "";
 }
 
+const BACKUP_REMOTE_COUNT_TIMEOUT_MS = 8000;
+
+async function remoteCardResponseCountForBackup(){
+  let query = supabaseClient
+    .from("respostas")
+    .select("id", { count:"exact", head:true });
+  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  const response = await promiseWithTimeout(query, BACKUP_REMOTE_COUNT_TIMEOUT_MS, "conferência rápida do histórico para backup");
+  if(response?.error) throw response.error;
+  const count = Number(response?.count);
+  if(!Number.isFinite(count) || count < 0) throw new Error("O Supabase não informou a quantidade de respostas.");
+  return count;
+}
+
+async function refreshCardHistoryForBackup(){
+  // Primeira carga da sessão: continua exigindo uma leitura integral para que o
+  // backup nunca seja montado apenas a partir do cache local limitado.
+  const canUseIncremental = CARD_HISTORY_INITIAL_FULL_LOAD_DONE
+    && HISTORY_KNOWN_COMPLETE
+    && CARD_HISTORY_REMOTE_WATERMARK_ID > 0
+    && REMOTE_CARD_RESPONSE_IDS.size > 0;
+  if(!canUseIncremental){
+    return await loadResponsesFromSupabase({ silent:true });
+  }
+
+  // Depois de uma carga integral confirmada, busca somente IDs posteriores ao
+  // watermark. Em seguida uma contagem HEAD barata confirma que o conjunto de
+  // IDs conhecido ainda coincide com o servidor. Isso detecta inclusive
+  // exclusões/resets sem transferir novamente milhares de respostas.
+  let result = await loadResponsesFromSupabase({ silent:true, incremental:true });
+
+  let remoteCount;
+  try{
+    remoteCount = await remoteCardResponseCountForBackup();
+  }catch(error){
+    console.warn("Conferência rápida do backup falhou; usando carga completa por segurança.", error);
+    return await loadResponsesFromSupabase({ silent:true });
+  }
+
+  let knownCount = REMOTE_CARD_RESPONSE_IDS.size;
+  if(knownCount < remoteCount){
+    // Entraram respostas entre a consulta incremental e a contagem. Faz uma
+    // segunda passagem curta e confere outra vez.
+    result = await loadResponsesFromSupabase({ silent:true, incremental:true });
+    knownCount = REMOTE_CARD_RESPONSE_IDS.size;
+    try{ remoteCount = await remoteCardResponseCountForBackup(); }
+    catch(error){
+      console.warn("Conferência final após segunda passagem falhou; usando carga completa por segurança.", error);
+      return await loadResponsesFromSupabase({ silent:true });
+    }
+  }
+
+  if(knownCount !== remoteCount){
+    // knownCount > remoteCount indica remoção remota; knownCount < remoteCount
+    // indica linhas ainda não capturadas. Em ambos os casos, uma carga integral
+    // é necessária para reconciliar o conjunto físico de IDs antes do backup.
+    return await loadResponsesFromSupabase({ silent:true });
+  }
+  return result;
+}
+
 async function ensureBackupDataComplete(){
   // Nunca exporta silenciosamente uma visão parcial da conta online. Se a carga
   // completa ainda não ocorreu, tenta concluí-la antes de construir o JSON.
-  // Offline só é seguro quando esta sessão já confirmou a carga integral.
+  // Depois disso, usa sincronização incremental segura para não baixar novamente
+  // todo o histórico a cada clique em Exportar.
   if(!(isOnlineMode && currentUser?.id && supabaseClient)) return true;
   if(!navigator.onLine){
     if(!CARD_HISTORY_INITIAL_FULL_LOAD_DONE){
@@ -9907,8 +10153,9 @@ async function ensureBackupDataComplete(){
     return true;
   }
 
-  await loadResponsesFromSupabase({ silent:true });
-  if(!CARD_HISTORY_INITIAL_FULL_LOAD_DONE){
+  const startedAt = Date.now();
+  const historyRefresh = await refreshCardHistoryForBackup();
+  if(!CARD_HISTORY_INITIAL_FULL_LOAD_DONE || !HISTORY_KNOWN_COMPLETE){
     throw new Error("Não foi possível confirmar a carga completa do histórico. O backup foi cancelado para evitar um arquivo incompleto.");
   }
   const reviewOk = await loadReviewStateFromSupabase({ silent:true });
@@ -9919,6 +10166,16 @@ async function ensureBackupDataComplete(){
   catch(error){
     console.warn("Favoritos remotos não puderam ser atualizados antes do backup; mantendo a união local já protegida.", error);
   }
+  try{
+    technicalDiagLog("backup: dados confirmados", {
+      elapsed_ms:Date.now() - startedAt,
+      history_mode:historyRefresh?.incremental ? "incremental" : "full",
+      history_rows:historyRefresh?.rows ?? null,
+      history_total:getHistory().length,
+      remote_physical_rows:REMOTE_CARD_RESPONSE_IDS.size,
+      review_state:REVIEW_STATE.size
+    }, "ok");
+  }catch(_){ }
   return true;
 }
 
@@ -10668,7 +10925,7 @@ installAudioMode();
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v69.2.22";
+const TECHNICAL_DIAG_VERSION = "v69.2.30";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
