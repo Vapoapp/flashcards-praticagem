@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.2.4: as metas Hoje/Semana/Mês carregam por uma consulta recente e independente; o histórico completo permanece em segundo plano. Mantém Modo Áudio, Programado, metas e histórico. -->
+<!-- v69.2.22: cabeçalho do flashcard mostra Nível 0–7 e permite alteração manual do nível com sincronização do review_state. Mantém deduplicação, Programado 3/6/9/12/15/20/30, metas, Favoritos e demais correções da v69.2.15. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.2.4 — metas rápidas</title>
+<title>FlashPrático v69.2.22 — nível editável</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -99,11 +99,55 @@
     white-space: nowrap;
     letter-spacing: .2px;
   }
-  .status-new { background: rgba(124,140,248,0.18); color: var(--accent2); border: 1px solid rgba(124,140,248,0.40); }
-  .status-progress { background: rgba(61,184,176,0.16); color: var(--teal); border: 1px solid rgba(61,184,176,0.38); }
-  .status-attention { background: rgba(240,160,75,0.16); color: var(--amber); border: 1px solid rgba(240,160,75,0.40); }
-  .status-recurrent { background: rgba(224,92,92,0.18); color: var(--red); border: 1px solid rgba(224,92,92,0.45); }
-  .status-dominated { background: rgba(76,175,125,0.18); color: var(--green); border: 1px solid rgba(76,175,125,0.42); }
+  .level-badge-btn {
+    appearance: none;
+    -webkit-appearance: none;
+    font-family: inherit;
+    cursor: pointer;
+    line-height: 1;
+    transition: transform .12s ease, background .12s ease, border-color .12s ease;
+  }
+  .level-badge-btn:hover { filter: brightness(1.08); }
+  .level-badge-btn:active { transform: scale(.95); }
+  .level-badge-btn.level-0 { background: rgba(124,140,248,0.18); color: var(--accent2); border: 1px solid rgba(124,140,248,0.40); }
+  .level-badge-btn.level-1, .level-badge-btn.level-2 { background: rgba(61,184,176,0.16); color: var(--teal); border: 1px solid rgba(61,184,176,0.38); }
+  .level-badge-btn.level-3, .level-badge-btn.level-4 { background: rgba(240,160,75,0.16); color: var(--amber); border: 1px solid rgba(240,160,75,0.40); }
+  .level-badge-btn.level-5, .level-badge-btn.level-6, .level-badge-btn.level-7 { background: rgba(76,175,125,0.18); color: var(--green); border: 1px solid rgba(76,175,125,0.42); }
+
+  .level-modal-backdrop {
+    position: fixed; inset: 0; z-index: 10040; display: none; align-items: center; justify-content: center;
+    padding: 16px; background: rgba(0,0,0,.68); backdrop-filter: blur(3px);
+  }
+  .level-modal-backdrop.show { display: flex; }
+  .level-modal {
+    width: min(430px, 100%); max-height: min(92dvh, 720px); overflow-y: auto;
+    background: var(--surface); border: 1px solid var(--border2);
+    border-radius: 20px; box-shadow: 0 24px 90px rgba(0,0,0,.55);
+    -webkit-overflow-scrolling: touch;
+  }
+  .level-modal-head {
+    display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
+    padding:15px 16px; border-bottom:1px solid var(--border);
+  }
+  .level-modal-title { font-size:17px; font-weight:950; color:var(--text); }
+  .level-modal-sub { margin-top:4px; font-size:12px; color:var(--muted); line-height:1.45; }
+  .level-modal-close {
+    flex:0 0 auto; width:34px; height:34px; border-radius:11px; border:1px solid var(--border2);
+    background:var(--surface2); color:var(--text); font-size:20px; cursor:pointer;
+  }
+  .level-modal-current { padding:11px 16px 0; color:var(--muted); font-size:12px; line-height:1.4; }
+  .level-modal-current strong { color:var(--accent2); }
+  .level-options { display:grid; grid-template-columns:repeat(2,1fr); gap:8px; padding:12px 16px 16px; }
+  .level-option {
+    border:1px solid var(--border); background:rgba(255,255,255,.04); color:var(--text);
+    border-radius:14px; padding:11px 12px; text-align:left; cursor:pointer; font-family:inherit;
+  }
+  .level-option:hover { border-color:rgba(124,140,248,.5); background:rgba(91,106,240,.10); }
+  .level-option:active { transform:scale(.98); }
+  .level-option.active { border-color:rgba(124,140,248,.78); background:rgba(91,106,240,.20); }
+  .level-option-n { display:block; font-size:14px; font-weight:950; }
+  .level-option-d { display:block; margin-top:3px; color:var(--muted); font-size:10px; font-weight:750; line-height:1.25; }
+  @media(max-width:420px){ .level-options{grid-template-columns:1fr;} }
 
   /* BUTTONS */
   .btn-row { display: flex; gap: 10px; width: 100%; max-width: 420px; margin-top: 14px; }
@@ -675,59 +719,6 @@
   }
 
 
-  /* PROGRESSO DE LEITURA DA BIBLIOGRAFIA */
-  #progress-screen { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding-bottom: 90px; }
-  .reading-page { max-width: 980px; margin: 0 auto; }
-  .reading-plan-card { background: var(--surface); border:1px solid var(--border); border-radius:18px; padding:14px; margin: 12px auto; }
-  .reading-plan-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-  .reading-plan-title { font-size:15px; font-weight:950; color:var(--text); }
-  .reading-plan-sub { font-size:12px; color:var(--muted); line-height:1.45; margin-top:4px; }
-  .reading-target-row { display:grid; grid-template-columns: minmax(180px, 240px) minmax(0, 1fr); gap:10px; margin-top: 12px; align-items:end; }
-  .reading-field { display:flex; flex-direction:column; gap:6px; }
-  .reading-field label { font-size:11px; color:var(--muted); font-weight:900; }
-  .reading-field input, .reading-field textarea { width:100%; border:1px solid var(--border); background:var(--surface2); color:var(--text); border-radius:12px; padding:10px 11px; font-size:13px; outline:none; font-family:inherit; }
-  .reading-field textarea { min-height: 135px; resize: vertical; line-height: 1.45; }
-  .reading-pace { border:1px solid rgba(124,140,248,.35); background:rgba(91,106,240,.12); border-radius:14px; padding:11px 12px; color:var(--text); font-size:13px; line-height:1.45; }
-  .reading-pace strong { color:var(--accent2); }
-  .reading-summary-grid { display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin: 12px auto; }
-  .reading-stat { background:var(--surface); border:1px solid var(--border); border-radius:16px; padding:13px; }
-  .reading-stat-n { font-size:24px; font-weight:950; line-height:1; }
-  .reading-stat-l { font-size:11px; color:var(--muted); margin-top:5px; line-height:1.35; }
-  .reading-section-list { display:grid; gap:12px; }
-  .reading-section { background:var(--surface); border:1px solid var(--border); border-radius:18px; overflow:hidden; }
-  .reading-section-head { padding:14px; border-bottom:1px solid var(--border); display:flex; align-items:flex-start; justify-content:space-between; gap:12px; flex-wrap:wrap; }
-  .reading-section-name { font-size:15px; font-weight:950; line-height:1.35; color:var(--text); }
-  .reading-section-name span { color:var(--accent2); }
-  .reading-section-meta { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; }
-  .reading-pill { font-size:11px; font-weight:900; color:var(--muted); background:rgba(255,255,255,.04); border:1px solid var(--border); border-radius:999px; padding:4px 8px; }
-  .reading-pill.good { color:var(--green); border-color:rgba(76,175,125,.38); background:rgba(76,175,125,.12); }
-  .reading-progress-track { height:8px; border-radius:999px; background:rgba(255,255,255,.08); overflow:hidden; border:1px solid rgba(255,255,255,.06); margin-top:10px; }
-  .reading-progress-fill { height:100%; width:0%; border-radius:999px; background:linear-gradient(90deg, var(--accent), var(--teal)); }
-  .reading-table { display:grid; gap:8px; padding:12px 14px 14px; }
-  .reading-row { display:grid; grid-template-columns: minmax(180px, 1fr) 92px 92px 104px 36px; gap:8px; align-items:center; border:1px solid var(--border); background:rgba(255,255,255,.035); border-radius:14px; padding:9px; }
-  .reading-row input[type="text"], .reading-row input[type="number"] { width:100%; border:1px solid var(--border); background:var(--surface2); color:var(--text); border-radius:10px; padding:8px 9px; font-size:12px; outline:none; }
-  .reading-row-label { display:none; color:var(--muted); font-size:10px; font-weight:900; margin-bottom:4px; }
-  .reading-check { display:flex; align-items:center; justify-content:center; gap:6px; color:var(--muted); font-size:11px; font-weight:900; white-space:nowrap; }
-  .reading-check input { width:16px; height:16px; accent-color: var(--accent); }
-  .reading-remove { border:1px solid rgba(224,92,92,.35); background:rgba(224,92,92,.12); color:var(--red); border-radius:10px; height:34px; cursor:pointer; font-weight:950; }
-  .reading-section-actions { display:flex; flex-wrap:wrap; gap:8px; padding:0 14px 14px; }
-  .reading-import-panel { display:none; margin-top:12px; }
-  .reading-import-panel.open { display:block; }
-  @media (max-width: 760px){
-    .reading-summary-grid { grid-template-columns: repeat(2, 1fr); }
-    .reading-target-row { grid-template-columns: 1fr; }
-    .reading-row { grid-template-columns: 1fr 1fr; }
-    .reading-row > div:first-child { grid-column: 1 / -1; }
-    .reading-row-label { display:block; }
-    .reading-check { justify-content:flex-start; }
-    .reading-remove { width:100%; }
-  }
-  @media (max-width: 520px){
-    .reading-summary-grid { grid-template-columns: 1fr; }
-    .reading-row { grid-template-columns: 1fr; }
-  }
-
-
   /* v63: remove a barra visual "Modo", mantendo o elemento no DOM para o JavaScript. */
   #study-title { display: none !important; }
 
@@ -1223,7 +1214,7 @@
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.2.4 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.2.22 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1289,7 +1280,6 @@
     <button class="tab-btn" id="tab-diag" onclick="showTab('diag')">Diagnóstico</button>
     <button class="tab-btn" id="tab-questions" onclick="showTab('questions')">Questões</button>
     <button class="tab-btn" id="tab-oldexams" onclick="showTab('oldexams')">Provas Antigas</button>
-    <button class="tab-btn" id="tab-progress" onclick="showTab('progress')">Progresso</button>
     <button class="tab-btn today" id="tab-health" onclick="showTab('health')">Saúde do Baralho</button>
     <button class="tab-btn" id="tab-db" onclick="showTab('db')">Banco</button>
     <button class="tab-btn" id="tab-arch" onclick="showTab('arch')">Arquivados</button>
@@ -1379,51 +1369,6 @@
       <button class="mini-btn" onclick="buildDashboard('sample')">Pouca amostra</button>
     </div>
     <div class="diag-list" id="diag-list"></div>
-  </div>
-
-
-  <!-- PROGRESS SCREEN -->
-  <div class="screen" id="progress-screen" style="display:none;">
-    <div class="reading-page">
-      <div class="diag-head">
-        <div class="diag-title">Progresso de leitura</div>
-        <div class="diag-sub">Controle da bibliografia por seções 1 a 7. O total geral é calculado automaticamente pelo somatório das seções/publicações. Marque a publicação como lida ou informe quantas páginas já leu. Defina uma data-alvo para o app calcular o ritmo diário necessário até terminar tudo.</div>
-      </div>
-      <div class="reading-summary-grid" id="reading-summary-grid"></div>
-      <div class="reading-plan-card">
-        <div class="reading-plan-head">
-          <div>
-            <div class="reading-plan-title">Planejamento de prazo</div>
-            <div class="reading-plan-sub">A conta usa páginas restantes ÷ dias corridos até a data-alvo, incluindo hoje.</div>
-          </div>
-          <button class="mini-btn" type="button" onclick="renderReadingProgress()">Atualizar</button>
-        </div>
-        <div class="reading-target-row">
-          <div class="reading-field">
-            <label for="reading-target-date">Data para terminar tudo</label>
-            <input id="reading-target-date" type="date" onchange="saveReadingTargetDate()">
-          </div>
-          <div class="reading-pace" id="reading-pace-box">Defina uma data-alvo para calcular o ritmo diário.</div>
-        </div>
-        <div class="diag-controls" style="margin:12px 0 0;">
-          <button class="mini-btn" onclick="goBackToStudy()">Voltar ao estudo</button>
-          <button class="mini-btn" onclick="toggleReadingImportPanel()">Colar levantamento</button>
-          <button class="mini-btn" onclick="exportReadingProgress()">Exportar progresso</button>
-          <button class="mini-btn danger-btn" onclick="resetReadingProgress()">Zerar leitura</button>
-        </div>
-        <div class="reading-import-panel" id="reading-import-panel">
-          <div class="reading-field">
-            <label for="reading-import-text">Cole aqui seu levantamento no formato “Seção — título / Publicação / Páginas”</label>
-            <textarea id="reading-import-text" placeholder="I - MANOBRABILIDADE DO NAVIO&#10;Publicação    Páginas&#10;Practical Ship Hydrodynamics    159&#10;...&#10;TOTAL 8934 páginas"></textarea>
-          </div>
-          <div class="db-actions">
-            <button class="mini-btn" onclick="importReadingPlanFromText()">Importar levantamento</button>
-            <button class="mini-btn" onclick="toggleReadingImportPanel(false)">Fechar</button>
-          </div>
-        </div>
-      </div>
-      <div class="reading-section-list" id="reading-sections"></div>
-    </div>
   </div>
 
 
@@ -1620,7 +1565,7 @@
         <div class="card-face card-front">
           <div class="card-header">
             <span class="cat-badge" id="front-cat">—</span>
-            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-front" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como favorito" aria-label="Marcar como favorito">☆</button><span class="diff-badge" id="front-diff">—</span></span>
+            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-front" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como favorito" aria-label="Marcar como favorito">☆</button><button class="diff-badge status-badge level-badge-btn level-0" id="front-diff" type="button" onclick="openCardLevelModal(event)" title="Alterar nível do card" aria-label="Alterar nível do card">Nível 0</button></span>
           </div>
           <div class="card-body">
             <div class="question-icon" id="q-icon">❓</div>
@@ -1646,7 +1591,7 @@
         <div class="card-face card-back">
           <div class="card-header">
             <span class="answer-label">Resposta</span>
-            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-back" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como favorito" aria-label="Marcar como favorito">☆</button><span class="diff-badge" id="back-diff">—</span></span>
+            <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-back" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como favorito" aria-label="Marcar como favorito">☆</button><button class="diff-badge status-badge level-badge-btn level-0" id="back-diff" type="button" onclick="openCardLevelModal(event)" title="Alterar nível do card" aria-label="Alterar nível do card">Nível 0</button></span>
           </div>
           <div class="card-body" style="overflow-y:auto; max-height: calc(var(--card-h) - 100px);">
             <div id="a-text" class="answer-text">—</div>
@@ -1786,6 +1731,22 @@
   </div>
 
 
+  <!-- MANUAL CARD LEVEL MODAL -->
+  <div class="level-modal-backdrop" id="level-modal-backdrop" onclick="closeCardLevelModal(event)">
+    <div class="level-modal" role="dialog" aria-modal="true" aria-labelledby="level-modal-title" onclick="event.stopPropagation()">
+      <div class="level-modal-head">
+        <div>
+          <div class="level-modal-title" id="level-modal-title">Alterar nível do card</div>
+          <div class="level-modal-sub">A mudança é manual: não conta como acerto ou erro e ajusta a próxima revisão conforme o nível escolhido.</div>
+        </div>
+        <button class="level-modal-close" type="button" onclick="closeCardLevelModal()" aria-label="Fechar">×</button>
+      </div>
+      <div class="level-modal-current" id="level-modal-current"></div>
+      <div class="level-options" id="level-options"></div>
+    </div>
+  </div>
+
+
   <!-- COMPARE MODAL -->
   <div class="compare-modal-backdrop" id="compare-modal-backdrop" onclick="closeCompareModal(event)">
     <div class="compare-modal" role="dialog" aria-modal="true" aria-labelledby="compare-modal-title" onclick="event.stopPropagation()">
@@ -1919,6 +1880,7 @@ let CARD_HISTORY_REMOTE_WATERMARK_ID = 0;
 let CARD_HISTORY_REMOTE_LAST_REFRESH_AT = 0;
 let CARD_HISTORY_REMOTE_LAST_ROWS = 0;
 let CARD_HISTORY_INITIAL_FULL_LOAD_DONE = false;
+let HISTORY_KNOWN_COMPLETE = false;
 let FAST_GOAL_REMOTE_LOAD_PROMISE = null;
 let FAST_GOAL_REMOTE_LAST_REFRESH_AT = 0;
 let FAST_GOAL_REMOTE_CARD_ROWS = 0;
@@ -1962,6 +1924,203 @@ let IMPORTANT_TABLE_READY = true;
 let IMPORTANT_SYNC_BUSY = false;
 let REVIEW_TABLE_READY = true;
 let isOnlineMode = true;
+const REVIEW_STATE_LOCAL_CACHE_PREFIX = "flashpratico_review_state_local_v1";
+function reviewStateLocalCacheKey(){
+  return `${REVIEW_STATE_LOCAL_CACHE_PREFIX}:${currentUser?.id || "local"}`;
+}
+function reviewRowToLocalArray(r){
+  return [String(r?.card_id || ""), Number(r?.acertos_seguidos || 0), Number(r?.intervalo_dias || 0), r?.proxima_revisao || null, r?.ultima_revisao || null, r?.ultimo_resultado || null, Number(r?.total_acertos || 0), Number(r?.total_erros || 0), Number(r?.total_dificeis || 0), Number(r?.total_pulos || 0), r?.updated_at || null];
+}
+function localArrayToReviewRow(row){
+  if(!Array.isArray(row) || !row[0]) return null;
+  return { user_id:currentUser?.id || null, card_id:String(row[0]), acertos_seguidos:Number(row[1] || 0), intervalo_dias:Number(row[2] || 0), proxima_revisao:row[3] || null, ultima_revisao:row[4] || null, ultimo_resultado:row[5] || null, total_acertos:Number(row[6] || 0), total_erros:Number(row[7] || 0), total_dificeis:Number(row[8] || 0), total_pulos:Number(row[9] || 0), updated_at:row[10] || null };
+}
+function persistReviewStateLocalCache(){
+  if(!currentUser?.id) return;
+  try{
+    const rows = Array.from(REVIEW_STATE.values()).map(reviewRowToLocalArray).filter(r => r[0]);
+    localStorage.setItem(reviewStateLocalCacheKey(), JSON.stringify({version:1, saved_at:new Date().toISOString(), rows}));
+  }catch(e){ console.warn("Não consegui salvar cache local do review_state:", e); }
+}
+function hydrateReviewStateLocalCache(){
+  if(!currentUser?.id) return 0;
+  try{
+    const payload = JSON.parse(localStorage.getItem(reviewStateLocalCacheKey()) || "null");
+    const rows = Array.isArray(payload) ? payload : payload?.rows;
+    if(!Array.isArray(rows)) return 0;
+    let loaded = 0;
+    rows.map(localArrayToReviewRow).filter(Boolean).forEach(row => {
+      const key = cardIdKey(row.card_id);
+      const old = REVIEW_STATE.get(key);
+      if(!old || stateTimestampMs(row) >= stateTimestampMs(old)) REVIEW_STATE.set(key, row);
+      loaded++;
+    });
+    return loaded;
+  }catch(e){ console.warn("Não consegui ler cache local do review_state:", e); return 0; }
+}
+function clearReviewStateLocalCache(){
+  try{ localStorage.removeItem(reviewStateLocalCacheKey()); }catch(e){}
+}
+const REVIEW_STATE_PENDING_PREFIX = "flashpratico_review_state_pending_v1";
+function reviewStatePendingKey(){
+  return `${REVIEW_STATE_PENDING_PREFIX}:${currentUser?.id || "local"}`;
+}
+function readPendingReviewStates(){
+  if(!currentUser?.id) return [];
+  try{
+    const payload = JSON.parse(localStorage.getItem(reviewStatePendingKey()) || "null");
+    const rows = Array.isArray(payload) ? payload : payload?.rows;
+    if(!Array.isArray(rows)) return [];
+    return rows.map(localArrayToReviewRow).filter(Boolean).map(row => ({...row, user_id:currentUser.id}));
+  }catch(e){ console.warn("Não consegui ler fila pendente do review_state:", e); return []; }
+}
+function writePendingReviewStates(rows){
+  if(!currentUser?.id) return [];
+  const map = new Map();
+  (rows || []).map(row => normalizeBackupReviewRow(row)).filter(Boolean).forEach(row => {
+    const key = cardIdKey(row.card_id);
+    const old = map.get(key);
+    if(!old || stateTimestampMs(row) >= stateTimestampMs(old)) map.set(key, {...row, user_id:currentUser.id});
+  });
+  const clean = Array.from(map.values()).sort((a,b) => stateTimestampMs(a) - stateTimestampMs(b)).slice(-2000);
+  try{ localStorage.setItem(reviewStatePendingKey(), JSON.stringify({version:1, saved_at:new Date().toISOString(), rows:clean.map(reviewRowToLocalArray)})); }
+  catch(e){ console.warn("Não consegui salvar fila pendente do review_state:", e); }
+  return clean;
+}
+function enqueuePendingReviewState(row){
+  if(!currentUser?.id || !row?.card_id) return readPendingReviewStates();
+  return writePendingReviewStates([...readPendingReviewStates(), {...row, user_id:currentUser.id}]);
+}
+function clearPendingReviewStates(){
+  try{ localStorage.removeItem(reviewStatePendingKey()); }catch(e){}
+}
+function removePendingReviewStateIds(cardIds){
+  const ids = new Set((cardIds || []).map(cardIdKey));
+  if(!ids.size) return readPendingReviewStates();
+  return writePendingReviewStates(readPendingReviewStates().filter(row => !ids.has(cardIdKey(row.card_id))));
+}
+function reviewStateScheduleEquivalent(a, b){
+  if(!a || !b) return false;
+  if(Number(a.acertos_seguidos || 0) !== Number(b.acertos_seguidos || 0)) return false;
+  if(Number(a.intervalo_dias || 0) !== Number(b.intervalo_dias || 0)) return false;
+  if(String(a.ultimo_resultado || "") !== String(b.ultimo_resultado || "")) return false;
+  const aNext = a.proxima_revisao ? new Date(a.proxima_revisao).getTime() : 0;
+  const bNext = b.proxima_revisao ? new Date(b.proxima_revisao).getTime() : 0;
+  if(aNext || bNext){
+    if(!Number.isFinite(aNext) || !Number.isFinite(bNext) || Math.abs(aNext - bNext) > 1000) return false;
+  }
+  return true;
+}
+function remoteReviewCoversPending(remote, local){
+  if(!remote || !local) return false;
+  const remoteMs = stateTimestampMs(remote);
+  const localMs = stateTimestampMs(local);
+  if(remoteMs > localMs + 1000) return true;
+  if(localMs > remoteMs + 1000) return false;
+  // Dentro da tolerância de 1 s não basta comparar os contadores: uma alteração
+  // manual muda nível/agenda sem criar acerto/erro. Só consideramos o remoto
+  // equivalente se ele também representa a mesma agenda e nível.
+  return reviewStateStudyCount(remote) >= reviewStateStudyCount(local)
+    && reviewStateScheduleEquivalent(remote, local);
+}
+function removePendingReviewStatesCoveredBy(rows){
+  const covers = new Map();
+  (rows || []).forEach(row => {
+    if(!row?.card_id) return;
+    const key = cardIdKey(row.card_id);
+    const old = covers.get(key);
+    if(!old || stateTimestampMs(row) >= stateTimestampMs(old)) covers.set(key, row);
+  });
+  if(!covers.size) return readPendingReviewStates();
+  return writePendingReviewStates(readPendingReviewStates().filter(local => {
+    const cover = covers.get(cardIdKey(local.card_id));
+    return !cover || !remoteReviewCoversPending(cover, local);
+  }));
+}
+
+let REVIEW_STATE_SYNC_PROMISE = null;
+let REVIEW_STATE_SYNC_RERUN = false;
+
+async function syncPendingReviewStatesToSupabase(){
+  if(!currentUser?.id || !supabaseClient || !navigator.onLine) return {synced:0, skipped:readPendingReviewStates().length};
+  if(REVIEW_STATE_SYNC_PROMISE){
+    REVIEW_STATE_SYNC_RERUN = true;
+    return REVIEW_STATE_SYNC_PROMISE;
+  }
+
+  REVIEW_STATE_SYNC_PROMISE = (async () => {
+    let syncedTotal = 0;
+    let skippedTotal = 0;
+    let passes = 0;
+
+    do {
+      REVIEW_STATE_SYNC_RERUN = false;
+      const pending = readPendingReviewStates();
+      if(!pending.length) break;
+
+      const remoteMap = new Map();
+      const chunkSize = 120;
+      for(let i=0; i<pending.length; i+=chunkSize){
+        const ids = pending.slice(i,i+chunkSize).map(row => cardIdKey(row.card_id));
+        const {data,error} = await supabaseClient
+          .from("estado_cards_usuario")
+          .select("user_id,card_id,acertos_seguidos,intervalo_dias,proxima_revisao,ultima_revisao,ultimo_resultado,total_acertos,total_erros,total_dificeis,total_pulos,updated_at")
+          .eq("user_id", currentUser.id)
+          .in("card_id", ids);
+        if(error){ REVIEW_TABLE_READY=false; throw new Error("Falha ao conferir review_state remoto antes do sync: " + (error.message || error)); }
+        (data || []).forEach(row => remoteMap.set(cardIdKey(row.card_id), row));
+      }
+
+      const toUpsert=[];
+      const resolvedRows=[];
+      pending.forEach(local => {
+        const key=cardIdKey(local.card_id);
+        const remote=remoteMap.get(key);
+        if(remoteReviewCoversPending(remote, local)){
+          const current=REVIEW_STATE.get(key);
+          if(!current || stateTimestampMs(remote) >= stateTimestampMs(current)) REVIEW_STATE.set(key, remote);
+          resolvedRows.push(remote);
+        }else{
+          toUpsert.push(local);
+        }
+      });
+
+      if(resolvedRows.length){
+        removePendingReviewStatesCoveredBy(resolvedRows);
+        skippedTotal += resolvedRows.length;
+      }
+      if(toUpsert.length){
+        await upsertReviewStateRowsToSupabase(toUpsert);
+        // Uma alteração mais nova pode ter sido enfileirada enquanto o await
+        // estava em andamento. Removemos somente o estado realmente coberto
+        // pelo lote concluído, nunca tudo do mesmo card_id.
+        removePendingReviewStatesCoveredBy(toUpsert);
+        syncedTotal += toUpsert.length;
+      }
+
+      passes++;
+      // Se outra chamada chegou enquanto esta sincronização estava em curso,
+      // executamos uma nova passagem serialmente sobre a fila mais recente.
+    } while(REVIEW_STATE_SYNC_RERUN && passes < 8);
+
+    persistReviewStateLocalCache();
+    invalidateProgrammedRuntimeCaches();
+    return {synced:syncedTotal, skipped:skippedTotal};
+  })();
+
+  try{
+    return await REVIEW_STATE_SYNC_PROMISE;
+  } finally {
+    REVIEW_STATE_SYNC_PROMISE = null;
+    const rerun = REVIEW_STATE_SYNC_RERUN;
+    REVIEW_STATE_SYNC_RERUN = false;
+    if(rerun && currentUser?.id && supabaseClient && navigator.onLine && readPendingReviewStates().length){
+      setTimeout(() => {
+        void syncPendingReviewStatesToSupabase().catch(error => console.error("Erro ao repetir sincronização do review_state:", error));
+      }, 0);
+    }
+  }
+}
 const MIN_SAMPLE = 5;
 let deck = [], idx = 0, isFlipped = false;
 let SESSION_CARD_ATTEMPTS = new Map();
@@ -2183,7 +2342,7 @@ function loadEmbeddedQuestionResponses(){
 }
 function saveEmbeddedQuestionResponses(){
   try {
-    const clean = mergeQuestionAttempts(QUESTION_ATTEMPTS).slice(-20000);
+    const clean = mergeQuestionAttempts(QUESTION_ATTEMPTS).slice(-3000);
     localStorage.setItem(QUESTION_LOCAL_KEY, JSON.stringify(clean));
   }
   catch(e) { console.warn("Não foi possível salvar respostas locais das questões:", e); }
@@ -2505,8 +2664,53 @@ function makeClientId(){
   }
   return String(Date.now()) + "-" + Math.random().toString(16).slice(2);
 }
+function canonicalEventTimestamp(ts){
+  // O mesmo timestamptz pode voltar do Supabase como +00:00 e existir localmente
+  // como Z. Para deduplicação, ambos precisam produzir exatamente a mesma chave.
+  // IMPORTANTE: não usamos apenas Date.toISOString(), pois Date reduz frações
+  // maiores que milissegundos. O Postgres/Supabase pode manter microssegundos e
+  // eles fazem parte da identidade exata do evento.
+  const raw = String(ts || "").trim();
+  if(!raw) return "";
+
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(Z|([+-])(\d{2}):?(\d{2}))$/i);
+  if(match){
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const hour = Number(match[4]);
+    const minute = Number(match[5]);
+    const second = Number(match[6]);
+    // .755000 e .755 representam o mesmo instante; zeros finais não precisam
+    // participar da chave, mas todos os demais dígitos são preservados.
+    // PostgreSQL timestamptz retém no máximo 6 casas fracionárias. Normalizar
+    // antes de formar a assinatura evita que um backup com nanossegundos gere
+    // uma chave impossível de ser reproduzida após round-trip pelo banco.
+    const fraction = String(match[7] || "").slice(0, 6).replace(/0+$/, "");
+    let offsetMinutes = 0;
+    if(String(match[8]).toUpperCase() !== "Z"){
+      const sign = match[9] === "-" ? -1 : 1;
+      offsetMinutes = sign * (Number(match[10]) * 60 + Number(match[11]));
+    }
+    const utcSecondMs = Date.UTC(year, month - 1, day, hour, minute, second) - offsetMinutes * 60000;
+    if(Number.isFinite(utcSecondMs)){
+      const base = new Date(utcSecondMs).toISOString().slice(0, 19);
+      return base + (fraction ? "." + fraction : "") + "Z";
+    }
+  }
+
+  // Fallback para formatos ISO antigos/atípicos. Aqui a precisão máxima do
+  // JavaScript é milissegundos, mas evita rejeitar backups legados válidos.
+  const ms = Date.parse(raw);
+  return Number.isFinite(ms) ? new Date(ms).toISOString() : raw;
+}
 function cardResponseKeyFromParts(cardId, result, ts, userId){
-  return [String(userId || currentUser?.id || ""), String(cardId || ""), String(result || ""), String(ts || "")].join("|");
+  return [
+    String(userId || currentUser?.id || ""),
+    String(cardId || ""),
+    String(result || ""),
+    canonicalEventTimestamp(ts)
+  ].join("|");
 }
 function cardResponseKeyFromEvent(ev){
   if(!ev) return "";
@@ -2531,16 +2735,22 @@ function invalidateSyncSummaryCache(){
   SYNC_SUMMARY_CACHE_AT = 0;
 }
 function readOrphanCardSync(){
-  try { return (JSON.parse(localStorage.getItem(CARD_ORPHAN_SYNC_KEY) || "[]") || []).filter(ev => ev && ev.id && ev.card_id); }
+  try {
+    const raw = JSON.parse(localStorage.getItem(CARD_ORPHAN_SYNC_KEY) || "[]") || [];
+    return mergeHistoryEvents(raw).filter(ev => ev && ev.id && ev.card_id);
+  }
   catch(e){ return []; }
 }
 function writeOrphanCardSync(list){
   const map = new Map();
-  (list || []).forEach(ev => {
-    if(ev && ev.id) map.set(String(ev.id), ev);
-    else if(ev && ev.card_id && ev.ts) map.set(cardResponseKeyFromEvent(ev), ev);
+  (list || []).map(normalizeCardHistoryEvent).filter(Boolean).forEach(ev => {
+    // Órfãos também usam identidade semântica; IDs locais diferentes não devem
+    // fazer o painel contar duas vezes a mesma resposta.
+    const key = cardResponseKeyFromEvent(ev) || String(ev.id);
+    if(!map.has(key)) map.set(key, ev);
+    else map.set(key, mergeDuplicateHistoryPair(map.get(key), ev));
   });
-  const clean = Array.from(map.values()).slice(-5000);
+  const clean = Array.from(map.values()).slice(-1000);
   try { localStorage.setItem(CARD_ORPHAN_SYNC_KEY, JSON.stringify(clean)); }
   catch(e){ console.warn("Não consegui salvar lista de flashcards locais não sincronizáveis:", e); }
   invalidateSyncSummaryCache();
@@ -2554,12 +2764,12 @@ function markOrphanCardEvents(list){
 }
 function orphanCardSyncCount(){
   const explicit = readOrphanCardSync();
-  const explicitKeys = new Set(explicit.map(ev => String(ev.id || cardResponseKeyFromEvent(ev))));
+  const explicitKeys = new Set(explicit.map(ev => cardResponseKeyFromEvent(ev) || String(ev.id)));
   const pendingInvalid = readPendingCardSync().filter(ev => !isCardEventSyncable(ev));
   const localInvalid = readRawLocalCardHistoryForSync().filter(ev => !isCardEventSyncable(ev));
   const map = new Map();
-  explicit.forEach(ev => map.set(String(ev.id || cardResponseKeyFromEvent(ev)), ev));
-  [...pendingInvalid, ...localInvalid].forEach(ev => map.set(String(ev.id || cardResponseKeyFromEvent(ev)), ev));
+  explicit.forEach(ev => map.set(cardResponseKeyFromEvent(ev) || String(ev.id), ev));
+  [...pendingInvalid, ...localInvalid].forEach(ev => map.set(cardResponseKeyFromEvent(ev) || String(ev.id), ev));
   return map.size;
 }
 function isCardForeignKeyError(error){
@@ -2571,7 +2781,8 @@ async function fetchRemoteCardResponseKeysForEvents(events){
   const clean = (events || []).filter(ev => ev && ev.card_id && ev.result && ev.ts);
   const found = new Set();
   if(!clean.length) return found;
-  const chunkSize = 120;
+  // Lotes menores mantêm a URL do PostgREST curta mesmo com card_ids longos.
+  const chunkSize = 40;
   for(let i = 0; i < clean.length; i += chunkSize){
     const chunk = clean.slice(i, i + chunkSize);
     const cardIds = [...new Set(chunk.map(ev => String(ev.card_id)).filter(Boolean))];
@@ -2584,8 +2795,12 @@ async function fetchRemoteCardResponseKeysForEvents(events){
       .in("card_id", cardIds)
       .in("created_at", times);
     if(error){
+      // Segurança contra duplicação: nunca faça INSERT se a conferência remota
+      // falhar. O evento já está salvo localmente e continuará na fila pendente
+      // para uma nova tentativa. Falhar aberto aqui poderia duplicar uma resposta
+      // que o Supabase já recebeu em uma tentativa anterior.
       console.warn("Não consegui conferir duplicidades remotas antes do sync:", error);
-      continue;
+      throw new Error("Falha ao conferir duplicidades no Supabase antes do envio: " + (error.message || error));
     }
     (data || []).forEach(row => {
       const key = cardResponseKeyFromRemoteRow(row);
@@ -2598,7 +2813,9 @@ async function fetchRemoteCardResponseKeysForEvents(events){
   return found;
 }
 async function insertCardResponseEvents(events){
-  const cleanEvents = (events || []).filter(Boolean);
+  // Deduplica também dentro do próprio lote. Sem isso, duas cópias locais do
+  // mesmo evento poderiam passar juntas antes de qualquer delas existir no remoto.
+  const cleanEvents = mergeHistoryEvents(events || []).filter(Boolean);
   const completedIds = [];
   const orphanIds = [];
   if(!cleanEvents.length) return { synced:0, orphaned:0, duplicated:0, completedIds, orphanIds };
@@ -2659,18 +2876,26 @@ async function insertCardResponseEvents(events){
   }
   return { synced, orphaned, duplicated, completedIds, orphanIds };
 }
+function readAllPendingCardSync(){
+  try {
+    const raw = JSON.parse(localStorage.getItem(CARD_PENDING_SYNC_KEY) || "[]") || [];
+    return mergeHistoryEvents(raw).filter(ev => ev && ev.id && ev.card_id && ev.result && ev.ts);
+  } catch(e){ return []; }
+}
 function readPendingCardSync(){
-  try { return (JSON.parse(localStorage.getItem(CARD_PENDING_SYNC_KEY) || "[]") || []).filter(ev => ev && ev.id && ev.card_id && ev.result && ev.ts); }
-  catch(e){ return []; }
+  const all = readAllPendingCardSync();
+  if(!currentUser?.id) return all;
+  return all.filter(ev => !ev.user_id || ev.user_id === currentUser.id);
 }
 function writePendingCardSync(list){
-  const map = new Map();
-  (list || []).forEach(ev => { if(ev && ev.id) map.set(String(ev.id), ev); });
-  const clean = Array.from(map.values()).slice(-5000);
-  try { localStorage.setItem(CARD_PENDING_SYNC_KEY, JSON.stringify(clean)); }
+  const owner = currentUser?.id || null;
+  const others = owner ? readAllPendingCardSync().filter(ev => ev.user_id && ev.user_id !== owner) : [];
+  const current = mergeHistoryEvents(list || []).filter(ev => !owner || !ev.user_id || ev.user_id === owner).slice(-2000);
+  const combined = mergeHistoryEvents(others, current);
+  try { localStorage.setItem(CARD_PENDING_SYNC_KEY, JSON.stringify(combined)); }
   catch(e){ console.warn("Não consegui salvar fila pendente dos flashcards:", e); }
   invalidateSyncSummaryCache();
-  return clean;
+  return current;
 }
 function enqueuePendingCardSync(event){
   const pending = writePendingCardSync([...readPendingCardSync(), event]);
@@ -2689,10 +2914,8 @@ function removePendingCardSync(id){
 function readRawLocalCardHistoryForSync(){
   try {
     const raw = JSON.parse(localStorage.getItem(DB_KEY) || "[]") || [];
-    return raw
+    return mergeHistoryEvents(raw)
       .filter(ev => ev && ev.id && ev.card_id && ev.result && ev.ts)
-      .map(normalizeCardHistoryEvent)
-      .filter(Boolean)
       .filter(ev => !currentUser?.id || !ev.user_id || ev.user_id === currentUser.id);
   } catch(e){ return []; }
 }
@@ -2717,7 +2940,8 @@ function localCardMissingRemoteCount(){
   const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
   return readRawLocalCardHistoryForSync()
     .filter(isCardEventSyncable)
-    .filter(ev => ev?.id && !remoteKeys.has(cardResponseKeyFromEvent(ev)) && !queuedKeys.has(cardResponseKeyFromEvent(ev)))
+    .filter(ev => ev?.id && !isRemoteCardHistoryId(ev.id))
+    .filter(ev => !remoteKeys.has(cardResponseKeyFromEvent(ev)) && !queuedKeys.has(cardResponseKeyFromEvent(ev)))
     .length;
 }
 function syncSummary(){
@@ -2825,7 +3049,11 @@ async function syncMissingLocalCardHistoryToSupabase(){
   if(invalid.length) markOrphanCardEvents(invalid);
   const missing = allLocal
     .filter(isCardEventSyncable)
-    .filter(ev => ev?.id && !remoteKeys.has(cardResponseKeyFromEvent(ev)) && !queuedKeys.has(cardResponseKeyFromEvent(ev)));
+    // Somente eventos criados localmente (UUID) podem ser reenviados. Linhas com
+    // ID numérico já vieram do Supabase em algum momento; se sumiram do remoto,
+    // isso pode ser um reset feito em outro aparelho e não deve ser desfeito.
+    .filter(ev => ev?.id && !isRemoteCardHistoryId(ev.id))
+    .filter(ev => !remoteKeys.has(cardResponseKeyFromEvent(ev)) && !queuedKeys.has(cardResponseKeyFromEvent(ev)));
   if(!missing.length){
     renderSyncPanel();
     return { synced:0, skipped:invalid.length };
@@ -2948,14 +3176,17 @@ let LOCAL_HISTORY_CACHE = null;
 // O Programado precisa do máximo de eventos carregados do Supabase para reconstruir
 // níveis quando o estado salvo estiver ausente/defasado. Já o localStorage precisa
 // ficar menor para não estourar quota no Safari/iOS.
-const CARD_HISTORY_MEMORY_LIMIT = 50000;
-const CARD_HISTORY_STORAGE_LIMIT = 20000;
+// O histórico remoto em memória não é truncado: níveis podem depender de eventos antigos.
+// O localStorage é apenas cache recente; o review_state local preserva o checkpoint.
+const CARD_HISTORY_STORAGE_LIMIT = 5000;
+const CARD_HISTORY_DUPLICATE_BURST_MS = 3000;
 function normalizeCardHistoryEvent(ev){
   if(!ev) return null;
   const id = ev.id || (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random());
   const card_id = ev.card_id || ev.cardId;
   const result = ev.result || ev.resultado;
-  const ts = ev.ts || ev.created_at || ev.updated_at || new Date().toISOString();
+  const rawTs = ev.ts || ev.created_at || ev.updated_at || new Date().toISOString();
+  const ts = canonicalEventTimestamp(rawTs);
   if(!card_id || !result || !ts) return null;
   return {
     ...ev,
@@ -2969,23 +3200,71 @@ function normalizeCardHistoryEvent(ev){
     ts
   };
 }
+function isRemoteCardHistoryId(id){
+  return /^\d+$/.test(String(id || ""));
+}
+function usefulHistoryLabel(value){
+  const text = String(value || "").trim();
+  return text && text !== "Geral" ? text : "";
+}
+function mergeDuplicateHistoryPair(existing, incoming){
+  // O mesmo evento pode existir como UUID local e bigint remoto. Ao unir as
+  // cópias, preserva o ID remoto (quando houver) e os metadados mais ricos,
+  // sem alterar card/result/instante que formam a identidade do evento.
+  const a = existing || {};
+  const b = incoming || {};
+  const remote = isRemoteCardHistoryId(a.id) ? a : isRemoteCardHistoryId(b.id) ? b : null;
+  const merged = { ...a, ...b };
+  if(remote) merged.id = String(remote.id);
+  merged.ts = canonicalEventTimestamp(remote?.ts || a.ts || b.ts || merged.ts);
+  merged.user_id = remote?.user_id || a.user_id || b.user_id || currentUser?.id || null;
+  merged.card_id = String(remote?.card_id || a.card_id || b.card_id || "");
+  merged.result = remote?.result || a.result || b.result || merged.result;
+  for(const field of ["publicacao", "assunto"]){
+    const av = usefulHistoryLabel(a[field]);
+    const bv = usefulHistoryLabel(b[field]);
+    merged[field] = av || bv || cleanLabel(merged[field], "Geral");
+  }
+  const ak = String(a.logical_key || "").trim();
+  const bk = String(b.logical_key || "").trim();
+  merged.logical_key = ak.length >= bk.length ? ak : bk;
+  return merged;
+}
 function mergeHistoryEvents(...lists){
-  const map = new Map();
+  const exact = new Map();
   lists.flat().map(normalizeCardHistoryEvent).filter(Boolean).forEach(ev => {
-    // A tabela respostas usa id bigint no Supabase, enquanto o backup local usa id UUID.
-    // Portanto, a deduplicação oficial é pela assinatura do evento, não pelo id.
     const key = cardResponseKeyFromEvent(ev) || String(ev.id);
-    if(!map.has(key)) map.set(key, ev);
+    if(!exact.has(key)) exact.set(key, ev);
+    else exact.set(key, mergeDuplicateHistoryPair(exact.get(key), ev));
   });
-  return Array.from(map.values())
-    .sort((a,b) => new Date(a.ts) - new Date(b.ts))
-    .slice(-CARD_HISTORY_MEMORY_LIMIT);
+
+  // Versões antigas chegaram a inserir duas linhas remotas para um único toque,
+  // com timestamps separados por poucos milissegundos. A UI atual bloqueia um
+  // segundo envio do mesmo card, portanto mesmo card + mesmo resultado em até
+  // 3 s é uma duplicação histórica, não uma nova tentativa legítima.
+  const sorted = Array.from(exact.values()).sort((a,b) => new Date(a.ts) - new Date(b.ts));
+  const out = [];
+  const lastIndexByBurst = new Map();
+  for(const ev of sorted){
+    const burstKey = [String(ev.user_id || ""), String(ev.card_id || ""), String(ev.result || "")].join("|");
+    const idx = lastIndexByBurst.get(burstKey);
+    if(idx != null){
+      const prev = out[idx];
+      const dt = new Date(ev.ts).getTime() - new Date(prev.ts).getTime();
+      if(Number.isFinite(dt) && dt >= 0 && dt <= CARD_HISTORY_DUPLICATE_BURST_MS){
+        out[idx] = mergeDuplicateHistoryPair(prev, ev);
+        continue;
+      }
+    }
+    lastIndexByBurst.set(burstKey, out.length);
+    out.push(ev);
+  }
+  return out;
 }
 function readStoredHistoryArray(key){
   try{
-    return (JSON.parse(localStorage.getItem(key) || "[]") || [])
-      .map(normalizeCardHistoryEvent)
-      .filter(Boolean);
+    // Limpa também duplicações antigas já persistidas no aparelho.
+    return mergeHistoryEvents(JSON.parse(localStorage.getItem(key) || "[]") || []);
   }catch(e){
     console.warn("Não consegui ler histórico local em", key, e);
     return [];
@@ -3011,7 +3290,7 @@ function markExplicitHistoryReset(){
 function clearExplicitHistoryReset(){
   try{ localStorage.removeItem(CARD_HISTORY_RESET_MARK_KEY); }catch(e){}
 }
-function saveLastGoodHistoryBackup(events, reason="auto"){
+function saveLastGoodHistoryBackup(events, reason="auto", options={}){
   const clean = mergeHistoryEvents(events || []).slice(-CARD_HISTORY_STORAGE_LIMIT);
   if(!clean.length) return;
   const payload = {
@@ -3025,11 +3304,14 @@ function saveLastGoodHistoryBackup(events, reason="auto"){
   };
   try{
     const previous = JSON.parse(localStorage.getItem(CARD_HISTORY_LAST_GOOD_KEY) || "null");
-    const previousCount = Number(previous?.count || (Array.isArray(previous) ? previous.length : 0));
+    const previousList = Array.isArray(previous) ? previous : (Array.isArray(previous?.history) ? previous.history : []);
+    // Compara quantidade SEMÂNTICA, não quantidade bruta. Um backup antigo com
+    // cópias Z/+00:00 não pode bloquear a gravação do mesmo histórico já limpo.
+    const previousCount = previousList.length ? mergeHistoryEvents(previousList).length : Number(previous?.count || 0);
     // Só substitui o backup quando o novo conjunto é pelo menos tão completo
     // quanto o anterior. Assim, uma tela aberta sem carregar histórico remoto
     // não apaga o último backup bom.
-    if(previousCount && clean.length < previousCount) return;
+    if(!options.force && previousCount && clean.length < previousCount) return;
     localStorage.setItem(CARD_HISTORY_LAST_GOOD_KEY, JSON.stringify(payload));
   }catch(e){
     console.warn("Não consegui gravar backup de segurança do histórico:", e);
@@ -3058,7 +3340,7 @@ function readLocalCardHistory(){
 }
 function writeLocalCardHistory(hist, options={}){
   const previous = Array.isArray(LOCAL_HISTORY_CACHE) ? LOCAL_HISTORY_CACHE : readStoredHistoryArray(DB_KEY);
-  if(previous && previous.length && !hasExplicitHistoryReset()) saveLastGoodHistoryBackup(previous, "before-write");
+  if(previous && previous.length && !hasExplicitHistoryReset() && !options.authoritative) saveLastGoodHistoryBackup(previous, "before-write");
 
   let clean = mergeHistoryEvents(hist);
   // Proteção contra perda aparente: nenhuma sincronização normal pode reduzir
@@ -3077,7 +3359,7 @@ function writeLocalCardHistory(hist, options={}){
   const storageClean = clean.slice(-CARD_HISTORY_STORAGE_LIMIT);
   try { localStorage.setItem(DB_KEY, JSON.stringify(storageClean)); }
   catch(e){ console.warn("Não consegui salvar backup local dos flashcards:", e); }
-  saveLastGoodHistoryBackup(clean, options.reason || "write");
+  saveLastGoodHistoryBackup(clean, options.reason || "write", { force:!!options.authoritative });
   invalidateSyncSummaryCache();
   invalidateProgrammedRuntimeCaches();
   return clean;
@@ -3106,7 +3388,9 @@ function getHistory(options={}){
   // A meta diária usa sempre a união do Supabase com o backup local.
   // Assim, uma falha de sincronização ou troca de versão não zera o progresso do dia.
   if(!HISTORY_UNION_CACHE){
-    HISTORY_UNION_CACHE = mergeHistoryEvents(isOnlineMode ? ONLINE_HISTORY : [], readLocalCardHistory());
+    const owner = currentUser?.id || null;
+    const source = mergeHistoryEvents(isOnlineMode ? ONLINE_HISTORY : [], readLocalCardHistory());
+    HISTORY_UNION_CACHE = owner ? source.filter(ev => !ev.user_id || ev.user_id === owner) : source;
     HISTORY_ACTIVE_CACHE = null;
   }
   if(options && options.includeOrphans === false){
@@ -3348,6 +3632,59 @@ function embeddedImageSrcKey(raw){
   return srcs.sort().join(" ");
 }
 
+function stableLogicalHash128(value){
+  // Hash síncrono de 128 bits para chaves de identidade. Evita persistir URLs
+  // data:/HTML gigantes em cada evento do histórico, sem depender de WebCrypto.
+  const str = String(value || "");
+  let h1 = 1779033703, h2 = 3144134277, h3 = 1013904242, h4 = 2773480762;
+  for(let i = 0; i < str.length; i++){
+    const k = str.charCodeAt(i);
+    h1 = h2 ^ Math.imul(h1 ^ k, 597399067);
+    h2 = h3 ^ Math.imul(h2 ^ k, 2869860233);
+    h3 = h4 ^ Math.imul(h3 ^ k, 951274213);
+    h4 = h1 ^ Math.imul(h4 ^ k, 2716044179);
+  }
+  h1 = Math.imul(h3 ^ (h1 >>> 18), 597399067);
+  h2 = Math.imul(h4 ^ (h2 >>> 22), 2869860233);
+  h3 = Math.imul(h1 ^ (h3 >>> 17), 951274213);
+  h4 = Math.imul(h2 ^ (h4 >>> 19), 2716044179);
+  h1 ^= h2 ^ h3 ^ h4; h2 ^= h1; h3 ^= h1; h4 ^= h1;
+  return [h1,h2,h3,h4].map(n => (n >>> 0).toString(16).padStart(8,"0")).join("");
+}
+function compactLogicalToken(prefix, raw){
+  const text = String(raw || "").trim();
+  if(!text) return "";
+  return `${prefix}|${text.length.toString(36)}|${stableLogicalHash128(text)}`;
+}
+function compactPreciseLogicalKey(raw){
+  const text = String(raw || "").trim();
+  if(!text) return "";
+  if(/^v4\|[0-9a-z]+\|[0-9a-f]{32}$/i.test(text)) return text;
+  return compactLogicalToken("v4", text);
+}
+function compactV2LogicalKey(raw){
+  const text = String(raw || "").trim();
+  if(!text) return "";
+  if(/^v2h\|[0-9a-z]+\|[0-9a-f]{32}$/i.test(text)) return text;
+  return compactLogicalToken("v2h", text);
+}
+function compactLegacyLogicalKey(raw){
+  const text = String(raw || "").trim();
+  if(!text) return "";
+  if(/^lh\|[0-9a-z]+\|[0-9a-f]{32}$/i.test(text)) return text;
+  return compactLogicalToken("lh", text);
+}
+function compactEventLogicalKey(raw){
+  const text = String(raw || "").trim();
+  if(!text) return "";
+  if(/^v4\|[0-9a-z]+\|[0-9a-f]{32}$/i.test(text)) return text;
+  if(/^v2h\|[0-9a-z]+\|[0-9a-f]{32}$/i.test(text)) return text;
+  if(/^lh\|[0-9a-z]+\|[0-9a-f]{32}$/i.test(text)) return text;
+  if(text.startsWith("v3|")) return compactPreciseLogicalKey(text);
+  if(text.startsWith("v2|")) return compactV2LogicalKey(text);
+  return compactLegacyLogicalKey(text);
+}
+
 function cardLogicalKeyV2(card){
   // Chave precisa v2: publicação + assunto + pergunta + resposta + campos de imagem.
   // Continua sendo usada como compatibilidade para eventos salvos no index-47.
@@ -3374,7 +3711,7 @@ function cardLogicalKey(card){
   if(!card) return "";
   const sig = cardIdentitySignature(card);
   if(card.__fpV3Sig === sig && typeof card.__fpV3Key === "string") return card.__fpV3Key;
-  const v2 = cardLogicalKeyV2(card);
+  const v2 = compactV2LogicalKey(cardLogicalKeyV2(card));
   const embeddedQ = embeddedImageSrcKey(card.q || "");
   const embeddedA = embeddedImageSrcKey(card.a || "");
   if(!embeddedQ && !embeddedA){
@@ -3396,17 +3733,19 @@ function cardLogicalKey(card){
 }
 
 function eventLogicalKey(ev){
-  // Eventos novos usam chave precisa v2/v3. Eventos antigos podem conter a
-  // chave legada publicação + assunto + pergunta, aceita só quando inequívoca.
-  return String(ev?.logical_key || ev?.study_key || ev?.card_key || "").trim();
+  // Eventos antigos podem carregar chaves v2/v3 enormes. Converte tudo para
+  // um token curto e estável antes de manter em memória/localStorage/backup.
+  return compactEventLogicalKey(ev?.logical_key || ev?.study_key || ev?.card_key || "");
 }
 
 function isV2LogicalKey(key){
-  return String(key || "").startsWith("v2|");
+  return /^v2h\|/i.test(String(key || ""));
 }
-
-function isV3LogicalKey(key){
-  return String(key || "").startsWith("v3|");
+function isV4LogicalKey(key){
+  return /^v4\|/i.test(String(key || ""));
+}
+function isLegacyCompactLogicalKey(key){
+  return /^lh\|/i.test(String(key || ""));
 }
 
 function addToSetMap(map, key, value){
@@ -3446,9 +3785,9 @@ function buildStudyIdentityIndex(){
   (CARDS || []).forEach(card => {
     if(!card) return;
     const id = cardIdKey(card);
-    const key = cardLogicalKey(card) || id;
-    const v2 = cardLogicalKeyV2(card);
-    const legacy = cardLegacyLogicalKey(card);
+    const key = studySessionKey(card) || id;
+    const v2 = compactV2LogicalKey(cardLogicalKeyV2(card));
+    const legacy = compactLegacyLogicalKey(cardLegacyLogicalKey(card));
     if(id){
       byId.set(id, card);
       keyById.set(id, key);
@@ -3467,7 +3806,8 @@ function buildStudyIdentityIndex(){
 function preciseKeysForV2LogicalKey(v2Key){
   const key = String(v2Key || "").trim();
   if(!key) return new Set();
-  return new Set(buildStudyIdentityIndex().preciseByV2.get(key) || []);
+  const compact = isV2LogicalKey(key) ? key : compactV2LogicalKey(key);
+  return new Set(buildStudyIdentityIndex().preciseByV2.get(compact) || []);
 }
 
 function isV2LogicalKeySafeForCard(card){
@@ -3481,11 +3821,12 @@ function isV2LogicalKeySafeForCard(card){
 function preciseKeysForLegacyLogicalKey(legacyKey){
   const legacy = String(legacyKey || "").trim();
   if(!legacy) return new Set();
-  return new Set(buildStudyIdentityIndex().preciseByLegacy.get(legacy) || []);
+  const compact = isLegacyCompactLogicalKey(legacy) ? legacy : compactLegacyLogicalKey(legacy);
+  return new Set(buildStudyIdentityIndex().preciseByLegacy.get(compact) || []);
 }
 
 function isLegacyLogicalKeySafeForCard(card){
-  const legacy = cardLegacyLogicalKey(card);
+  const legacy = compactLegacyLogicalKey(cardLegacyLogicalKey(card));
   if(!legacy) return false;
   const precise = studySessionKey(card);
   const preciseKeys = preciseKeysForLegacyLogicalKey(legacy);
@@ -3503,12 +3844,12 @@ function keysForHistoryEvent(ev, identityIndex = buildStudyIdentityIndex()){
   if(byId) keys.add(byId);
 
   const evKey = eventLogicalKey(ev);
-  if(isV3LogicalKey(evKey)){
+  if(isV4LogicalKey(evKey)){
     keys.add(evKey);
   } else if(isV2LogicalKey(evKey)){
     const preciseV2Keys = identityIndex.preciseByV2.get(evKey);
     if(preciseV2Keys && preciseV2Keys.size === 1) keys.add(Array.from(preciseV2Keys)[0]);
-  } else if(evKey){
+  } else if(isLegacyCompactLogicalKey(evKey)){
     const preciseLegacyKeys = identityIndex.preciseByLegacy.get(evKey);
     if(preciseLegacyKeys && preciseLegacyKeys.size === 1) keys.add(Array.from(preciseLegacyKeys)[0]);
   }
@@ -3576,8 +3917,17 @@ function lastStudyEventForCard(card){
 }
 function lastStudyResult(card){
   const last = lastStudyEventForCard(card);
-  if(last) return last.result;
   const st = reviewStateFor(card);
+  const lastMs = last?.ts ? new Date(last.ts).getTime() : 0;
+  const stateMs = st ? stateTimestampMs(st) : 0;
+  // Um review_state mais novo que o histórico local deve prevalecer. Isso cobre
+  // respostas feitas em outro aparelho e também o ajuste manual de nível. No
+  // ajuste manual, ultimo_resultado fica como "skip" de propósito: o resultado histórico
+  // continua guardado, mas deixa de comandar a prioridade atual do card.
+  if(st && Number.isFinite(stateMs) && stateMs > (Number.isFinite(lastMs) ? lastMs : 0)){
+    return hasStudyResult(st.ultimo_resultado) ? st.ultimo_resultado : null;
+  }
+  if(last) return last.result;
   if(st && hasStudyResult(st.ultimo_resultado)) return st.ultimo_resultado;
   return null;
 }
@@ -3623,8 +3973,11 @@ function isDueCard(card){
   return new Date(st.proxima_revisao).getTime() <= Date.now();
 }
 function isNewCard(card){
-  // Novo = nunca respondido com Acertei/Errei.
-  // Pular não tira o card da fila de novos.
+  // Um nível manual > 0 significa que o card já foi promovido pelo usuário,
+  // mesmo que ele ainda não tenha um evento Acertei/Errei no histórico.
+  const st = reviewStateFor(card);
+  if(Number(st?.acertos_seguidos || 0) > 0) return false;
+  // Novo = nunca respondido com Acertei/Errei. Pular não tira da fila de novos.
   return !hasCardBeenAnswered(card);
 }
 function isStudyAvailable(card){
@@ -3675,8 +4028,13 @@ function lastStudyEventForLogicalKey(card){
 
 function lastStudyResultLogical(card){
   const last = lastStudyEventForLogicalKey(card);
-  if(last) return last.result;
   const st = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card);
+  const lastMs = last?.ts ? new Date(last.ts).getTime() : 0;
+  const stateMs = st ? stateTimestampMs(st) : 0;
+  if(st && Number.isFinite(stateMs) && stateMs > (Number.isFinite(lastMs) ? lastMs : 0)){
+    return hasStudyResult(st.ultimo_resultado) ? st.ultimo_resultado : null;
+  }
+  if(last) return last.result;
   if(st && hasStudyResult(st.ultimo_resultado)) return st.ultimo_resultado;
   return null;
 }
@@ -3690,6 +4048,9 @@ function hasCardBeenAnsweredLogical(card){
 }
 
 function isProgrammedNewCard(card){
+  // Respeita promoção manual: um card em nível > 0 não pode continuar
+  // entrando no balde "novo" só porque não há resposta histórica.
+  if(programmedLevelFor(card) > 0) return false;
   return !hasCardBeenAnsweredLogical(card);
 }
 
@@ -3733,7 +4094,7 @@ function noteSessionAttempt(card){
 function studySessionKey(card){
   // Evita repetir no mesmo baralho cards que são a mesma pergunta com IDs diferentes.
   // Isso resolve duplicatas criadas por reimportação SQL/Supabase.
-  return cardLogicalKey(card) || cardIdKey(card);
+  return compactPreciseLogicalKey(cardLogicalKey(card)) || cardIdKey(card);
 }
 
 function removeAnsweredCardCopiesFromDeck(answeredCard, keepCurrent=false){
@@ -3866,6 +4227,25 @@ function programmedReviewStateFromHistory(card){
   };
 }
 
+function reviewStateStudyCount(st){
+  if(!st) return 0;
+  return Number(st.total_acertos || 0) + Number(st.total_erros || 0) + Number(st.total_dificeis || 0);
+}
+function historyEventsCoverReviewState(events, st){
+  if(!st) return true;
+  const relevant = (events || []).filter(ev => hasStudyResult(ev.result) && (!st.card_id || cardIdKey(ev.card_id) === cardIdKey(st.card_id)));
+  const storedCount = reviewStateStudyCount(st);
+  // Se uma carga remota integral (ou restauração completa) já foi confirmada,
+  // uma contagem menor pode ser justamente o efeito esperado da deduplicação.
+  // O timestamp da última revisão continua protegendo estados realmente mais novos.
+  if(!HISTORY_KNOWN_COMPLETE && storedCount > 0 && relevant.length < storedCount) return false;
+  const stateMs = st.ultima_revisao ? new Date(st.ultima_revisao).getTime() : 0;
+  if(!stateMs || !Number.isFinite(stateMs)) return true;
+  const last = relevant.length ? relevant[relevant.length - 1] : null;
+  const lastMs = last?.ts ? new Date(last.ts).getTime() : 0;
+  return Number.isFinite(lastMs) && lastMs >= stateMs - 1000;
+}
+
 function effectiveProgrammedReviewState(card){
   const key = studySessionKey(card);
   if(key && EFFECTIVE_PROGRAMMED_STATE_CACHE.has(key)) return EFFECTIVE_PROGRAMMED_STATE_CACHE.get(key);
@@ -3873,14 +4253,19 @@ function effectiveProgrammedReviewState(card){
   const st = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card);
   const hist = programmedReviewStateFromHistory(card);
   const last = lastStudyEventForLogicalKey(card);
-  const stateMs = stateTimestampMs(st);
+  // Para saber se o histórico contém a mesma revisão do estado, a referência
+  // correta é ultima_revisao. updated_at pode mudar por importação/upsert sem
+  // significar que houve uma resposta nova.
+  const stateReviewMs = st?.ultima_revisao ? new Date(st.ultima_revisao).getTime() : 0;
   const lastMs = last?.ts ? new Date(last.ts).getTime() : 0;
   let result = null;
 
-  // Regra principal do Programado: se o histórico lógico local/remoto já chegou
-  // até a mesma revisão do estado salvo, recalculamos por histórico. Assim, um
-  // estado antigo errado não faz card voltar antes da data correta.
-  if(hist && (!stateMs || (Number.isFinite(lastMs) && lastMs >= stateMs - 1000))){
+  // Se ultima_revisao não existe (estados legados), mas há histórico válido,
+  // o histórico é a única fonte capaz de reconstruir o Programado. Se existe,
+  // só usamos o histórico quando ele alcançou aquela revisão real.
+  const histEvents = studyEventsForLogicalKey(card);
+  const historyCompleteForState = historyEventsCoverReviewState(histEvents, st);
+  if(hist && historyCompleteForState && (!Number.isFinite(stateReviewMs) || !stateReviewMs || (Number.isFinite(lastMs) && lastMs >= stateReviewMs - 1000))){
     result = hist;
   } else if(st?.proxima_revisao || st?.ultimo_resultado){
     // Se o estado salvo é mais recente que o histórico carregado neste aparelho,
@@ -4000,42 +4385,22 @@ function getProgrammedStudyCards(baseCards = null){
   return out;
 }
 
-function spacedIntervalFor(result, previous){
-  const now = new Date();
-  const prev = previous || {};
-  const oldStreak = Number(prev.acertos_seguidos || 0);
-  let streak = oldStreak;
-  let intervalDays = Number(prev.intervalo_dias || 0);
-  let next = now;
-
-  if(result === "right"){
-    streak = oldStreak + 1;
-    // 1º acerto: só volta após 3 dias.
-    // Depois cresce gradualmente até o teto de 30 dias.
-    const intervals = [0, 3, 5, 7, 10, 15, 20, 30];
-    intervalDays = intervals[Math.min(streak, intervals.length - 1)];
-    next = addDays(now, intervalDays);
-  } else if(result === "hard"){
-    streak = Math.max(0, oldStreak - 1);
-    intervalDays = 1;
-    next = addDays(now, 1);
-  } else if(result === "wrong"){
-    streak = 0;
-    intervalDays = 0;
-    // Errado fica disponível para reforço, mas só entra na proporção 3 novos : 1 errado.
-    next = now;
-  } else if(result === "skip"){
-    // Pular não conta como respondido e não altera a programação real do card.
-    streak = oldStreak;
-    intervalDays = Number(prev.intervalo_dias || 0);
-    next = prev.proxima_revisao ? new Date(prev.proxima_revisao) : now;
+function spacedIntervalFor(result, previous, card=null){
+  if(card){
+    const scheduled = programmedScheduleFor(card, result, previous || null);
+    return { streak:scheduled.level, intervalDays:scheduled.intervalDays, next:scheduled.next };
   }
-
-  return { streak, intervalDays, next };
+  const now = new Date();
+  const oldLevel = Math.max(0, Math.min(7, Number(previous?.acertos_seguidos || 0)));
+  let level = oldLevel, intervalDays = Number(previous?.intervalo_dias || 0), next = now;
+  if(result === "right"){ level = Math.min(7, oldLevel + 1); intervalDays = programmedIntervalDays(level); next = addDays(now, intervalDays); }
+  else if(result === "wrong" || result === "hard"){ level = Math.max(0, oldLevel - 1); intervalDays = level ? programmedIntervalDays(level) : 0; next = level ? addDays(now, intervalDays) : addMinutes(now, PROGRAMMED_REINFORCEMENT_MINUTES); }
+  else if(result === "skip"){ next = previous?.proxima_revisao ? new Date(previous.proxima_revisao) : now; }
+  return { streak:level, intervalDays, next };
 }
 async function updateReviewState(card, result){
   const previous = reviewStateFor(card) || {};
-  const { streak, intervalDays, next } = spacedIntervalFor(result, previous);
+  const { streak, intervalDays, next } = spacedIntervalFor(result, previous, card);
   const row = {
     user_id: currentUser?.id,
     card_id: card.id,
@@ -4051,25 +4416,17 @@ async function updateReviewState(card, result){
     updated_at: new Date().toISOString()
   };
   REVIEW_STATE.set(cardIdKey(card), row);
+  persistReviewStateLocalCache();
+  enqueuePendingReviewState(row);
   // A identidade dos cards não mudou; invalida somente os caches dependentes
   // do histórico/estado. Reconstruir o índice estático de milhares de cards
   // após cada resposta causava atraso desnecessário.
   invalidateProgrammedRuntimeCaches();
   if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
-    void supabaseClient
-      .from("estado_cards_usuario")
-      .upsert(row, { onConflict: "user_id,card_id" })
-      .then(({ error }) => {
-        if(error){
-          console.error("Erro ao atualizar revisão espaçada:", error);
-          REVIEW_TABLE_READY = false;
-          setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
-        }
-      })
-      .catch(error => {
-        console.error("Erro ao atualizar revisão espaçada:", error);
-        setSyncStatus("estado do card atualizado localmente; sincronização remota pendente.");
-      });
+    void syncPendingReviewStatesToSupabase().catch(error => {
+      console.error("Erro ao sincronizar revisão espaçada:", error);
+      setSyncStatus("estado do card atualizado localmente; sincronização remota pendente.");
+    });
   }
 }
 
@@ -4130,25 +4487,17 @@ async function updateProgrammedReviewState(card, result){
     updated_at: new Date().toISOString()
   };
   REVIEW_STATE.set(cardIdKey(card), row);
+  persistReviewStateLocalCache();
+  enqueuePendingReviewState(row);
   // A identidade dos cards não mudou; invalida somente os caches dependentes
   // do histórico/estado. Reconstruir o índice estático de milhares de cards
   // após cada resposta causava atraso desnecessário.
   invalidateProgrammedRuntimeCaches();
   if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
-    void supabaseClient
-      .from("estado_cards_usuario")
-      .upsert(row, { onConflict: "user_id,card_id" })
-      .then(({ error }) => {
-        if(error){
-          console.error("Erro ao atualizar revisão programada:", error);
-          REVIEW_TABLE_READY = false;
-          setSyncStatus("resposta salva, mas falta rodar a migração de revisão espaçada.");
-        }
-      })
-      .catch(error => {
-        console.error("Erro ao atualizar revisão programada:", error);
-        setSyncStatus("estado programado atualizado localmente; sincronização remota pendente.");
-      });
+    void syncPendingReviewStatesToSupabase().catch(error => {
+      console.error("Erro ao sincronizar revisão programada:", error);
+      setSyncStatus("estado programado atualizado localmente; sincronização remota pendente.");
+    });
   }
 }
 
@@ -6311,1194 +6660,6 @@ function openGoalsPage(){
 }
 
 
-// Controle de progresso da bibliografia
-const READING_PROGRESS_KEY = "flashpratico_reading_progress_v1";
-const READING_PROGRESS_VERSION = 7;
-// Totais preenchidos pela lista detalhada de publicações informada pelo usuário.
-// Soma por seção:
-// I 810 + II 1599 + III 2121 + IV 1482 + V 1066 + VI 372 + VII 1761 = 9211 páginas.
-// Agora todas as publicações das seções II a VII também entram com número de páginas.
-// O total geral é calculado automaticamente pela soma das publicações.
-const DEFAULT_READING_SECTIONS = [
-  {
-    "id": "sec1",
-    "number": 1,
-    "title": "MANOBRABILIDADE DO NAVIO",
-    "targetPages": 810,
-    "items": [
-      {
-        "id": "sec1_001",
-        "title": "Practical Ship Hydrodynamics",
-        "pages": 159
-      },
-      {
-        "id": "sec1_002",
-        "title": "Princípios de Hidrodinâmica e a Ação das Ondas",
-        "pages": 75
-      },
-      {
-        "id": "sec1_003",
-        "title": "Ship Resistance and Flow",
-        "pages": 112
-      },
-      {
-        "id": "sec1_004",
-        "title": "A.601(15)",
-        "pages": 5
-      },
-      {
-        "id": "sec1_005",
-        "title": "Manobrabilidade do Navio do Século 21",
-        "pages": 219
-      },
-      {
-        "id": "sec1_006",
-        "title": "MSC.1-Circ.1053",
-        "pages": 21
-      },
-      {
-        "id": "sec1_007",
-        "title": "MSC.1-Circ.1228",
-        "pages": 8
-      },
-      {
-        "id": "sec1_008",
-        "title": "MSC.137(76)",
-        "pages": 8
-      },
-      {
-        "id": "sec1_009",
-        "title": "Naval Shiphandling cap. 2",
-        "pages": 28
-      },
-      {
-        "id": "sec1_010",
-        "title": "PNA vol. 2",
-        "pages": 104
-      },
-      {
-        "id": "sec1_011",
-        "title": "PNA vol. 3",
-        "pages": 71
-      }
-    ]
-  },
-  {
-    "id": "sec2",
-    "number": 2,
-    "title": "ARTE NAVAL",
-    "targetPages": 1599,
-    "items": [
-      {
-        "id": "sec2_001",
-        "title": "SOLAS Regulation V/23.3.3",
-        "pages": 2
-      },
-      {
-        "id": "sec2_002",
-        "title": "Theory and Practices of Marine Pilotage",
-        "pages": 120
-      },
-      {
-        "id": "sec2_003",
-        "title": "Tug Use in Port — Hensen",
-        "pages": 242
-      },
-      {
-        "id": "sec2_004",
-        "title": "A.1045(27)",
-        "pages": 9
-      },
-      {
-        "id": "sec2_005",
-        "title": "Estabilidade dos Rebocadores",
-        "pages": 14
-      },
-      {
-        "id": "sec2_006",
-        "title": "Mooring and Anchoring Ships Vol. 1",
-        "pages": 42
-      },
-      {
-        "id": "sec2_007",
-        "title": "A.1045(27)",
-        "pages": 9
-      },
-      {
-        "id": "sec2_008",
-        "title": "A.1108(29)",
-        "pages": 4
-      },
-      {
-        "id": "sec2_009",
-        "title": "Arte Naval — Volume 1",
-        "pages": 316
-      },
-      {
-        "id": "sec2_010",
-        "title": "Arte Naval — Volume 2",
-        "pages": 286
-      },
-      {
-        "id": "sec2_011",
-        "title": "MSC.1/Circ.1428/Rev.1",
-        "pages": 5
-      },
-      {
-        "id": "sec2_012",
-        "title": "Rebocadores Portuários",
-        "pages": 126
-      },
-      {
-        "id": "sec2_013",
-        "title": "Regulation V 23.3.3",
-        "pages": 2
-      },
-      {
-        "id": "sec2_014",
-        "title": "Ship Dimensions and Data for Design of Marine Infrastructure",
-        "pages": 14
-      },
-      {
-        "id": "sec2_015",
-        "title": "Shiphandling for the Mariner",
-        "pages": 408
-      }
-    ]
-  },
-  {
-    "id": "sec3",
-    "number": 3,
-    "title": "NAVEGAÇÃO EM ÁGUAS RESTRITAS",
-    "targetPages": 2121,
-    "items": [
-      {
-        "id": "sec3_001",
-        "title": "NORMAM-601",
-        "pages": 151
-      },
-      {
-        "id": "sec3_002",
-        "title": "Navegação Integrada 2026",
-        "pages": 199
-      },
-      {
-        "id": "sec3_003",
-        "title": "NORMAM-202 — Cap. 11",
-        "pages": 14
-      },
-      {
-        "id": "sec3_004",
-        "title": "NORMAM-511",
-        "pages": 77
-      },
-      {
-        "id": "sec3_005",
-        "title": "AIS Resolution A.1106(29)",
-        "pages": 19
-      },
-      {
-        "id": "sec3_006",
-        "title": "Bridge Team Management",
-        "pages": 56
-      },
-      {
-        "id": "sec3_007",
-        "title": "COLREG — Consolidated 2018",
-        "pages": 30
-      },
-      {
-        "id": "sec3_008",
-        "title": "ICS Bridge Procedures Guide — 6th edition",
-        "pages": 72
-      },
-      {
-        "id": "sec3_009",
-        "title": "Marine Pilotage — caps. 5, 6 e 13",
-        "pages": 46
-      },
-      {
-        "id": "sec3_010",
-        "title": "Miguens — Vol. 1",
-        "pages": 543
-      },
-      {
-        "id": "sec3_011",
-        "title": "Miguens — Vol. 3",
-        "pages": 187
-      },
-      {
-        "id": "sec3_012",
-        "title": "MSC.1/Circ.738/Rev.2",
-        "pages": 1
-      },
-      {
-        "id": "sec3_013",
-        "title": "MSC.1/Circ.1580",
-        "pages": 21
-      },
-      {
-        "id": "sec3_014",
-        "title": "MSC.192(79)",
-        "pages": 34
-      },
-      {
-        "id": "sec3_015",
-        "title": "MSC.530(106)",
-        "pages": 30
-      },
-      {
-        "id": "sec3_016",
-        "title": "Navegação Integrada 2026",
-        "pages": 199
-      },
-      {
-        "id": "sec3_017",
-        "title": "NORMAM-202 — Cap. 11",
-        "pages": 14
-      },
-      {
-        "id": "sec3_018",
-        "title": "NORMAM-501",
-        "pages": 147
-      },
-      {
-        "id": "sec3_019",
-        "title": "NORMAM-511",
-        "pages": 77
-      },
-      {
-        "id": "sec3_020",
-        "title": "NORMAM-602",
-        "pages": 119
-      },
-      {
-        "id": "sec3_021",
-        "title": "ripeam_colreg_consolidada_com_emd_dez2013",
-        "pages": 40
-      },
-      {
-        "id": "sec3_022",
-        "title": "SOLAS 2024 CAP 5",
-        "pages": 45
-      }
-    ]
-  },
-  {
-    "id": "sec4",
-    "number": 4,
-    "title": "LEGISLAÇÃO E REGULAMENTAÇÃO",
-    "targetPages": 1482,
-    "items": [
-      {
-        "id": "sec4_001",
-        "title": "A.960(23)",
-        "pages": 13
-      },
-      {
-        "id": "sec4_002",
-        "title": "COLREG-Consolidated-2018 (1)",
-        "pages": 62
-      },
-      {
-        "id": "sec4_003",
-        "title": "DECRETO Nº 2.256",
-        "pages": 7
-      },
-      {
-        "id": "sec4_004",
-        "title": "DECRETO Nº 12.481",
-        "pages": 6
-      },
-      {
-        "id": "sec4_005",
-        "title": "DECRETO Nº 12.725",
-        "pages": 128
-      },
-      {
-        "id": "sec4_006",
-        "title": "glossario-das-forcas-armadas-5-ed-2015",
-        "pages": 294
-      },
-      {
-        "id": "sec4_007",
-        "title": "L7642",
-        "pages": 2
-      },
-      {
-        "id": "sec4_008",
-        "title": "L7652",
-        "pages": 7
-      },
-      {
-        "id": "sec4_009",
-        "title": "L9432",
-        "pages": 9
-      },
-      {
-        "id": "sec4_010",
-        "title": "Lcp97",
-        "pages": 3
-      },
-      {
-        "id": "sec4_011",
-        "title": "Lei 14.813",
-        "pages": 4
-      },
-      {
-        "id": "sec4_012",
-        "title": "lei-2180pdf",
-        "pages": 23
-      },
-      {
-        "id": "sec4_013",
-        "title": "Lei12815",
-        "pages": 8
-      },
-      {
-        "id": "sec4_014",
-        "title": "lesta9537",
-        "pages": 9
-      },
-      {
-        "id": "sec4_015",
-        "title": "normam 201 cap V",
-        "pages": 7
-      },
-      {
-        "id": "sec4_016",
-        "title": "normam-112",
-        "pages": 24
-      },
-      {
-        "id": "sec4_017",
-        "title": "normam-204",
-        "pages": 378
-      },
-      {
-        "id": "sec4_018",
-        "title": "normam-302",
-        "pages": 63
-      },
-      {
-        "id": "sec4_019",
-        "title": "normam-311",
-        "pages": 137
-      },
-      {
-        "id": "sec4_020",
-        "title": "NORMAM-601",
-        "pages": 150
-      },
-      {
-        "id": "sec4_021",
-        "title": "NORMAM-602 - MOD.1",
-        "pages": 119
-      },
-      {
-        "id": "sec4_022",
-        "title": "Portaria 37 MB",
-        "pages": 6
-      },
-      {
-        "id": "sec4_023",
-        "title": "rlesta2596",
-        "pages": 11
-      },
-      {
-        "id": "sec4_024",
-        "title": "salvamarresumo",
-        "pages": 12
-      }
-    ]
-  },
-  {
-    "id": "sec5",
-    "number": 5,
-    "title": "METEOROLOGIA E OCEANOGRAFIA",
-    "targetPages": 1066,
-    "items": [
-      {
-        "id": "sec5_001",
-        "title": "Meteorologia Nocoes Basicas (Completo)",
-        "pages": 180
-      },
-      {
-        "id": "sec5_002",
-        "title": "meteorologia-4-ed",
-        "pages": 496
-      },
-      {
-        "id": "sec5_003",
-        "title": "Meteorologia-nocoes-basicas_DEG",
-        "pages": 40
-      },
-      {
-        "id": "sec5_004",
-        "title": "Miguens cap 45",
-        "pages": 86
-      },
-      {
-        "id": "sec5_005",
-        "title": "NORMAM-701",
-        "pages": 31
-      },
-      {
-        "id": "sec5_006",
-        "title": "Princípios de Hidrodinâmica e a Ação das Ondas",
-        "pages": 187
-      },
-      {
-        "id": "sec5_007",
-        "title": "Use of hydrometeo information for port access and operations",
-        "pages": 46
-      }
-    ]
-  },
-  {
-    "id": "sec6",
-    "number": 6,
-    "title": "COMUNICAÇÕES",
-    "targetPages": 372,
-    "items": [
-      {
-        "id": "sec6_001",
-        "title": "EROG",
-        "pages": 191
-      },
-      {
-        "id": "sec6_002",
-        "title": "IMO SMCP A.918(22)",
-        "pages": 106
-      },
-      {
-        "id": "sec6_003",
-        "title": "international_code_of_signals_2005 select",
-        "pages": 75
-      }
-    ]
-  },
-  {
-    "id": "sec7",
-    "number": 7,
-    "title": "CONHECIMENTOS GERAIS",
-    "targetPages": 1761,
-    "items": [
-      {
-        "id": "sec7_001",
-        "title": "FAL.6-Circ.14-Rev.2",
-        "pages": 70
-      },
-      {
-        "id": "sec7_002",
-        "title": "livro-planejamento-portuario",
-        "pages": 100
-      },
-      {
-        "id": "sec7_003",
-        "title": "harbour approach channels",
-        "pages": 121
-      },
-      {
-        "id": "sec7_004",
-        "title": "normam-224",
-        "pages": 27
-      },
-      {
-        "id": "sec7_005",
-        "title": "MSC.1-Circ.1598",
-        "pages": 62
-      },
-      {
-        "id": "sec7_006",
-        "title": "Shiphandling the beautiful game_Final_3_",
-        "pages": 29
-      },
-      {
-        "id": "sec7_007",
-        "title": "Declaração Universal dos Direitos Humanos",
-        "pages": 5
-      },
-      {
-        "id": "sec7_008",
-        "title": "d2508",
-        "pages": 2
-      },
-      {
-        "id": "sec7_009",
-        "title": "Economia maritima - Martin Stopford",
-        "pages": 891
-      },
-      {
-        "id": "sec7_010",
-        "title": "PIMENTA_Direito_Processual_Maritimo_sem_metadados",
-        "pages": 454
-      }
-    ]
-  }
-];
-
-function cloneReadingDefaults(){
-  return DEFAULT_READING_SECTIONS.map(sec => ({
-    ...sec,
-    targetPages: Math.max(0, Number(sec.targetPages || 0)),
-    items: (sec.items || []).map(item => ({...item, read:0, done:false}))
-  }));
-}
-
-function readingSectionItemPages(sec){
-  return (sec.items || []).reduce((sum, item) => sum + Math.max(0, Number(item.pages || 0)), 0);
-}
-
-function readingSectionTargetPages(sec){
-  return Math.max(0, Number(sec?.targetPages || 0));
-}
-
-function readingSectionTotalPages(sec){
-  return Math.max(readingSectionItemPages(sec), readingSectionTargetPages(sec));
-}
-
-function readingNumber(value){
-  return Math.round(Number(value || 0)).toLocaleString("pt-BR");
-}
-
-function mergeDefaultReadingItems(sec, def){
-  const existingItems = Array.isArray(sec.items) ? sec.items : [];
-  const byId = new Map(existingItems.map(item => [String(item.id || ""), item]));
-  const byTitle = new Map(existingItems.map(item => [readingNormalizeTitle(item.title), item]));
-  const placeholderItems = existingItems.filter(item => {
-    const title = String(item.title || "");
-    return String(item.id || "").endsWith("_total") || /^total da se[cç][aã]o/i.test(title) || /detalhar publica/i.test(title);
-  });
-  const merged = (def.items || []).map(defItem => {
-    const old = byId.get(String(defItem.id || "")) || byTitle.get(readingNormalizeTitle(defItem.title));
-    const pages = old && Number(old.pages || 0) > 0 ? Math.max(0, Number(old.pages || 0)) : Math.max(0, Number(defItem.pages || 0));
-    const oldRead = old ? readingItemReadPages(old) : 0;
-    const read = pages > 0 ? Math.min(pages, oldRead) : oldRead;
-    return {...defItem, pages, read, done: pages > 0 && read >= pages};
-  });
-  const usedKeys = new Set(merged.map(item => readingNormalizeTitle(item.title)));
-  const usedIds = new Set((def.items || []).map(item => String(item.id || "")));
-  existingItems.forEach(item => {
-    const normalizedTitle = readingNormalizeTitle(item.title);
-    const isPlaceholder = placeholderItems.includes(item);
-    if(isPlaceholder) return;
-    // Quando a lista padrão muda, um item antigo pode ter o mesmo ID,
-    // mas título diferente. Nesse caso ele já foi migrado acima e não
-    // deve voltar como duplicata zerada.
-    if(usedIds.has(String(item.id || ""))) return;
-    if(usedKeys.has(normalizedTitle)) return;
-    // Evita carregar linhas antigas zeradas de versões anteriores da aba Progresso.
-    if(Math.max(0, Number(item.pages || 0)) <= 0 && readingItemReadPages(item) <= 0) return;
-    merged.push({...item});
-    usedKeys.add(normalizedTitle);
-  });
-  placeholderItems.forEach(item => {
-    const pages = Math.max(0, Number(item.pages || 0));
-    const read = readingItemReadPages(item);
-    // A linha antiga "Total da seção" era apenas estrutural. Só vira item visível
-    // se o usuário já tinha registrado páginas lidas nela.
-    if(read > 0){
-      merged.push({
-        id:`${sec.id || def.id}_progresso_anterior`,
-        title:"Progresso anterior informado na seção",
-        pages,
-        read:pages > 0 ? Math.min(pages, read) : read,
-        done:pages > 0 && read >= pages
-      });
-    }
-  });
-  sec.items = merged;
-  return sec;
-}
-
-function migrateReadingPlanIfNeeded(plan){
-  if(!plan || typeof plan !== "object") return plan;
-  const defaultsByNumber = new Map(DEFAULT_READING_SECTIONS.map(sec => [Number(sec.number), sec]));
-  const existingByNumber = new Map((plan.sections || []).map(sec => [Number(sec.number), sec]));
-  const sections = [];
-  DEFAULT_READING_SECTIONS.forEach(def => {
-    const existing = existingByNumber.get(Number(def.number));
-    const sec = existing ? {...existing} : {id:def.id, number:def.number, title:def.title, items:[]};
-    sec.id = String(sec.id || def.id);
-    sec.number = Number(sec.number || def.number);
-    sec.title = cleanLabel(sec.title || def.title, def.title);
-    sec.targetPages = Math.max(0, Number(def.targetPages || sec.targetPages || 0));
-    const defaultItemKeys = new Set((def.items || []).map(item => String(item.id || "")));
-    const existingItems = Array.isArray(sec.items) ? sec.items : [];
-    const hasAllDefaults = (def.items || []).every(defItem => {
-      const key = readingNormalizeTitle(defItem.title);
-      return existingItems.some(item => String(item.id || "") === String(defItem.id || "") || readingNormalizeTitle(item.title) === key);
-    });
-    const hasPlaceholder = existingItems.some(item => String(item.id || "").endsWith("_total") || /^total da se[cç][aã]o/i.test(String(item.title || "")) || /detalhar publica/i.test(String(item.title || "")));
-    if(!hasAllDefaults || hasPlaceholder || Number(plan.version || 1) < READING_PROGRESS_VERSION){
-      mergeDefaultReadingItems(sec, def);
-    } else {
-      sec.items = existingItems.map(item => ({...item}));
-    }
-    sections.push(sec);
-  });
-  (plan.sections || []).forEach(sec => {
-    if(!defaultsByNumber.has(Number(sec.number))) sections.push(sec);
-  });
-  plan.sections = sections.sort((a,b) => Number(a.number) - Number(b.number));
-  plan.version = READING_PROGRESS_VERSION;
-  return plan;
-}
-
-function normalizeReadingPlan(raw){
-  const base = {version:READING_PROGRESS_VERSION, targetDate:"", sections: cloneReadingDefaults(), updatedAt: new Date().toISOString()};
-  if(!raw || typeof raw !== "object") return base;
-  const sections = Array.isArray(raw.sections) && raw.sections.length ? raw.sections : base.sections;
-  const defaultsByNumber = new Map(DEFAULT_READING_SECTIONS.map(sec => [Number(sec.number), sec]));
-  const normalized = {
-    version: Number(raw.version || 1),
-    targetDate: String(raw.targetDate || ""),
-    sections: sections.map((sec, sidx) => {
-      const number = Number(sec.number || sidx + 1);
-      const def = defaultsByNumber.get(number);
-      return {
-        id: String(sec.id || def?.id || `sec${sidx+1}`),
-        number,
-        title: cleanLabel(sec.title, def?.title || `SEÇÃO ${sidx+1}`),
-        targetPages: Math.max(0, Number(def?.targetPages || sec.targetPages || 0)),
-        items: (Array.isArray(sec.items) ? sec.items : []).map((item, iidx) => {
-          const pages = Math.max(0, Number(item.pages || 0));
-          const rawRead = Math.max(0, Number(item.read || 0));
-          const done = pages > 0 && !!item.done;
-          const read = pages > 0 ? (done ? pages : Math.min(pages, rawRead)) : rawRead;
-          return {
-            id: String(item.id || `${sec.id || "sec"+(sidx+1)}_${iidx+1}_${Date.now()}`),
-            title: cleanLabel(item.title || item.name, "Nova publicação"),
-            pages,
-            read,
-            done: pages > 0 && (done || read >= pages)
-          };
-        })
-      };
-    }),
-    updatedAt: String(raw.updatedAt || new Date().toISOString())
-  };
-  return migrateReadingPlanIfNeeded(normalized);
-}
-
-function getReadingProgress(){
-  try{
-    const raw = localStorage.getItem(READING_PROGRESS_KEY);
-    if(!raw) return normalizeReadingPlan(null);
-    return normalizeReadingPlan(JSON.parse(raw));
-  }catch(err){
-    console.warn("Erro ao ler progresso de leitura:", err);
-    return normalizeReadingPlan(null);
-  }
-}
-
-function saveReadingProgressData(data){
-  const normalized = normalizeReadingPlan({...data, updatedAt: new Date().toISOString()});
-  localStorage.setItem(READING_PROGRESS_KEY, JSON.stringify(normalized));
-  return normalized;
-}
-
-function readingItemReadPages(item){
-  const total = Math.max(0, Number(item.pages || 0));
-  const rawRead = Math.max(0, Number(item.read || 0));
-  if(total > 0){
-    if(item.done) return total;
-    return Math.min(total, rawRead);
-  }
-  // Publicações ainda sem total individual continuam podendo receber páginas lidas.
-  // A seção mantém o total de referência, então essas páginas lidas entram no
-  // progresso sem alterar indevidamente o total geral da bibliografia.
-  return rawRead;
-}
-
-function readingTotals(data){
-  let total = 0, read = 0, items = 0, doneItems = 0;
-  (data.sections || []).forEach(sec => {
-    const sectionTotal = readingSectionTotalPages(sec);
-    let sectionRead = 0;
-    (sec.items || []).forEach(item => {
-      const pages = Math.max(0, Number(item.pages || 0));
-      const readPages = readingItemReadPages(item);
-      sectionRead += readPages;
-      items++;
-      if(pages > 0 && readPages >= pages) doneItems++;
-    });
-    total += sectionTotal;
-    read += Math.min(sectionTotal, sectionRead);
-  });
-  const remaining = Math.max(0, total - read);
-  const pct = total ? Math.round((read / total) * 100) : 0;
-  return {total, read, remaining, pct, items, doneItems};
-}
-
-function localDateKey(date=new Date()){
-  const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, "0");
-  const d = String(date.getDate()).padStart(2, "0");
-  return `${y}-${m}-${d}`;
-}
-
-function daysUntilReadingTarget(targetDate){
-  if(!targetDate) return null;
-  const todayKey = localDateKey();
-  const today = new Date(todayKey + "T00:00:00");
-  const target = new Date(String(targetDate) + "T00:00:00");
-  if(Number.isNaN(target.getTime())) return null;
-  const diff = Math.floor((target.getTime() - today.getTime()) / 86400000) + 1;
-  return Math.max(0, diff);
-}
-
-function renderReadingProgress(){
-  const data = getReadingProgress();
-  const totals = readingTotals(data);
-  const targetInput = document.getElementById("reading-target-date");
-  if(targetInput) targetInput.value = data.targetDate || "";
-  const summary = document.getElementById("reading-summary-grid");
-  if(summary){
-    summary.innerHTML = `
-      <div class="reading-stat"><div class="reading-stat-n" style="color:var(--accent2)">${readingNumber(totals.total)}</div><div class="reading-stat-l">páginas totais</div></div>
-      <div class="reading-stat"><div class="reading-stat-n" style="color:var(--green)">${readingNumber(totals.read)}</div><div class="reading-stat-l">páginas lidas</div></div>
-      <div class="reading-stat"><div class="reading-stat-n" style="color:var(--amber)">${readingNumber(totals.remaining)}</div><div class="reading-stat-l">páginas restantes</div></div>
-      <div class="reading-stat"><div class="reading-stat-n">${totals.pct}%</div><div class="reading-stat-l">progresso geral</div></div>
-    `;
-  }
-  renderReadingPaceBox(data, totals);
-  renderReadingSections(data);
-}
-
-function renderReadingPaceBox(data, totals){
-  const box = document.getElementById("reading-pace-box");
-  if(!box) return;
-  const days = daysUntilReadingTarget(data.targetDate);
-  if(!data.targetDate){
-    box.innerHTML = `Defina uma data-alvo para calcular quantas páginas precisa ler por dia. Restam <strong>${readingNumber(totals.remaining)}</strong> página${totals.remaining === 1 ? "" : "s"}.`;
-    return;
-  }
-  if(days === null){
-    box.innerHTML = `Data inválida. Escolha novamente a data para terminar a leitura.`;
-    return;
-  }
-  if(totals.remaining <= 0){
-    box.innerHTML = `Leitura concluída: <strong>${readingNumber(totals.read)}</strong> / <strong>${readingNumber(totals.total)}</strong> páginas.`;
-    return;
-  }
-  if(days <= 0){
-    box.innerHTML = `Prazo vencido. Ainda restam <strong>${readingNumber(totals.remaining)}</strong> página${totals.remaining === 1 ? "" : "s"}.`;
-    return;
-  }
-  const perDay = Math.ceil(totals.remaining / days);
-  box.innerHTML = `Faltam <strong>${readingNumber(totals.remaining)}</strong> página${totals.remaining === 1 ? "" : "s"} em <strong>${days}</strong> dia${days === 1 ? "" : "s"}. Ritmo necessário: <strong>${readingNumber(perDay)} páginas/dia</strong>.`;
-}
-
-function readingSectionUnallocatedPages(sec){
-  const target = readingSectionTargetPages(sec);
-  const itemPages = readingSectionItemPages(sec);
-  return Math.max(0, target - itemPages);
-}
-
-function readingUnknownItemsCount(sec){
-  return (sec.items || []).filter(item => Math.max(0, Number(item.pages || 0)) <= 0).length;
-}
-
-let READING_ROW_UPDATE_TIMER = null;
-let READING_ROW_UPDATE_SEQ = 0;
-
-function readingRowValuesFromElement(el){
-  const row = el?.closest?.(".reading-row");
-  return {
-    title: row?.querySelector?.(".reading-title-input")?.value ?? "",
-    pages: row?.querySelector?.(".reading-pages-input")?.value ?? "",
-    read: row?.querySelector?.(".reading-read-input")?.value ?? "",
-    done: !!row?.querySelector?.(".reading-done-input")?.checked
-  };
-}
-
-function readingCssEscape(value){
-  const text = String(value ?? "");
-  if(window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(text);
-  return text.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\A ");
-}
-
-function readingFocusSnapshot(){
-  const active = document.activeElement;
-  if(!active || !active.closest || !active.closest(".reading-row")) return null;
-  const row = active.closest(".reading-row");
-  const cls = ["reading-title-input", "reading-pages-input", "reading-read-input", "reading-done-input"].find(c => active.classList.contains(c));
-  if(!cls) return null;
-  return {
-    sectionId: row.getAttribute("data-section-id"),
-    itemId: row.getAttribute("data-item-id"),
-    cls,
-    start: typeof active.selectionStart === "number" ? active.selectionStart : null,
-    end: typeof active.selectionEnd === "number" ? active.selectionEnd : null
-  };
-}
-
-function readingRestoreFocus(snapshot){
-  if(!snapshot) return;
-  requestAnimationFrame(() => {
-    const row = document.querySelector(`.reading-row[data-section-id="${readingCssEscape(snapshot.sectionId || "")}"][data-item-id="${readingCssEscape(snapshot.itemId || "")}"]`);
-    const el = row?.querySelector?.(`.${snapshot.cls}`);
-    if(!el) return;
-    el.focus({preventScroll:true});
-    if(typeof snapshot.start === "number" && typeof el.setSelectionRange === "function"){
-      const len = String(el.value || "").length;
-      el.setSelectionRange(Math.min(snapshot.start, len), Math.min(snapshot.end ?? snapshot.start, len));
-    }
-  });
-}
-
-function readingQueueUpdateItemFromRow(sectionId, itemId, field, el){
-  const values = readingRowValuesFromElement(el);
-  const seq = ++READING_ROW_UPDATE_SEQ;
-  if(READING_ROW_UPDATE_TIMER) clearTimeout(READING_ROW_UPDATE_TIMER);
-  READING_ROW_UPDATE_TIMER = setTimeout(() => {
-    if(seq !== READING_ROW_UPDATE_SEQ) return;
-    readingApplyItemRowValues(sectionId, itemId, field, values, {preserveFocus:true, showWarnings:false});
-  }, 450);
-}
-
-function readingUpdateItemFromRow(sectionId, itemId, field, el){
-  if(READING_ROW_UPDATE_TIMER) clearTimeout(READING_ROW_UPDATE_TIMER);
-  READING_ROW_UPDATE_SEQ++;
-  const values = readingRowValuesFromElement(el);
-  readingApplyItemRowValues(sectionId, itemId, field, values, {preserveFocus:true, showWarnings:true});
-}
-
-function renderReadingSections(data){
-  const wrap = document.getElementById("reading-sections");
-  if(!wrap) return;
-  wrap.innerHTML = (data.sections || []).map(sec => {
-    const itemTotal = readingSectionItemPages(sec);
-    const total = readingSectionTotalPages(sec);
-    const read = Math.min(total, (sec.items || []).reduce((sum, item) => sum + readingItemReadPages(item), 0));
-    const remaining = Math.max(0, total - read);
-    const pct = total ? Math.round((read / total) * 100) : 0;
-    const unallocated = readingSectionUnallocatedPages(sec);
-    const unknownItems = readingUnknownItemsCount(sec);
-    const unallocatedPill = unallocated > 0
-      ? `<span class="reading-pill" title="Soma das páginas ainda não distribuídas entre as publicações desta seção">${readingNumber(unallocated)} sem distribuir</span>`
-      : "";
-    const unknownPill = unknownItems > 0
-      ? `<span class="reading-pill" title="Publicações com campo Páginas ainda zerado">${unknownItems} sem páginas</span>`
-      : "";
-    const rows = (sec.items || []).map(item => readingItemRowHtml(sec.id, item)).join("");
-    return `
-      <div class="reading-section">
-        <div class="reading-section-head">
-          <div style="min-width:0; flex:1 1 auto;">
-            <div class="reading-section-name"><span>Seção ${sec.number}</span> — ${escapeHtml(sec.title)}</div>
-            <div class="reading-progress-track"><div class="reading-progress-fill" style="width:${Math.max(0, Math.min(100, pct))}%"></div></div>
-          </div>
-          <div class="reading-section-meta">
-            <span class="reading-pill">${readingNumber(read)}/${readingNumber(total)} páginas</span>
-            <span class="reading-pill">${readingNumber(remaining)} restantes</span>
-            <span class="reading-pill ${pct >= 100 ? "good" : ""}">${pct}%</span>
-            ${unallocatedPill}
-            ${unknownPill}
-          </div>
-        </div>
-        <div class="reading-table">${rows || `<div class="old-exam-empty">Nenhuma publicação nesta seção.</div>`}</div>
-        <div class="reading-section-actions">
-          <button class="mini-btn" onclick='readingAddItem(${JSON.stringify(sec.id)})'>Adicionar publicação</button>
-          <button class="mini-btn" onclick='readingMarkSectionDone(${JSON.stringify(sec.id)})'>Marcar seção como lida</button>
-        </div>
-      </div>
-    `;
-  }).join("");
-}
-
-function readingItemRowHtml(sectionId, item){
-  const total = Math.max(0, Number(item.pages || 0));
-  const read = readingItemReadPages(item);
-  const done = total > 0 && read >= total;
-  const missingPages = total <= 0;
-  return `
-    <div class="reading-row" data-section-id="${escapeHtml(sectionId)}" data-item-id="${escapeHtml(item.id)}">
-      <div>
-        <div class="reading-row-label">Publicação</div>
-        <input class="reading-title-input" type="text" value="${escapeHtml(item.title)}" oninput='readingQueueUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "title", this)' onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "title", this)'>
-      </div>
-      <div>
-        <div class="reading-row-label">Páginas</div>
-        <input class="reading-pages-input" type="number" min="0" step="1" inputmode="numeric" value="${total || ""}" placeholder="0" oninput='readingQueueUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "pages", this)' onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "pages", this)'>
-      </div>
-      <div>
-        <div class="reading-row-label">Lidas</div>
-        <input class="reading-read-input" type="number" min="0" step="1" inputmode="numeric" value="${read || ""}" placeholder="0" ${done ? "disabled" : ""} oninput='readingQueueUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "read", this)' onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "read", this)'>
-      </div>
-      <label class="reading-check" title="${missingPages ? "Informe o total de páginas ou preencha Lidas antes de marcar como lida." : "Marcar publicação como lida."}"><input class="reading-done-input" type="checkbox" ${done ? "checked" : ""} onchange='readingUpdateItemFromRow(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)}, "done", this)'> Li tudo</label>
-      <button class="reading-remove" title="Remover publicação" onclick='readingRemoveItem(${JSON.stringify(sectionId)}, ${JSON.stringify(item.id)})'>×</button>
-    </div>
-  `;
-}
-
-function withReadingItem(sectionId, itemId, updater){
-  const data = getReadingProgress();
-  const sec = data.sections.find(s => s.id === sectionId);
-  if(!sec) return data;
-  const item = (sec.items || []).find(i => i.id === itemId);
-  if(!item) return data;
-  updater(item, sec, data);
-  return saveReadingProgressData(data);
-}
-
-function readingApplyItemRowValues(sectionId, itemId, field, values, options={}){
-  let needsPageTotalToast = false;
-  const focus = options.preserveFocus ? readingFocusSnapshot() : null;
-  withReadingItem(sectionId, itemId, (item, sec) => {
-    const title = cleanLabel(values.title, "Nova publicação");
-    const pages = Math.max(0, Math.round(Number(values.pages || 0)));
-    const rawRead = Math.max(0, Math.round(Number(values.read || 0)));
-    const checked = !!values.done;
-
-    item.title = title;
-
-    if(field === "done" && checked && pages <= 0){
-      if(rawRead > 0){
-        item.pages = rawRead;
-        item.read = rawRead;
-        item.done = true;
-        return;
-      }
-      const unknownItems = (sec.items || []).filter(it => Math.max(0, Number(it.pages || 0)) <= 0);
-      const unallocated = readingSectionUnallocatedPages(sec);
-      if(unknownItems.length === 1 && unallocated > 0){
-        item.pages = unallocated;
-        item.read = unallocated;
-        item.done = true;
-        return;
-      }
-      item.pages = 0;
-      item.read = 0;
-      item.done = false;
-      needsPageTotalToast = true;
-      return;
-    }
-
-    item.pages = pages;
-    if(pages > 0){
-      item.read = checked ? pages : Math.min(rawRead, pages);
-      item.done = checked || item.read >= pages;
-      if(item.done) item.read = pages;
-    } else {
-      item.read = rawRead;
-      item.done = false;
-    }
-  });
-  renderReadingProgress();
-  readingRestoreFocus(focus);
-  if(needsPageTotalToast && options.showWarnings !== false){
-    showToast("Informe o total de páginas dessa publicação ou preencha 'Lidas' antes de marcar ‘Li tudo’.", "warn", 5200);
-  }
-}
-
-function readingUpdateItem(sectionId, itemId, field, value){
-  withReadingItem(sectionId, itemId, (item) => {
-    if(field === "title") item.title = cleanLabel(value, "Nova publicação");
-    if(field === "pages"){
-      const pages = Math.max(0, Math.round(Number(value || 0)));
-      item.pages = pages;
-      item.read = pages > 0 ? Math.min(pages, Math.max(0, Number(item.read || 0))) : Math.max(0, Number(item.read || 0));
-      item.done = pages > 0 && item.read >= pages;
-    }
-    if(field === "read"){
-      const read = Math.max(0, Math.round(Number(value || 0)));
-      const pages = Math.max(0, Number(item.pages || 0));
-      item.read = pages > 0 ? Math.min(read, pages) : read;
-      item.done = pages > 0 && item.read >= pages;
-    }
-    if(field === "done"){
-      const pages = Math.max(0, Number(item.pages || 0));
-      const checked = !!value;
-      item.done = checked && pages > 0;
-      if(item.done) item.read = pages;
-    }
-  });
-  renderReadingProgress();
-}
-
-function readingAddItem(sectionId){
-  const data = getReadingProgress();
-  const sec = data.sections.find(s => s.id === sectionId);
-  if(!sec) return;
-  sec.items = sec.items || [];
-  sec.items.push({id:`${sectionId}_${Date.now()}_${Math.random().toString(16).slice(2)}`, title:"Nova publicação", pages:0, read:0, done:false});
-  saveReadingProgressData(data);
-  renderReadingProgress();
-}
-
-function readingRemoveItem(sectionId, itemId){
-  const data = getReadingProgress();
-  const sec = data.sections.find(s => s.id === sectionId);
-  if(!sec) return;
-  sec.items = (sec.items || []).filter(item => item.id !== itemId);
-  saveReadingProgressData(data);
-  renderReadingProgress();
-}
-
-function readingMarkSectionDone(sectionId){
-  const data = getReadingProgress();
-  const sec = data.sections.find(s => s.id === sectionId);
-  if(!sec) return;
-  sec.items = sec.items || [];
-  const balanceId = `${sectionId}_balance`;
-  const target = readingSectionTargetPages(sec);
-  const otherTotal = sec.items
-    .filter(item => item.id !== balanceId)
-    .reduce((sum, item) => sum + Math.max(0, Number(item.pages || 0)), 0);
-  const balancePages = Math.max(0, target - otherTotal);
-  let balance = sec.items.find(item => item.id === balanceId);
-  if(balancePages > 0){
-    if(!balance){
-      balance = {id:balanceId, title:"Páginas não distribuídas da seção", pages:balancePages, read:0, done:false};
-      sec.items.push(balance);
-    }
-    balance.pages = balancePages;
-  } else {
-    sec.items = sec.items.filter(item => item.id !== balanceId);
-  }
-  (sec.items || []).forEach(item => {
-    item.done = true;
-    item.read = Math.max(0, Number(item.pages || 0));
-  });
-  saveReadingProgressData(data);
-  renderReadingProgress();
-}
-
-function saveReadingTargetDate(){
-  const data = getReadingProgress();
-  data.targetDate = document.getElementById("reading-target-date")?.value || "";
-  saveReadingProgressData(data);
-  renderReadingProgress();
-}
-
-function resetReadingProgress(){
-  showConfirmToast("Zerar todo o progresso de leitura e voltar ao modelo inicial?", () => {
-    localStorage.removeItem(READING_PROGRESS_KEY);
-    renderReadingProgress();
-    showToast("Progresso de leitura zerado.", "success");
-  }, {tone:"danger", confirmText:"Zerar"});
-}
-
-function exportReadingProgress(){
-  const data = getReadingProgress();
-  const blob = new Blob([JSON.stringify(data, null, 2)], {type:"application/json"});
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "flashpratico_progresso_leitura.json";
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function toggleReadingImportPanel(force){
-  const panel = document.getElementById("reading-import-panel");
-  if(!panel) return;
-  const open = typeof force === "boolean" ? force : !panel.classList.contains("open");
-  panel.classList.toggle("open", open);
-}
-
-function readingNormalizeTitle(title){
-  return String(title || "")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase().replace(/[^a-z0-9]+/g, " ")
-    .trim();
-}
-
-function parseReadingPlanText(text){
-  const defaultsByNum = new Map(DEFAULT_READING_SECTIONS.map(sec => [Number(sec.number), sec]));
-  const sections = [];
-  let current = null;
-  const lines = String(text || "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
-  const ensureSection = (num, title) => {
-    let sec = sections.find(s => Number(s.number) === Number(num));
-    if(!sec){
-      const def = defaultsByNum.get(Number(num));
-      sec = {id: def?.id || `sec${num}`, number:Number(num), title: cleanLabel(title || def?.title, `SEÇÃO ${num}`), targetPages: Math.max(0, Number(def?.targetPages || 0)), items:[]};
-      sections.push(sec);
-    } else if(title) {
-      sec.title = cleanLabel(title, sec.title);
-    }
-    current = sec;
-    return sec;
-  };
-  for(const rawLine of lines){
-    let line = rawLine.replace(/\s+/g, " ").trim();
-    if(!line) continue;
-    const header = line.match(/^(?:se[cç][aã]o\s*)?(\d+)\s*[\-–—]\s*(.+)$/i);
-    const romanHeader = !header ? line.match(/^(I|II|III|IV|V|VI|VII)\s*[\-–—]\s*(.+)$/i) : null;
-    if(header || romanHeader){
-      const romanMap = {I:1, II:2, III:3, IV:4, V:5, VI:6, VII:7};
-      const num = header ? Number(header[1]) : romanMap[String(romanHeader[1]).toUpperCase()];
-      const title = header ? header[2] : romanHeader[2];
-      ensureSection(num, title.replace(/total.*$/i, "").trim());
-      continue;
-    }
-    if(/^publica[cç][aã]o\s+p[aá]ginas?$/i.test(line) || /^p[aá]ginas?$/i.test(line)) continue;
-    if(/^total\s+/i.test(line)) continue;
-    const item = line.match(/^(.+?)\s+(\d{1,5})\s*(?:p[aá]ginas?)?\.?$/i);
-    if(item && current){
-      const title = cleanLabel(item[1].replace(/[\t;]+/g, " "), "Publicação");
-      const pages = Math.max(0, Number(item[2] || 0));
-      if(title && pages >= 0) current.items.push({id:`${current.id}_${slugify(title)}_${sections.length}_${current.items.length}`, title, pages, read:0, done:false});
-    }
-  }
-  const out = cloneReadingDefaults().map(sec => ({...sec, items:[]}));
-  sections.forEach(sec => {
-    const idx = out.findIndex(s => Number(s.number) === Number(sec.number));
-    const def = defaultsByNum.get(Number(sec.number));
-    const normalized = {...sec, targetPages: Math.max(0, Number(sec.targetPages || def?.targetPages || 0)), items: sec.items || []};
-    if(idx >= 0) out[idx] = normalized;
-    else out.push(normalized);
-  });
-  out.forEach(sec => {
-    if(!sec.items || !sec.items.length){
-      const def = defaultsByNum.get(Number(sec.number));
-      sec.items = def ? def.items.map(item => ({...item, read:0, done:false})) : [];
-    }
-  });
-  return out.sort((a,b) => Number(a.number) - Number(b.number));
-}
-
-function importReadingPlanFromText(){
-  const area = document.getElementById("reading-import-text");
-  const text = area?.value || "";
-  if(!text.trim()){
-    showToast("Cole o levantamento antes de importar.", "warn");
-    return;
-  }
-  const previous = getReadingProgress();
-  const previousByKey = new Map();
-  (previous.sections || []).forEach(sec => (sec.items || []).forEach(item => {
-    previousByKey.set(`${sec.number}|||${readingNormalizeTitle(item.title)}`, item);
-  }));
-  const importedSections = parseReadingPlanText(text);
-  let importedItems = 0;
-  importedSections.forEach(sec => {
-    sec.items = (sec.items || []).map(item => {
-      const old = previousByKey.get(`${sec.number}|||${readingNormalizeTitle(item.title)}`);
-      const pages = Math.max(0, Number(item.pages || 0));
-      const oldRead = old ? readingItemReadPages(old) : 0;
-      const read = pages > 0 ? Math.min(pages, oldRead) : oldRead;
-      importedItems++;
-      return {...item, pages, read, done: pages > 0 && read >= pages};
-    });
-  });
-  if(!importedItems){
-    showToast("Não encontrei publicações com número de páginas no texto colado.", "error", 5200);
-    return;
-  }
-  saveReadingProgressData({version:1, targetDate: previous.targetDate || "", sections: importedSections});
-  toggleReadingImportPanel(false);
-  renderReadingProgress();
-  showToast(`Levantamento importado: ${importedItems} publicação${importedItems === 1 ? "" : "ões"}.`, "success");
-}
-
-
 function updateAppHistory(tab, options={}){
   const state = { flashpratico:true, tab };
   if(!APP_HISTORY_READY){
@@ -7512,9 +6673,11 @@ function updateAppHistory(tab, options={}){
 }
 
 function showTab(tab, options={}){
+  // Compatibilidade com histórico do navegador de versões que ainda tinham a aba Progresso.
+  if(tab === "progress") tab = "study";
   const previousTab = activeTab;
   activeTab = tab;
-  ["study","programmed","important","diag","questions","oldexams","progress","health","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
+  ["study","programmed","important","diag","questions","oldexams","health","db","arch"].forEach(t => document.getElementById("tab-"+t)?.classList.toggle("active", t===tab));
   const studyDisplay = tab === "study" || tab === "programmed" || tab === "important";
   if(studyDisplay) LAST_STUDY_TAB = tab;
   const dailyGoal = document.getElementById("daily-goal-widget");
@@ -7527,7 +6690,6 @@ function showTab(tab, options={}){
   document.getElementById("diagnostic-screen").style.display = tab === "diag" ? "block" : "none";
   document.getElementById("questions-screen").style.display = tab === "questions" ? "block" : "none";
   document.getElementById("old-exams-screen").style.display = tab === "oldexams" ? "block" : "none";
-  document.getElementById("progress-screen").style.display = tab === "progress" ? "block" : "none";
   document.getElementById("health-screen").style.display = tab === "health" ? "block" : "none";
   document.getElementById("database-screen").style.display = tab === "db" ? "block" : "none";
   document.getElementById("archived-screen").style.display = tab === "arch" ? "block" : "none";
@@ -7536,7 +6698,6 @@ function showTab(tab, options={}){
   if(tab === "diag") buildDashboard("all");
   if(tab === "questions") showQuestionList();
   if(tab === "oldexams") renderOldExamList();
-  if(tab === "progress") renderReadingProgress();
   if(tab === "health") renderHealthDashboard();
   if(tab === "db") renderSummary("db-summary");
   if(tab === "arch") renderArchivedCards();
@@ -8521,22 +7682,26 @@ function studyEventsBeforeCurrentAnswer(card, result){
 
 function stateTimestampMs(state){
   if(!state) return 0;
-  return Math.max(
-    state.ultima_revisao ? new Date(state.ultima_revisao).getTime() : 0,
-    state.updated_at ? new Date(state.updated_at).getTime() : 0
-  ) || 0;
+  // Para ordenar estados da MESMA pergunta, a data relevante é a última revisão
+  // realmente respondida. updated_at é apenas fallback para estados legados sem
+  // ultima_revisao; um upsert/import administrativo não pode parecer uma revisão nova.
+  const reviewMs = state.ultima_revisao ? new Date(state.ultima_revisao).getTime() : 0;
+  if(Number.isFinite(reviewMs) && reviewMs > 0) return reviewMs;
+  const updatedMs = state.updated_at ? new Date(state.updated_at).getTime() : 0;
+  return Number.isFinite(updatedMs) && updatedMs > 0 ? updatedMs : 0;
 }
 
 function programmedLevelBeforeAnswer(card, result, previous){
   const beforeEvents = studyEventsBeforeCurrentAnswer(card, result);
   const lastBefore = beforeEvents.length ? beforeEvents[beforeEvents.length - 1] : null;
   const lastBeforeMs = lastBefore?.ts ? new Date(lastBefore.ts).getTime() : 0;
-  const prevMs = stateTimestampMs(previous);
+  const prevReviewMs = previous?.ultima_revisao ? new Date(previous.ultima_revisao).getTime() : 0;
 
-  // No Programado, o histórico lógico é a fonte mais segura quando está
-  // atualizado até a última revisão. Isso corrige estados antigos gravados
-  // por versões anteriores com nível/proxima_revisao incorretos.
-  if(beforeEvents.length && (!prevMs || lastBeforeMs >= prevMs - 1000)){
+  // No Programado, comparamos o histórico com a última REVISÃO real. updated_at
+  // pode ser posterior por razões administrativas e não deve mascarar um
+  // histórico completo. Estados legados sem ultima_revisao cedem ao histórico.
+  const historyCompleteForPrevious = historyEventsCoverReviewState(beforeEvents, previous);
+  if(beforeEvents.length && historyCompleteForPrevious && (!Number.isFinite(prevReviewMs) || !prevReviewMs || lastBeforeMs >= prevReviewMs - 1000)){
     return programmedLevelFromEvents(beforeEvents);
   }
 
@@ -8549,30 +7714,136 @@ function programmedLevelBeforeAnswer(card, result, previous){
   return programmedLevelFromEvents(beforeEvents);
 }
 
-function cardPerformanceStatus(card){
-  const st = reviewStateFor(card) || {};
-  const histStats = cardStats(card.id);
-  const totalRight = Math.max(Number(st.total_acertos || 0), Number(histStats.right || 0));
-  const totalWrong = Math.max(Number(st.total_erros || 0), Number(histStats.wrong || 0));
-  const totalHard = Math.max(Number(st.total_dificeis || 0), Number(histStats.hard || 0));
-  const streak = Math.max(Number(st.acertos_seguidos || 0), countConsecutiveRightFromHistory(card));
-  const answered = totalRight + totalWrong + totalHard;
-  const last = lastStudyResult(card);
-
-  if(answered === 0) return { label: "Novo", cls: "status-new" };
-  if(streak >= 3) return { label: "Dominado", cls: "status-dominated" };
-  if(totalWrong >= 2) return { label: "Errada recorrente", cls: "status-recurrent" };
-  if(last === "wrong" || totalWrong === 1) return { label: "Atenção", cls: "status-attention" };
-  if(totalRight >= 3) return { label: "Dominado", cls: "status-dominated" };
-  return { label: "Em progresso", cls: "status-progress" };
+function cardLevelInfo(card){
+  const level = programmedLevelFor(card);
+  const days = programmedIntervalDays(level);
+  return {
+    level,
+    label: `Nível ${level}`,
+    detail: level === 0 ? "Sem intervalo de nível" : `Próxima revisão em ${days} dia${days === 1 ? "" : "s"}`
+  };
 }
 
 function applyPerformanceBadge(elementId, card){
   const el = document.getElementById(elementId);
   if(!el) return;
-  const status = cardPerformanceStatus(card);
-  el.className = "diff-badge status-badge " + status.cls;
-  el.textContent = status.label;
+  const info = cardLevelInfo(card);
+  el.className = `diff-badge status-badge level-badge-btn level-${info.level}`;
+  el.textContent = info.label;
+  el.title = `${info.label} · ${info.detail}. Clique para alterar.`;
+  el.setAttribute("aria-label", `${info.label}. Clique para alterar o nível do card.`);
+  el.dataset.level = String(info.level);
+}
+
+let LEVEL_MODAL_CARD_ID = null;
+
+function currentLevelModalCard(){
+  const current = deck?.[idx] || null;
+  if(current && (!LEVEL_MODAL_CARD_ID || cardIdKey(current) === cardIdKey(LEVEL_MODAL_CARD_ID))) return current;
+  if(!LEVEL_MODAL_CARD_ID) return current;
+  return CARDS.find(card => cardIdKey(card) === cardIdKey(LEVEL_MODAL_CARD_ID)) || current;
+}
+
+function renderCardLevelOptions(card){
+  const container = document.getElementById("level-options");
+  const currentEl = document.getElementById("level-modal-current");
+  if(!container || !currentEl || !card) return;
+  const current = programmedLevelFor(card);
+  currentEl.innerHTML = `Nível atual: <strong>Nível ${current}</strong>`;
+  container.innerHTML = "";
+  for(let level = 0; level <= 7; level++){
+    const days = programmedIntervalDays(level);
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "level-option" + (level === current ? " active" : "");
+    btn.dataset.level = String(level);
+    btn.innerHTML = `<span class="level-option-n">Nível ${level}</span><span class="level-option-d">${level === 0 ? "Sem intervalo de nível" : `Retorna em ${days} dia${days === 1 ? "" : "s"}`}</span>`;
+    btn.onclick = event => setCardLevelManually(level, event);
+    container.appendChild(btn);
+  }
+}
+
+function openCardLevelModal(event){
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const card = deck?.[idx];
+  if(!card) return;
+  LEVEL_MODAL_CARD_ID = card.id;
+  renderCardLevelOptions(card);
+  document.getElementById("level-modal-backdrop")?.classList.add("show");
+}
+
+function closeCardLevelModal(event){
+  if(event?.target && event.target.id !== "level-modal-backdrop") return;
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  document.getElementById("level-modal-backdrop")?.classList.remove("show");
+  LEVEL_MODAL_CARD_ID = null;
+}
+
+async function setCardLevelManually(level, event){
+  event?.preventDefault?.();
+  event?.stopPropagation?.();
+  const card = currentLevelModalCard();
+  const safeLevel = Math.max(0, Math.min(7, Math.trunc(Number(level))));
+  if(!card || !Number.isFinite(safeLevel)) return;
+
+  const currentLevel = programmedLevelFor(card);
+  if(safeLevel === currentLevel){
+    document.getElementById("level-modal-backdrop")?.classList.remove("show");
+    LEVEL_MODAL_CARD_ID = null;
+    applyPerformanceBadge("front-diff", card);
+    applyPerformanceBadge("back-diff", card);
+    return;
+  }
+
+  const previous = latestStoredReviewStateForLogicalKey(card) || reviewStateFor(card) || {};
+  const now = new Date();
+  const intervalDays = programmedIntervalDays(safeLevel);
+  const next = safeLevel === 0 ? now : addDays(now, intervalDays);
+  const row = {
+    user_id: currentUser?.id || previous.user_id || null,
+    card_id: card.id,
+    acertos_seguidos: safeLevel,
+    intervalo_dias: intervalDays,
+    proxima_revisao: next.toISOString(),
+    // A alteração manual precisa ser mais recente que o histórico para não ser
+    // imediatamente sobrescrita pela reconstrução automática do Programado.
+    // Ela NÃO cria evento em respostas e, portanto, não conta para metas/acertos.
+    ultima_revisao: now.toISOString(),
+    // "skip" já é um valor aceito pelo banco e funciona como marcador neutro.
+    // Não incrementamos total_pulos nem criamos evento no histórico.
+    ultimo_resultado: "skip",
+    total_acertos: Number(previous.total_acertos || 0),
+    total_erros: Number(previous.total_erros || 0),
+    total_dificeis: Number(previous.total_dificeis || 0),
+    total_pulos: Number(previous.total_pulos || 0),
+    updated_at: now.toISOString()
+  };
+
+  REVIEW_STATE.set(cardIdKey(card), row);
+  persistReviewStateLocalCache();
+  enqueuePendingReviewState(row);
+  invalidateProgrammedRuntimeCaches();
+
+  if(isOnlineMode && currentUser && REVIEW_TABLE_READY){
+    void syncPendingReviewStatesToSupabase().catch(error => {
+      console.error("Erro ao sincronizar nível manual:", error);
+      setSyncStatus("nível alterado localmente; sincronização remota pendente.");
+    });
+  }
+
+  document.getElementById("level-modal-backdrop")?.classList.remove("show");
+  LEVEL_MODAL_CARD_ID = null;
+  applyPerformanceBadge("front-diff", card);
+  applyPerformanceBadge("back-diff", card);
+  updateStudyTitle();
+
+  // No Programado/Favoritos, um nível > 0 agenda o card no futuro.
+  // Retiramos imediatamente da fila se ele deixou de estar disponível.
+  if(currentStudy?.mode === "programmed" || currentStudy?.mode === "important"){
+    pruneProgrammedDeckAfterDataRefresh();
+  }
 }
 
 
@@ -10086,30 +9357,36 @@ async function saveCardEdit(){
 async function resetHistory(){
   showConfirmToast("Tem certeza que deseja apagar todo o histórico de desempenho desta conta?", async () => {
     if(isOnlineMode && currentUser){
-      const { error } = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
-      if(error){ showToast("Erro ao apagar histórico: " + error.message, "error", 6000); return; }
-      await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
-      ONLINE_HISTORY = [];
-      REMOTE_CARD_RESPONSE_IDS = new Set();
-      REMOTE_CARD_RESPONSE_KEYS = new Set();
-      REVIEW_STATE = new Map();
-      clearHistorySafetyBackups();
-      markExplicitHistoryReset();
-      LOCAL_HISTORY_CACHE = [];
-      HISTORY_UNION_CACHE = null;
-      HISTORY_ACTIVE_CACHE = null;
-      invalidateStudyIdentityCaches();
-      setSyncStatus("Histórico e revisão espaçada apagados no Supabase.");
-    } else {
-      localStorage.removeItem(DB_KEY);
-      clearHistorySafetyBackups();
-      markExplicitHistoryReset();
-      LOCAL_HISTORY_CACHE = [];
-      HISTORY_UNION_CACHE = null;
-      HISTORY_ACTIVE_CACHE = null;
+      // Apaga primeiro o checkpoint de revisão. Se esta etapa falhar, não toca
+      // no histórico: manter respostas sem review_state é recuperável; o inverso
+      // faria níveis antigos ressuscitarem após um reset aparentemente concluído.
+      const reviewDelete = await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
+      if(reviewDelete.error){ showToast("Erro ao apagar estado de revisão: " + reviewDelete.error.message, "error", 6500); return; }
+      const historyDelete = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
+      if(historyDelete.error){
+        showToast("O estado de revisão foi limpo, mas o histórico remoto não pôde ser apagado. Nada local foi zerado; tente novamente.", "error", 8000);
+        return;
+      }
     }
+    ONLINE_HISTORY = [];
+    HISTORY_KNOWN_COMPLETE = true;
+    REMOTE_CARD_RESPONSE_IDS = new Set();
+    REMOTE_CARD_RESPONSE_KEYS = new Set();
+    REVIEW_STATE = new Map();
+    clearReviewStateLocalCache();
+    clearPendingReviewStates();
+    clearHistorySafetyBackups();
+    markExplicitHistoryReset();
+    try{ localStorage.removeItem(DB_KEY); }catch(e){}
+    // Respostas antigas pendentes não podem ressuscitar um histórico zerado.
+    writePendingCardSync([]);
+    writeOrphanCardSync([]);
+    LOCAL_HISTORY_CACHE = [];
+    HISTORY_UNION_CACHE = null;
+    HISTORY_ACTIVE_CACHE = null;
     invalidateStudyIdentityCaches();
     invalidateSyncSummaryCache();
+    if(isOnlineMode && currentUser) setSyncStatus("Histórico e revisão espaçada apagados no Supabase e neste aparelho.");
     buildDashboard("all");
     renderSummary("db-summary");
     renderDailyGoalWidget();
@@ -10126,21 +9403,20 @@ async function resetTopicHistory(publicacao, assunto){
   showConfirmToast(`Zerar o desempenho de ${publicacao} — ${assunto}?\n\nIsso apaga acertos, erros, revisões e estatísticas somente deste assunto. Os flashcards não serão apagados.`, async () => {
   try{
     if(isOnlineMode && currentUser){
+      const reviewResp = await supabaseClient
+        .from("estado_cards_usuario")
+        .delete()
+        .eq("user_id", currentUser.id)
+        .in("card_id", cardIds);
+      if(reviewResp.error) throw new Error("Não foi possível apagar o estado de revisão do assunto: " + reviewResp.error.message);
+
       const resp = await supabaseClient
         .from("respostas")
         .delete()
         .eq("user_id", currentUser.id)
         .in("card_id", cardIds);
-      if(resp.error) throw resp.error;
+      if(resp.error) throw new Error("O estado de revisão foi limpo, mas o histórico do assunto não pôde ser apagado. Tente novamente: " + resp.error.message);
 
-      if(REVIEW_TABLE_READY){
-        const reviewResp = await supabaseClient
-          .from("estado_cards_usuario")
-          .delete()
-          .eq("user_id", currentUser.id)
-          .in("card_id", cardIds);
-        if(reviewResp.error) console.warn("Erro ao apagar estado de revisão do assunto:", reviewResp.error);
-      }
       const resetIdKeys = new Set(cardIds.map(cardIdKey));
       ONLINE_HISTORY = ONLINE_HISTORY.filter(e => !resetIdKeys.has(cardIdKey(e.card_id)));
     } else {
@@ -10149,7 +9425,14 @@ async function resetTopicHistory(publicacao, assunto){
       setHistory(hist);
     }
 
+    const resetIdKeysLocal = new Set(cardIds.map(cardIdKey));
+    const remainingLocalHistory = getHistory().filter(e => !resetIdKeysLocal.has(cardIdKey(e.card_id)));
+    ONLINE_HISTORY = remainingLocalHistory;
+    writeLocalCardHistory(remainingLocalHistory, { allowShrink:true, reason:"topic-reset" });
+    writePendingCardSync(readPendingCardSync().filter(e => !resetIdKeysLocal.has(cardIdKey(e.card_id))));
     cardIds.forEach(id => REVIEW_STATE.delete(cardIdKey(id)));
+    removePendingReviewStateIds(cardIds);
+    persistReviewStateLocalCache();
     invalidateStudyIdentityCaches();
     if(activeTab === "diag") buildDashboard("all");
     if(activeTab === "db") renderSummary("db-summary");
@@ -10234,7 +9517,7 @@ function catalogInfoForCard(catalog, cardId){
   return { publicacao:"", assunto:"", diff:"", src:"" };
 }
 function compactHistoryEvent(ev){
-  const row = [cardIdKey(ev?.card_id), backupResultCode(ev?.result), String(ev?.ts || "")];
+  const row = [cardIdKey(ev?.card_id), backupResultCode(ev?.result), canonicalEventTimestamp(ev?.ts)];
   const key = String(ev?.logical_key || "").trim();
   if(key) row.push(key);
   return row;
@@ -10283,7 +9566,7 @@ function expandCompactHistoryRows(rows, catalog={}){
       assunto: cleanLabel(info.assunto || card.assunto || card.topic, "Geral"),
       logical_key: String(logical_key || (card.id ? studySessionKey(card) : "")).trim(),
       result,
-      ts: String(ts)
+      ts: canonicalEventTimestamp(ts)
     };
   }).filter(Boolean);
 }
@@ -10460,6 +9743,7 @@ function applyReviewStateBackup(reviewRows, replace=true){
   const cleanRows = (reviewRows || []).map(normalizeBackupReviewRow).filter(Boolean);
   if(replace) REVIEW_STATE = new Map();
   cleanRows.forEach(row => REVIEW_STATE.set(cardIdKey(row.card_id), row));
+  persistReviewStateLocalCache();
   invalidateStudyIdentityCaches();
   invalidateProgrammedRuntimeCaches();
   return cleanRows;
@@ -10480,7 +9764,7 @@ function refreshAfterHistoryRestore(){
 }
 
 async function upsertReviewStateRowsToSupabase(rows){
-  if(!isOnlineMode || !currentUser?.id || !supabaseClient || !REVIEW_TABLE_READY) return 0;
+  if(!isOnlineMode || !currentUser?.id || !supabaseClient) return 0;
   const clean = (rows || []).map(normalizeBackupReviewRow).filter(Boolean).map(row => ({...row, user_id: currentUser.id}));
   let sent = 0;
   for(let i = 0; i < clean.length; i += 400){
@@ -10489,12 +9773,12 @@ async function upsertReviewStateRowsToSupabase(rows){
       .from("estado_cards_usuario")
       .upsert(chunk, { onConflict:"user_id,card_id" });
     if(error){
-      console.warn("Não consegui restaurar estado de revisão no Supabase:", error);
       REVIEW_TABLE_READY = false;
-      break;
+      throw new Error("Falha ao restaurar estado de revisão no Supabase após " + sent + " linha(s): " + (error.message || error));
     }
     sent += chunk.length;
   }
+  REVIEW_TABLE_READY = true;
   return sent;
 }
 
@@ -10514,13 +9798,11 @@ async function applyImportedImportantCards(importantIds){
 
 async function replaceRemoteHistoryWithBackup(history, reviewRows){
   if(!isOnlineMode || !currentUser?.id || !supabaseClient) return { synced:0, orphaned:0, reviewSynced:0, skipped:true };
-  setSyncStatus("restaurando JSON: apagando histórico remoto desta conta...");
+  setSyncStatus("restaurando JSON: preparando substituição remota desta conta...");
+  const delReview = await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
+  if(delReview.error) throw new Error("Não foi possível limpar o estado de revisão remoto antes da restauração: " + (delReview.error.message || delReview.error));
   const delResp = await supabaseClient.from("respostas").delete().eq("user_id", currentUser.id);
-  if(delResp.error) throw delResp.error;
-  if(REVIEW_TABLE_READY){
-    const delReview = await supabaseClient.from("estado_cards_usuario").delete().eq("user_id", currentUser.id);
-    if(delReview.error) console.warn("Não consegui apagar estado de revisão remoto antes da restauração:", delReview.error);
-  }
+  if(delResp.error) throw new Error("O estado de revisão foi limpo, mas o histórico remoto não pôde ser substituído. Tente a restauração novamente: " + (delResp.error.message || delResp.error));
   REMOTE_CARD_RESPONSE_IDS = new Set();
   REMOTE_CARD_RESPONSE_KEYS = new Set();
 
@@ -10544,6 +9826,7 @@ async function applyFullJsonBackupRestore(history, reviewRows, options={}){
   const replaceRemote = !!options.replaceRemote;
   const historyForUser = mergeHistoryEvents(history || []).map(ev => ({...ev, user_id: currentUser?.id || ev.user_id || null}));
   if(!historyForUser.length) throw new Error("Backup sem histórico válido.");
+  if(options.historyComplete) HISTORY_KNOWN_COMPLETE = true;
   clearExplicitHistoryReset();
 
   // Primeiro restaura localmente, antes de qualquer ida à nuvem.
@@ -10557,6 +9840,9 @@ async function applyFullJsonBackupRestore(history, reviewRows, options={}){
 
   let remote = { synced:0, orphaned:0, reviewSynced:0, skipped:true, importantSynced: importantRestore.synced || 0 };
   if(replaceRemote){
+    // Pendências de antes do backup não podem reaparecer após a substituição.
+    writePendingCardSync([]);
+    clearPendingReviewStates();
     remote = await replaceRemoteHistoryWithBackup(historyForUser, reviewClean);
   } else if(isOnlineMode && currentUser?.id && supabaseClient){
     // Mescla na nuvem sem apagar nada. Útil quando o usuário só quer recuperar o que falta.
@@ -10594,7 +9880,7 @@ function restoreFullJsonBackup(event){
       showConfirmToast(
         `Restaurar backup completo?\n\nEventos no JSON: ${history.length}\nRespostas efetivas: ${answered}\nEstado de revisão: ${reviewState.length}\nFavoritos no JSON: ${importantCards.length}\nPeríodo: ${first} até ${last}${remoteText}`,
         async () => {
-          const res = await applyFullJsonBackupRestore(history, reviewState, { replaceRemote: !!(isOnlineMode && currentUser?.id), importantCards });
+          const res = await applyFullJsonBackupRestore(history, reviewState, { replaceRemote: !!(isOnlineMode && currentUser?.id), importantCards, historyComplete:true });
           setSyncStatus(`JSON restaurado: ${res.local} evento(s) locais, ${res.remote.synced || 0} enviado(s), ${res.remote.orphaned || 0} órfão(s).`);
           showToast(`JSON restaurado. Eventos locais: ${res.local}. Favoritos restaurados: ${res.important || 0}. Enviados ao Supabase: ${res.remote.synced || 0}.`, "success", 8000);
         },
@@ -10609,16 +9895,55 @@ function restoreFullJsonBackup(event){
   event.target.value = "";
 }
 
-function exportHistory(){
-  const payload = buildCompactHistoryPayload();
-  const size = downloadJsonPayload(payload, `flashpratico_backup_compacto_${backupDateStamp()}.json`, false);
-  showToast(`Backup compacto exportado (${formatBackupBytes(size)}). O importador desta versão também aceita backups antigos.`, "success", 6500);
+async function ensureBackupDataComplete(){
+  // Nunca exporta silenciosamente uma visão parcial da conta online. Se a carga
+  // completa ainda não ocorreu, tenta concluí-la antes de construir o JSON.
+  // Offline só é seguro quando esta sessão já confirmou a carga integral.
+  if(!(isOnlineMode && currentUser?.id && supabaseClient)) return true;
+  if(!navigator.onLine){
+    if(!CARD_HISTORY_INITIAL_FULL_LOAD_DONE){
+      throw new Error("O histórico completo desta conta ainda não foi carregado. Conecte-se à internet e tente o backup novamente.");
+    }
+    return true;
+  }
+
+  await loadResponsesFromSupabase({ silent:true });
+  if(!CARD_HISTORY_INITIAL_FULL_LOAD_DONE){
+    throw new Error("Não foi possível confirmar a carga completa do histórico. O backup foi cancelado para evitar um arquivo incompleto.");
+  }
+  const reviewOk = await loadReviewStateFromSupabase({ silent:true });
+  if(reviewOk === false){
+    throw new Error("Não foi possível confirmar o estado de revisão no Supabase. O backup foi cancelado para evitar perda de níveis/datas.");
+  }
+  try{ await loadImportantFromSupabase(); }
+  catch(error){
+    console.warn("Favoritos remotos não puderam ser atualizados antes do backup; mantendo a união local já protegida.", error);
+  }
+  return true;
 }
 
-function exportFullHistory(){
-  const payload = buildFullHistoryPayload();
-  const size = downloadJsonPayload(payload, `flashpratico_backup_completo_${backupDateStamp()}.json`, false);
-  showToast(`Backup completo exportado (${formatBackupBytes(size)}). Use este formato apenas para emergência/auditoria máxima.`, "success", 6500);
+async function exportHistory(){
+  try{
+    await ensureBackupDataComplete();
+    const payload = buildCompactHistoryPayload();
+    const size = downloadJsonPayload(payload, `flashpratico_backup_compacto_${backupDateStamp()}.json`, false);
+    showToast(`Backup compacto exportado (${formatBackupBytes(size)}). O importador desta versão também aceita backups antigos.`, "success", 6500);
+  }catch(error){
+    console.error("Backup compacto cancelado:", error);
+    showToast("Backup não exportado: " + (error.message || error), "error", 7500);
+  }
+}
+
+async function exportFullHistory(){
+  try{
+    await ensureBackupDataComplete();
+    const payload = buildFullHistoryPayload();
+    const size = downloadJsonPayload(payload, `flashpratico_backup_completo_${backupDateStamp()}.json`, false);
+    showToast(`Backup completo exportado (${formatBackupBytes(size)}). Use este formato apenas para emergência/auditoria máxima.`, "success", 6500);
+  }catch(error){
+    console.error("Backup completo cancelado:", error);
+    showToast("Backup não exportado: " + (error.message || error), "error", 7500);
+  }
 }
 
 function importHistory(event){
@@ -10723,6 +10048,12 @@ async function logoutSupabase(){
   await supabaseClient.auth.signOut();
   currentUser = null;
   ONLINE_HISTORY = [];
+  REVIEW_STATE = new Map();
+  HISTORY_KNOWN_COMPLETE = false;
+  CARD_HISTORY_INITIAL_FULL_LOAD_DONE = false;
+  LOCAL_HISTORY_CACHE = null;
+  HISTORY_UNION_CACHE = null;
+  HISTORY_ACTIVE_CACHE = null;
   ARCHIVED_CARDS = new Set();
   IMPORTANT_CARDS = new Set();
   invalidateStudyIdentityCaches();
@@ -10898,13 +10229,26 @@ async function loadReviewStateFromSupabase(options = {}){
       return query;
     }, 1000, 50000);
 
-    // Carregamento atômico: uma falha de rede no celular não pode apagar o
-    // estado de revisão que já estava válido em memória.
+    // A fonte remota substitui caches locais antigos, mas uma alteração marcada
+    // explicitamente como PENDENTE neste aparelho não pode ser perdida.
     const nextState = new Map();
     (rows || [])
       .filter(row => !currentUser?.id || !row.user_id || row.user_id === currentUser.id)
       .forEach(row => nextState.set(cardIdKey(row.card_id), row));
+    const stalePendingIds=[];
+    readPendingReviewStates().forEach(local => {
+      const key=cardIdKey(local.card_id);
+      const remote=nextState.get(key);
+      if(remoteReviewCoversPending(remote, local)) stalePendingIds.push(key);
+      else nextState.set(key, local);
+    });
+    if(stalePendingIds.length) removePendingReviewStateIds(stalePendingIds);
     REVIEW_STATE = nextState;
+    persistReviewStateLocalCache();
+    if(readPendingReviewStates().length){
+      try{ await syncPendingReviewStatesToSupabase(); }
+      catch(syncError){ console.warn("review_state local permanece pendente:", syncError); }
+    }
   }catch(error){
     console.warn("Tabela de revisão espaçada ainda não disponível:", error);
     REVIEW_TABLE_READY = false;
@@ -11054,7 +10398,7 @@ async function loadResponsesFromSupabase(options = {}){
       if(currentUser?.id) query = query.eq("user_id", currentUser.id);
       if(incremental) query = query.gt("id", requestWatermark);
       return query.range(from, to);
-    }, 1000, incremental ? 10000 : 50000);
+    }, 1000, Number.MAX_SAFE_INTEGER);
     const data = await promiseWithTimeout(fetchPromise, incremental ? 20000 : 45000, incremental ? "atualização incremental do histórico" : "carga completa do histórico");
 
     const rows = data || [];
@@ -11088,11 +10432,24 @@ async function loadResponsesFromSupabase(options = {}){
         };
       });
 
-    ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory(), remoteHistory);
-    writeLocalCardHistory(ONLINE_HISTORY);
+    if(incremental){
+      ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory(), remoteHistory);
+      writeLocalCardHistory(ONLINE_HISTORY);
+    }else{
+      // Uma carga COMPLETA é autoritativa para tudo que já possui ID remoto.
+      // Preserva apenas eventos locais UUID ainda não confirmados e descarta
+      // linhas numéricas que desapareceram do servidor (reset em outro aparelho).
+      const localUnsynced = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory())
+        .filter(ev => ev?.id && !isRemoteCardHistoryId(ev.id));
+      ONLINE_HISTORY = mergeHistoryEvents(remoteHistory, localUnsynced);
+      writeLocalCardHistory(ONLINE_HISTORY, { allowShrink:true, authoritative:true, reason:"remote-full-reconcile" });
+    }
     CARD_HISTORY_REMOTE_LAST_REFRESH_AT = Date.now();
     CARD_HISTORY_REMOTE_LAST_ROWS = rows.length;
-    if(!incremental) CARD_HISTORY_INITIAL_FULL_LOAD_DONE = true;
+    if(!incremental){
+      CARD_HISTORY_INITIAL_FULL_LOAD_DONE = true;
+      HISTORY_KNOWN_COMPLETE = true;
+    }
     invalidateProgrammedRuntimeCaches();
     pruneProgrammedDeckAfterDataRefresh();
 
@@ -11131,6 +10488,7 @@ function refreshCardUiAfterRemoteUpdate(){
 }
 
 async function startAuthenticatedApp(){
+  hydrateReviewStateLocalCache();
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").style.display = "flex";
 
@@ -11239,7 +10597,6 @@ async function startAuthenticatedApp(){
         if(activeTab === "diag") buildDashboard("all");
         if(activeTab === "db") renderSummary("db-summary");
         if(activeTab === "goals") renderGoalsPage();
-        if(activeTab === "progress") renderReadingProgress();
         setSyncStatus(`conectado como ${currentUser.email}. ${visibleCards(CARDS).length} cards disponíveis; ${importantCards().length} favoritos; ${archivedCards().length} arquivados.`);
       }catch(bgError){
         console.error("Erro no carregamento em segundo plano:", bgError);
@@ -11298,16 +10655,6 @@ window.startSmartStudy = smartStudy;
 window.resetTopicHistory = resetTopicHistory;
 window.restoreHistorySafetyBackup = restoreHistorySafetyBackup;
 window.restoreFullJsonBackup = restoreFullJsonBackup;
-window.renderReadingProgress = renderReadingProgress;
-window.saveReadingTargetDate = saveReadingTargetDate;
-window.readingUpdateItem = readingUpdateItem;
-window.readingAddItem = readingAddItem;
-window.readingRemoveItem = readingRemoveItem;
-window.readingMarkSectionDone = readingMarkSectionDone;
-window.resetReadingProgress = resetReadingProgress;
-window.exportReadingProgress = exportReadingProgress;
-window.toggleReadingImportPanel = toggleReadingImportPanel;
-window.importReadingPlanFromText = importReadingPlanFromText;
 window.openAudioMode = openAudioMode;
 window.closeAudioMode = closeAudioMode;
 window.startOrResumeAudioMode = startOrResumeAudioMode;
@@ -11321,7 +10668,7 @@ installAudioMode();
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v69.2.4";
+const TECHNICAL_DIAG_VERSION = "v69.2.22";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
@@ -11363,6 +10710,7 @@ function technicalDiagState(){
     history_remote_last_rows: CARD_HISTORY_REMOTE_LAST_ROWS || 0,
     history_remote_last_refresh_at: CARD_HISTORY_REMOTE_LAST_REFRESH_AT ? new Date(CARD_HISTORY_REMOTE_LAST_REFRESH_AT).toISOString() : null,
     history_initial_full_load_done: CARD_HISTORY_INITIAL_FULL_LOAD_DONE,
+    history_known_complete: HISTORY_KNOWN_COMPLETE,
     fast_goal_remote_ready: FAST_GOAL_REMOTE_LAST_REFRESH_AT > 0,
     fast_goal_remote_last_refresh_at: FAST_GOAL_REMOTE_LAST_REFRESH_AT ? new Date(FAST_GOAL_REMOTE_LAST_REFRESH_AT).toISOString() : null,
     fast_goal_remote_card_rows: FAST_GOAL_REMOTE_CARD_ROWS || 0,
@@ -11478,7 +10826,7 @@ function downloadTechnicalDiagnostic(){
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `flashpratico-v68-8-diagnostico-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
+    anchor.download = `flashpratico-v69-2-22-diagnostico-${new Date().toISOString().replace(/[:.]/g,"-")}.json`;
     anchor.style.display = "none";
     document.body.appendChild(anchor);
     anchor.click();
