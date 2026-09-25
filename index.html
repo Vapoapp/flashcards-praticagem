@@ -1,10 +1,10 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-<!-- v69.2.33: carga completa do histórico acelerada por paginação paralela limitada, timeout/retry por página, validação por contagem remota e captura da cauda criada durante a própria carga. O painel diferencia carregando/erro/completo. Mantém backup incremental, níveis, cores, deduplicação, Programado 3/6/9/12/15/20/30, metas e Favoritos. -->
+<!-- v69.2.36: adiciona navegação por gesto no celular: deslizar o card para a esquerda avança/pula e para a direita volta ao card anterior, preservando rolagem vertical e os controles existentes. Mantém a busca global no cabeçalho e remove o botão visível de diagnóstico técnico. -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>FlashPrático v69.2.33 — histórico rápido e seguro</title>
+<title>FlashPrático v69.2.36 — busca global + swipe</title>
 <!-- versão v66.3: renomeia Importantes para Favoritos; corrige voltar/anterior; adiciona comemoração das metas; mantém a lógica do Programado e o agendamento sem alterações. -->
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
@@ -27,6 +27,37 @@
   .score-pill { background: var(--surface2); border: 1px solid var(--border); border-radius: 20px; padding: 3px 10px; font-size: 11px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
   .score-pill.g { border-color: rgba(76,175,125,0.4); color: var(--green); }
   .score-pill.r { border-color: rgba(224,92,92,0.4); color: var(--red); }
+
+  /* BUSCA GLOBAL DE FLASHCARDS */
+  .flash-search-wrap { position: relative; flex: 1 1 420px; min-width: 180px; max-width: 620px; margin: 0 12px; }
+  .flash-search-icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%); z-index: 2; color: var(--muted); font-size: 13px; pointer-events: none; }
+  .flash-search-input { width: 100%; height: 34px; border: 1px solid var(--border2); background: rgba(15,17,23,.78); color: var(--text); border-radius: 12px; padding: 7px 36px 7px 32px; font-size: 12px; font-family: inherit; outline: none; transition: border-color .15s ease, box-shadow .15s ease, background .15s ease; }
+  .flash-search-input::placeholder { color: var(--muted); opacity: .82; }
+  .flash-search-input:focus { border-color: rgba(124,140,248,.68); box-shadow: 0 0 0 3px rgba(91,106,240,.13); background: var(--surface2); }
+  .flash-search-clear { display: none; position: absolute; right: 7px; top: 50%; transform: translateY(-50%); z-index: 3; width: 25px; height: 25px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); font-size: 19px; line-height: 1; cursor: pointer; }
+  .flash-search-clear.show { display: flex; align-items: center; justify-content: center; }
+  .flash-search-clear:hover { color: var(--text); background: rgba(255,255,255,.07); }
+  .flash-search-results { display: none; position: absolute; top: calc(100% + 7px); left: 0; right: 0; z-index: 1200; max-height: min(62dvh, 560px); overflow-y: auto; overscroll-behavior: contain; background: rgba(26,29,39,.985); border: 1px solid var(--border2); border-radius: 15px; box-shadow: 0 22px 70px rgba(0,0,0,.58); padding: 8px; }
+  .flash-search-results.open { display: block; }
+  .flash-search-summary { position: sticky; top: -8px; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: -8px -8px 6px; padding: 10px 10px 8px; background: rgba(26,29,39,.985); border-bottom: 1px solid var(--border); }
+  .flash-search-count { min-width: 0; color: var(--muted); font-size: 11px; line-height: 1.35; }
+  .flash-search-count strong { color: var(--accent2); font-size: 12px; }
+  .flash-search-study-all { flex: 0 0 auto; border: 1px solid rgba(124,140,248,.42); background: rgba(91,106,240,.16); color: var(--accent2); border-radius: 10px; padding: 7px 9px; font-size: 10px; font-weight: 900; cursor: pointer; }
+  .flash-search-study-all:active { transform: scale(.97); }
+  .flash-search-item { width: 100%; border: 1px solid transparent; background: transparent; color: var(--text); border-radius: 11px; padding: 9px 10px; text-align: left; cursor: pointer; font-family: inherit; }
+  .flash-search-item:hover, .flash-search-item:focus-visible { background: rgba(91,106,240,.10); border-color: rgba(124,140,248,.30); outline: none; }
+  .flash-search-item + .flash-search-item { margin-top: 2px; }
+  .flash-search-item-q { font-size: 12px; font-weight: 850; line-height: 1.38; color: var(--text); }
+  .flash-search-item-meta { margin-top: 4px; display: flex; flex-wrap: wrap; gap: 5px; color: var(--muted); font-size: 9px; font-weight: 800; line-height: 1.3; }
+  .flash-search-item-meta span { border: 1px solid var(--border); background: rgba(255,255,255,.035); border-radius: 999px; padding: 2px 6px; }
+  .flash-search-item-a { margin-top: 5px; color: var(--muted); font-size: 10px; line-height: 1.4; }
+  .flash-search-empty { padding: 14px 10px; text-align: center; color: var(--muted); font-size: 12px; line-height: 1.45; }
+  .flash-search-more { padding: 9px 10px 4px; color: var(--muted); font-size: 10px; line-height: 1.4; text-align: center; }
+  @media (max-width: 680px) {
+    .header-top { flex-wrap: wrap; gap: 7px 8px; }
+    .flash-search-wrap { order: 3; flex: 1 0 100%; max-width: none; min-width: 0; margin: 0; }
+    .flash-search-results { max-height: min(52dvh, 430px); }
+  }
 
   /* CATEGORY PILLS */
   .cat-list-toggle { margin-top: 8px; width: 100%; border: 1px solid var(--border); background: rgba(255,255,255,.045); color: var(--text); border-radius: 14px; padding: 9px 11px; font-size: 12px; font-weight: 850; cursor: pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; }
@@ -56,6 +87,11 @@
   /* CARD AREA */
   .card-area { padding: 12px 16px; display: flex; flex-direction: column; align-items: center; }
   .card-wrapper { width: 100%; max-width: 420px; perspective: 1200px; }
+
+  /* NAVEGAÇÃO POR GESTO NO CELULAR */
+  .card-wrapper { touch-action: pan-y; overscroll-behavior-x: contain; }
+  .card-wrapper.swipe-dragging { transition: none !important; }
+  .card-wrapper.swipe-resetting { transition: transform .14s ease, opacity .14s ease; }
   .card { width: 100%; min-height: var(--card-h); position: relative; transform-style: preserve-3d; transition: transform 0.5s cubic-bezier(0.4,0.2,0.2,1); cursor: pointer; }
   .card.flipped { transform: rotateY(180deg); }
   .card-face { position: absolute; top: 0; left: 0; width: 100%; min-height: var(--card-h); backface-visibility: hidden; -webkit-backface-visibility: hidden; border-radius: 18px; border: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
@@ -1230,11 +1266,10 @@
 <body>
 
   <!-- v68.2: diagnóstico técnico flutuante; separado do Diagnóstico de estudo -->
-  <button id="tech-diag-toggle" class="tech-diag-toggle" type="button" aria-label="Diagnóstico técnico" title="Diagnóstico técnico" aria-expanded="false" aria-controls="tech-diag-panel">🧪</button>
   <section id="tech-diag-panel" class="tech-diag-panel" role="dialog" aria-modal="false" aria-label="Diagnóstico técnico do FlashPrático">
     <div class="tech-diag-head">
       <div>
-        <div class="tech-diag-title">FlashPrático v69.2.33 — diagnóstico técnico</div>
+        <div class="tech-diag-title">FlashPrático v69.2.36 — diagnóstico técnico</div>
         <div class="tech-diag-sub">Registra erros do navegador e o estado atual do aplicativo. Não altera cards, histórico nem Programado.</div>
       </div>
       <div class="tech-diag-actions">
@@ -1276,6 +1311,12 @@
   <div class="header">
     <div class="header-top">
       <div class="app-title">⚓ Flash<span>Prático</span></div>
+      <div class="flash-search-wrap" id="flash-search-wrap">
+        <span class="flash-search-icon">⌕</span>
+        <input class="flash-search-input" id="flashcard-search" type="search" placeholder="Buscar em todos os flashcards..." autocomplete="off" spellcheck="false" aria-label="Buscar flashcards" aria-controls="flashcard-search-results" oninput="handleFlashcardSearch(this.value)" onfocus="handleFlashcardSearch(this.value)" onkeydown="handleFlashcardSearchKeydown(event)">
+        <button class="flash-search-clear" id="flashcard-search-clear" type="button" aria-label="Limpar busca" onclick="clearFlashcardSearch()">×</button>
+        <div class="flash-search-results" id="flashcard-search-results" role="listbox" aria-label="Resultados da busca"></div>
+      </div>
       <div class="score-box">
         <div class="score-pill g">✓ <span id="score-right">0</span></div>
         <div class="score-pill r">✗ <span id="score-wrong">0</span></div>
@@ -2160,6 +2201,14 @@ let SESSION_RESULTS = new Map();
 let scoreRight = 0, scoreWrong = 0, scoreHard = 0;
 let answered = 0, sessionDone = 0, sessionTotal = 0, activeCat = "Todas", activeTab = "study";
 let currentStudy = { type:"all", publicacao:null, assunto:null, mode:"all", label:"Todas as publicações" };
+
+// Busca global: o índice contém todos os cards carregados e é normalizado apenas
+// quando o banco muda. Isso deixa a busca instantânea mesmo com milhares de cards.
+let FLASH_SEARCH_INDEX = [];
+let FLASH_SEARCH_LAST_MATCHES = [];
+let FLASH_SEARCH_LAST_QUERY = "";
+const FLASH_SEARCH_RENDER_LIMIT = 200;
+
 let LAST_STUDY_TAB = "study";
 let APP_HISTORY_READY = false;
 let AUTH_ACTION_BUSY = false;
@@ -7765,7 +7814,7 @@ function studyToday(){
 }
 
 function updateStudyTitle(){
-  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", wrongWeek:"Erradas da semana", wrongMonth:"Erradas do mês", wrongPeriod:"Erradas do período", pendingPeriod:"Pendentes do período", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente", programmed:"Programado", important:"Favoritos + Programado"};
+  const modeMap = {all:"Todos os cards", wrong:"Somente erradas", wrongToday:"Erradas de hoje", wrongWeek:"Erradas da semana", wrongMonth:"Erradas do mês", wrongPeriod:"Erradas do período", pendingPeriod:"Pendentes do período", recurrent:"Erradas recorrentes", new:"Somente não estudados", hard:"Revisão pendente", due:"Vencidos + não estudados", today:"Revisão espaçada", smart:"Ciclo inteligente", programmed:"Programado", important:"Favoritos + Programado", search:"Busca"};
   const label = currentStudy.label || "Todas as publicações";
   const mode = modeMap[currentStudy.mode] || "Todos os cards";
   const count = sessionTotal || deck.length;
@@ -8171,6 +8220,225 @@ function plainTextFromHtml(raw){
     .replace(/\u00a0/g, " ")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+
+function normalizeFlashSearchText(value){
+  let text = String(value ?? "");
+  // Evita criar um elemento DOM a cada tecla quando o valor já é texto puro.
+  if(/[<&]/.test(text)) text = plainTextFromHtml(text);
+  else text = text.replace(/\u00a0/g, " ");
+  try { text = text.normalize("NFD").replace(/[\u0300-\u036f]/g, ""); }
+  catch(_){ }
+  return text.toLocaleLowerCase("pt-BR").replace(/\s+/g, " ").trim();
+}
+
+function invalidateFlashSearchIndex(){
+  FLASH_SEARCH_INDEX = [];
+  FLASH_SEARCH_LAST_MATCHES = [];
+}
+
+function ensureFlashSearchIndex(){
+  if(FLASH_SEARCH_INDEX.length === CARDS.length && CARDS.length) return FLASH_SEARCH_INDEX;
+  FLASH_SEARCH_INDEX = CARDS.map(card => {
+    const qText = plainTextFromHtml(card.q || "");
+    const aText = plainTextFromHtml(card.a || "");
+    const pubText = String(card.publicacao || card.cat || "");
+    const topicText = String(card.assunto || card.topic || "");
+    const qNorm = normalizeFlashSearchText(qText);
+    const aNorm = normalizeFlashSearchText(aText);
+    const pubNorm = normalizeFlashSearchText(pubText);
+    const topicNorm = normalizeFlashSearchText(topicText);
+    return {
+      card,
+      qText,
+      aText,
+      qNorm,
+      aNorm,
+      pubNorm,
+      topicNorm,
+      allNorm: `${qNorm} ${aNorm} ${pubNorm} ${topicNorm}`
+    };
+  });
+  return FLASH_SEARCH_INDEX;
+}
+
+function truncateFlashSearchText(value, maxLength=160){
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if(text.length <= maxLength) return text;
+  return text.slice(0, Math.max(1, maxLength - 1)).trimEnd() + "…";
+}
+
+function getFlashSearchMatches(query){
+  const normalized = normalizeFlashSearchText(query);
+  if(!normalized) return [];
+  const terms = normalized.split(" ").filter(Boolean);
+  const matches = [];
+
+  ensureFlashSearchIndex().forEach(entry => {
+    const card = entry.card;
+    if(!card || isArchived(card)) return;
+    if(!terms.every(term => entry.allNorm.includes(term))) return;
+
+    const inQuestion = terms.every(term => entry.qNorm.includes(term));
+    const inAnswer = terms.every(term => entry.aNorm.includes(term));
+    const inPublication = terms.every(term => entry.pubNorm.includes(term));
+    const inTopic = terms.every(term => entry.topicNorm.includes(term));
+    let score = 4;
+    if(inQuestion) score = 0;
+    else if(terms.some(term => entry.qNorm.includes(term))) score = 1;
+    else if(inAnswer) score = 2;
+    else if(inTopic || inPublication) score = 3;
+
+    const where = [];
+    if(terms.some(term => entry.qNorm.includes(term))) where.push("Pergunta");
+    if(terms.some(term => entry.aNorm.includes(term))) where.push("Resposta");
+    if(terms.some(term => entry.topicNorm.includes(term))) where.push("Assunto");
+    if(terms.some(term => entry.pubNorm.includes(term))) where.push("Publicação");
+    matches.push({...entry, score, where});
+  });
+
+  matches.sort((a, b) => {
+    if(a.score !== b.score) return a.score - b.score;
+    const pub = String(a.card.publicacao || "").localeCompare(String(b.card.publicacao || ""), "pt-BR", {sensitivity:"base"});
+    if(pub) return pub;
+    const topic = String(a.card.assunto || "").localeCompare(String(b.card.assunto || ""), "pt-BR", {sensitivity:"base"});
+    if(topic) return topic;
+    return String(a.card.id || "").localeCompare(String(b.card.id || ""));
+  });
+  return matches;
+}
+
+function renderFlashcardSearch(query){
+  const panel = document.getElementById("flashcard-search-results");
+  const clearBtn = document.getElementById("flashcard-search-clear");
+  if(!panel) return;
+
+  const normalized = normalizeFlashSearchText(query);
+  if(clearBtn) clearBtn.classList.toggle("show", !!normalized);
+  FLASH_SEARCH_LAST_QUERY = String(query || "").trim();
+
+  if(!normalized){
+    FLASH_SEARCH_LAST_MATCHES = [];
+    panel.innerHTML = "";
+    panel.classList.remove("open");
+    return;
+  }
+
+  const matches = getFlashSearchMatches(query);
+  FLASH_SEARCH_LAST_MATCHES = matches.map(item => item.card);
+  panel.classList.add("open");
+
+  if(!matches.length){
+    panel.innerHTML = `<div class="flash-search-empty">Nenhum flashcard encontrado para <strong>${escapeHtml(FLASH_SEARCH_LAST_QUERY)}</strong>.</div>`;
+    return;
+  }
+
+  const shown = matches.slice(0, FLASH_SEARCH_RENDER_LIMIT);
+  const countLabel = matches.length === 1 ? "1 flashcard encontrado" : `${matches.length} flashcards encontrados`;
+  const more = matches.length > shown.length
+    ? `<div class="flash-search-more">Mostrando os primeiros <strong>${shown.length}</strong> resultados na lista. O botão “Estudar todos” abre os <strong>${matches.length}</strong> encontrados.</div>`
+    : "";
+
+  panel.innerHTML = `
+    <div class="flash-search-summary">
+      <div class="flash-search-count"><strong>${countLabel}</strong><br>Busca em pergunta, resposta, publicação e assunto.</div>
+      <button class="flash-search-study-all" type="button" onclick="startFlashcardSearchStudy()">Estudar todos</button>
+    </div>
+    ${shown.map(item => {
+      const c = item.card;
+      const question = truncateFlashSearchText(item.qText || "(sem pergunta)", 145);
+      const answer = truncateFlashSearchText(item.aText || "", 175);
+      const whereText = item.where.length ? item.where.join(" + ") : "Conteúdo";
+      return `<button class="flash-search-item" type="button" data-search-card-id="${escapeHtml(String(c.id))}" role="option">
+        <div class="flash-search-item-q">${escapeHtml(question)}</div>
+        <div class="flash-search-item-meta"><span>${escapeHtml(c.publicacao || "Geral")}</span><span>${escapeHtml(c.assunto || "Geral")}</span><span>${escapeHtml(whereText)}</span></div>
+        ${answer ? `<div class="flash-search-item-a">${escapeHtml(answer)}</div>` : ""}
+      </button>`;
+    }).join("")}
+    ${more}`;
+}
+
+function handleFlashcardSearch(value){
+  if(typeof closeCategoryList === "function") closeCategoryList();
+  renderFlashcardSearch(value);
+}
+
+function closeFlashcardSearchResults(){
+  document.getElementById("flashcard-search-results")?.classList.remove("open");
+}
+
+function clearFlashcardSearch(){
+  const input = document.getElementById("flashcard-search");
+  if(input) input.value = "";
+  FLASH_SEARCH_LAST_QUERY = "";
+  FLASH_SEARCH_LAST_MATCHES = [];
+  const clearBtn = document.getElementById("flashcard-search-clear");
+  if(clearBtn) clearBtn.classList.remove("show");
+  const panel = document.getElementById("flashcard-search-results");
+  if(panel){ panel.innerHTML = ""; panel.classList.remove("open"); }
+  input?.focus();
+}
+
+function startFlashcardSearchStudy(cardId=null){
+  const input = document.getElementById("flashcard-search");
+  const query = String(input?.value || FLASH_SEARCH_LAST_QUERY || "").trim();
+  let matches = FLASH_SEARCH_LAST_MATCHES.filter(card => card && !isArchived(card));
+  if(!matches.length && query) matches = getFlashSearchMatches(query).map(item => item.card);
+  if(!matches.length) return;
+
+  const wanted = cardId == null ? "" : String(cardId);
+  const targetIndex = wanted ? matches.findIndex(card => String(card.id) === wanted) : 0;
+  deck = [...matches];
+  sessionTotal = deck.length;
+  idx = targetIndex >= 0 ? targetIndex : 0;
+  isFlipped = false;
+  resetSessionScore();
+  currentStudy = {
+    type:"search",
+    publicacao:null,
+    assunto:null,
+    mode:"search",
+    label:`Busca: “${query}”`
+  };
+  document.getElementById("complete")?.classList.remove("show");
+  const complete = document.getElementById("complete");
+  if(complete) complete.style.display = "none";
+  closeFlashcardSearchResults();
+  updateStudyTitle();
+  showTab("study");
+  showCard();
+}
+
+function handleFlashcardSearchKeydown(event){
+  if(event.key === "Enter"){
+    event.preventDefault();
+    startFlashcardSearchStudy();
+  }else if(event.key === "Escape"){
+    event.preventDefault();
+    closeFlashcardSearchResults();
+    event.currentTarget?.blur();
+  }
+}
+
+function installFlashcardSearchInteractions(){
+  const panel = document.getElementById("flashcard-search-results");
+  if(panel && !panel.dataset.searchEventsReady){
+    panel.dataset.searchEventsReady = "1";
+    panel.addEventListener("click", event => {
+      const btn = event.target.closest("[data-search-card-id]");
+      if(!btn) return;
+      event.preventDefault();
+      startFlashcardSearchStudy(btn.dataset.searchCardId);
+    });
+  }
+  if(!document.documentElement.dataset.flashSearchOutsideReady){
+    document.documentElement.dataset.flashSearchOutsideReady = "1";
+    document.addEventListener("click", event => {
+      const wrap = document.getElementById("flash-search-wrap");
+      if(wrap && !wrap.contains(event.target)) closeFlashcardSearchResults();
+    });
+  }
 }
 
 function extractImageSourcesFromHtml(raw){
@@ -9075,6 +9343,7 @@ function showCard(){
 }
 
 function flipCard(){
+  if(Date.now() < CARD_SWIPE_BLOCK_CLICK_UNTIL) return;
   if(CURRENT_AUTO_QUIZ && !isFlipped) return;
   isFlipped = !isFlipped;
   const c = deck[idx];
@@ -9187,6 +9456,93 @@ function nextCardAction(){
   skipCard();
 }
 function prevCard(){ if(idx>0){idx--;isFlipped=false;showCard();} }
+
+// Swipe no celular: esquerda = próximo/pular; direita = anterior.
+// O gesto só é aceito quando é claramente horizontal, para não atrapalhar
+// a rolagem vertical do conteúdo do card.
+let CARD_SWIPE_BLOCK_CLICK_UNTIL = 0;
+const CARD_SWIPE_STATE = {
+  active:false, startX:0, startY:0, lastX:0, lastY:0, horizontal:false, decided:false
+};
+
+function resetCardSwipeSurface(animate=true){
+  const surface = document.querySelector('.card-wrapper');
+  if(!surface) return;
+  surface.classList.remove('swipe-dragging');
+  if(animate) surface.classList.add('swipe-resetting');
+  surface.style.transform = '';
+  surface.style.opacity = '';
+  if(animate){
+    setTimeout(() => surface.classList.remove('swipe-resetting'), 170);
+  }else{
+    surface.classList.remove('swipe-resetting');
+  }
+}
+
+function installCardSwipeNavigation(){
+  const surface = document.querySelector('.card-wrapper');
+  if(!surface || surface.dataset.swipeInstalled === '1') return;
+  surface.dataset.swipeInstalled = '1';
+
+  const interactiveSelector = 'button, a, input, textarea, select, option, label, [contenteditable="true"]';
+
+  surface.addEventListener('touchstart', event => {
+    if(CARD_ANSWER_LOCK || event.touches.length !== 1) return;
+    if(event.target?.closest?.(interactiveSelector)) return;
+    const t = event.touches[0];
+    CARD_SWIPE_STATE.active = true;
+    CARD_SWIPE_STATE.startX = CARD_SWIPE_STATE.lastX = t.clientX;
+    CARD_SWIPE_STATE.startY = CARD_SWIPE_STATE.lastY = t.clientY;
+    CARD_SWIPE_STATE.horizontal = false;
+    CARD_SWIPE_STATE.decided = false;
+    surface.classList.add('swipe-dragging');
+  }, { passive:true });
+
+  surface.addEventListener('touchmove', event => {
+    if(!CARD_SWIPE_STATE.active || event.touches.length !== 1) return;
+    const t = event.touches[0];
+    CARD_SWIPE_STATE.lastX = t.clientX;
+    CARD_SWIPE_STATE.lastY = t.clientY;
+    const dx = CARD_SWIPE_STATE.lastX - CARD_SWIPE_STATE.startX;
+    const dy = CARD_SWIPE_STATE.lastY - CARD_SWIPE_STATE.startY;
+
+    if(!CARD_SWIPE_STATE.decided && (Math.abs(dx) > 8 || Math.abs(dy) > 8)){
+      CARD_SWIPE_STATE.horizontal = Math.abs(dx) > Math.abs(dy) * 1.15;
+      CARD_SWIPE_STATE.decided = true;
+    }
+    if(!CARD_SWIPE_STATE.horizontal) return;
+
+    const limited = Math.max(-110, Math.min(110, dx * 0.68));
+    surface.style.transform = `translateX(${limited}px)`;
+    surface.style.opacity = String(Math.max(.72, 1 - Math.abs(limited) / 430));
+  }, { passive:true });
+
+  const finishSwipe = cancelled => {
+    if(!CARD_SWIPE_STATE.active) return;
+    const dx = CARD_SWIPE_STATE.lastX - CARD_SWIPE_STATE.startX;
+    const dy = CARD_SWIPE_STATE.lastY - CARD_SWIPE_STATE.startY;
+    const valid = !cancelled && CARD_SWIPE_STATE.horizontal && Math.abs(dx) >= 55 && Math.abs(dx) > Math.abs(dy) * 1.20;
+
+    CARD_SWIPE_STATE.active = false;
+    CARD_SWIPE_STATE.decided = false;
+    CARD_SWIPE_STATE.horizontal = false;
+    resetCardSwipeSurface(true);
+
+    if(!valid || CARD_ANSWER_LOCK) return;
+
+    // Evita que o clique sintético posterior ao touchend vire o novo card.
+    CARD_SWIPE_BLOCK_CLICK_UNTIL = Date.now() + 500;
+    if(dx < 0){
+      nextCardAction();
+    }else{
+      prevCard();
+    }
+  };
+
+  surface.addEventListener('touchend', () => finishSwipe(false), { passive:true });
+  surface.addEventListener('touchcancel', () => finishSwipe(true), { passive:true });
+}
+
 function shuffleCards(){
   const firstPending = deck.findIndex((c, i) => i >= idx && !SESSION_RESULTS.has(c.id));
   const start = firstPending >= 0 ? firstPending : idx;
@@ -9564,7 +9920,10 @@ async function saveCardEdit(){
   deck.forEach(card => { if(card.id === cardId) Object.assign(card, payload, { topic: payload.assunto, cat: card.publicacao }); });
   CATS = ["Todas", ...new Set(CARDS.map(card => card.publicacao))];
   invalidateStudyIdentityCaches();
+  invalidateFlashSearchIndex();
   buildCatPills();
+  const searchValue = document.getElementById("flashcard-search")?.value || "";
+  if(searchValue) renderFlashcardSearch(searchValue);
   if(activeTab === "diag") buildDashboard("all");
   if(activeTab === "db") renderSummary("db-summary");
   closeEditModal();
@@ -10455,6 +10814,7 @@ function applyLoadedCardRows(rows){
   CARDS.length = 0;
   mapped.forEach(c => CARDS.push(c));
   normalizeCards();
+  invalidateFlashSearchIndex();
   CATS = ["Todas", ...new Set(CARDS.map(c => c.publicacao))];
   invalidateStudyIdentityCaches();
   return CARDS.length;
@@ -10925,6 +11285,8 @@ function renderInitialStudyAfterCards(){
 function refreshCardUiAfterRemoteUpdate(){
   buildCatPills();
   renderCategoryList(document.getElementById("cat-list-search")?.value || "");
+  const searchValue = document.getElementById("flashcard-search")?.value || "";
+  if(searchValue) renderFlashcardSearch(searchValue);
   renderImportantTabCount();
   if(activeTab === "diag") buildDashboard("all");
   if(activeTab === "db") renderSummary("db-summary");
@@ -10934,6 +11296,7 @@ async function startAuthenticatedApp(){
   hydrateReviewStateLocalCache();
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").style.display = "flex";
+  installFlashcardSearchInteractions();
 
   // Exibe metas e dados locais antes de qualquer chamada de rede. Na versão
   // anterior isso foi agendado por setTimeout, mas o caminho crítico dos cards
@@ -11105,13 +11468,18 @@ window.stopAudioMode = stopAudioMode;
 window.audioJump = audioJump;
 window.saveAudioSettingsFromUi = saveAudioSettingsFromUi;
 window.updateAudioRateLabel = updateAudioRateLabel;
+window.handleFlashcardSearch = handleFlashcardSearch;
+window.handleFlashcardSearchKeydown = handleFlashcardSearchKeydown;
+window.clearFlashcardSearch = clearFlashcardSearch;
+window.startFlashcardSearchStudy = startFlashcardSearchStudy;
 
 installAudioMode();
+installCardSwipeNavigation();
 
 // v68.2 — diagnóstico técnico independente do painel de desempenho.
 // Implementação sem onclick inline e sem alterar fetch/Supabase, para funcionar
 // no Safari sem interferir no carregamento dos cards.
-const TECHNICAL_DIAG_VERSION = "v69.2.33";
+const TECHNICAL_DIAG_VERSION = "v69.2.36";
 const SUPABASE_SDK_PIN = "2.110.8";
 const TECHNICAL_DIAG_T0 = performance.now();
 const TECHNICAL_DIAG_EVENTS = [];
