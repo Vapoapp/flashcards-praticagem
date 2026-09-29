@@ -8251,11 +8251,10 @@ function isGenericAssunto(card){
 }
 
 function frontQuestionText(card){
-  if(isFlagsCard(card)){
-    return "De acordo com o Código Internacional de Sinais — Que bandeira é esta e qual o seu significado?";
-  }
-  const topicPrefix = isGenericAssunto(card) ? "" : card.assunto + " — ";
-  return topicPrefix + card.q;
+  // Exibe somente a pergunta original do flashcard.
+  // O assunto/publicação continuam disponíveis nos campos próprios do card,
+  // sem serem concatenados ao enunciado.
+  return String(card?.q || "").trim();
 }
 
 function frontSourceText(card){
