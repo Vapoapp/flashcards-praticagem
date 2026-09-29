@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <!-- AUDITORIA 53: auditoria de parada; revisão estrita sem melhorias factuais/didáticas adicionais. SYNTHESIS/direct e lógica funcional preservados. -->
 <html lang="pt-BR">
+<!-- AJUSTE TELA CHEIA: card, controles e tipografia passam a usar toda a área útil da tela. -->
 <!-- AJUSTE: metas semanal e mensal passam a ser calculadas automaticamente como diária × 7 e diária × 31. -->
 <!-- AJUSTE: adiciona alternância persistente entre modo escuro e modo claro pelo cabeçalho. -->
 <!-- AUDITORIA 52: nova auditoria completa; melhorias residuais consolidadas, nova auditoria automática necessária. -->
@@ -1361,6 +1362,208 @@
     .audio-controls { grid-template-columns:1fr 1fr; }
   }
 
+
+  /* RESPONSIVIDADE DO FLASHCARD — tamanho do card e tipografia acompanham a tela */
+  :root {
+    --study-column-w: clamp(420px, min(58vw, 90vh), 980px);
+  }
+
+  /* O conjunto card + controles cresce no desktop e ocupa a largura disponível no celular. */
+  .card-wrapper,
+  .btn-row,
+  .nav-row,
+  .study-title {
+    width: min(100%, var(--study-column-w));
+    max-width: none !important;
+  }
+
+  .card-wrapper {
+    container-type: inline-size;
+  }
+
+  .card-area {
+    padding-left: clamp(8px, 1.4vw, 24px);
+    padding-right: clamp(8px, 1.4vw, 24px);
+  }
+
+  /* Espaçamentos também acompanham o tamanho do card. */
+  .card-header {
+    padding: clamp(8px, 1.15cqw, 14px) clamp(10px, 1.65cqw, 18px);
+  }
+
+  .card-body {
+    padding: clamp(12px, 2.1cqw, 24px) clamp(12px, 2.5cqw, 28px);
+  }
+
+  .card-footer {
+    padding: clamp(7px, 1.1cqw, 11px) clamp(10px, 1.6cqw, 16px);
+  }
+
+  /* Tipografia do conteúdo principal: escala com a largura REAL do flashcard. */
+  .question-icon {
+    font-size: clamp(28px, 4cqw, 44px);
+    margin-bottom: clamp(9px, 1.5cqw, 16px);
+  }
+
+  .question-text {
+    font-size: clamp(16px, 2.35cqw, 24px);
+    line-height: 1.46;
+    max-width: 52ch;
+    text-wrap: balance;
+    overflow-wrap: break-word;
+  }
+
+  .answer-text {
+    font-size: clamp(14px, 2cqw, 20px);
+    line-height: 1.58;
+    overflow-wrap: break-word;
+  }
+
+  .answer-text.formatted-answer {
+    line-height: 1.58;
+  }
+
+  /* Fonte auxiliar do próprio flashcard também acompanha o card. */
+  .cat-badge,
+  .status-badge,
+  .diff-badge,
+  .src-badge,
+  .answer-label,
+  .tap-hint,
+  .compare-link,
+  .edit-link,
+  .archive-link {
+    font-size: clamp(10px, 1.32cqw, 13px);
+  }
+
+  .src-badge {
+    padding: clamp(3px, .65cqw, 5px) clamp(8px, 1.15cqw, 12px);
+    margin-top: clamp(10px, 1.5cqw, 16px);
+  }
+
+  .answer-table {
+    font-size: clamp(11px, 1.55cqw, 15px);
+  }
+
+  .answer-table th {
+    font-size: clamp(10px, 1.35cqw, 13px);
+  }
+
+  /* Imagens usam melhor o espaço quando o card cresce. */
+  .card-img {
+    max-width: min(90%, 620px);
+    max-height: min(38vh, 420px);
+  }
+
+  /* Em telas muito baixas, prioriza a área vertical sem deixar a fonte grande demais. */
+  @media (max-height: 700px) {
+    :root { --study-column-w: clamp(400px, min(54vw, 84vh), 820px); }
+    .question-text { font-size: clamp(15px, 2.05cqw, 20px); }
+    .answer-text { font-size: clamp(13px, 1.8cqw, 17px); }
+    .question-icon { font-size: clamp(24px, 3.5cqw, 34px); }
+  }
+
+  /* Celular: ocupa toda a largura útil, sem ultrapassar a tela. */
+  @media (max-width: 520px) {
+    .card-wrapper, .btn-row, .nav-row, .study-title {
+      width: 100%;
+      max-width: 100% !important;
+    }
+    .question-text { font-size: clamp(16px, 4.5vw, 20px); max-width: 100%; }
+    .answer-text { font-size: clamp(14px, 4.1vw, 18px); }
+    .cat-badge, .status-badge, .diff-badge, .src-badge, .answer-label,
+    .tap-hint, .compare-link, .edit-link, .archive-link {
+      font-size: clamp(9.5px, 2.7vw, 11.5px);
+    }
+  }
+
+
+  /* TELA CHEIA — o flashcard usa toda a área horizontal disponível */
+  :root {
+    --study-column-w: 100%;
+  }
+
+  /* Remove definitivamente os antigos limites centrais de 420/520px e o limite de 58vw. */
+  .card-area {
+    width: 100%;
+    max-width: none !important;
+    padding-left: clamp(6px, 0.8vw, 14px) !important;
+    padding-right: clamp(6px, 0.8vw, 14px) !important;
+  }
+
+  .card-wrapper,
+  .btn-row,
+  .nav-row {
+    width: 100% !important;
+    max-width: none !important;
+  }
+
+  /* O título de modo pode acompanhar a largura do card, mas permanece compacto quando vazio. */
+  .study-title {
+    width: calc(100% - clamp(12px, 1.6vw, 28px)) !important;
+    max-width: none !important;
+  }
+
+  /* Tipografia realmente responsiva ao viewport/card. */
+  .question-text {
+    font-size: clamp(17px, 1.80vw, 32px);
+    line-height: 1.42;
+    max-width: min(76ch, 92%);
+  }
+
+  .answer-text {
+    font-size: clamp(15px, 1.45vw, 26px);
+    line-height: 1.56;
+  }
+
+  .question-icon {
+    font-size: clamp(28px, 2.7vw, 48px);
+  }
+
+  .cat-badge,
+  .status-badge,
+  .diff-badge,
+  .src-badge,
+  .answer-label,
+  .tap-hint,
+  .compare-link,
+  .edit-link,
+  .archive-link {
+    font-size: clamp(10px, 0.82vw, 14px);
+  }
+
+  .card-header {
+    padding-left: clamp(12px, 1.4vw, 24px);
+    padding-right: clamp(12px, 1.4vw, 24px);
+  }
+
+  .card-body {
+    padding-left: clamp(16px, 2.2vw, 38px);
+    padding-right: clamp(16px, 2.2vw, 38px);
+  }
+
+  /* Em monitores largos, evita uma linha de pergunta exageradamente comprida,
+     sem reduzir o tamanho físico do flashcard. */
+  @media (min-width: 1400px) {
+    .question-text { max-width: 72ch; }
+    .answer-text { max-width: 100%; }
+  }
+
+  /* Em telas baixas, reduz apenas a tipografia; o card continua usando a largura toda. */
+  @media (max-height: 700px) {
+    :root { --study-column-w: 100%; }
+    .question-text { font-size: clamp(16px, 1.48vw, 26px); }
+    .answer-text { font-size: clamp(14px, 1.20vw, 21px); }
+    .question-icon { font-size: clamp(24px, 2.2vw, 38px); }
+  }
+
+  @media (max-width: 520px) {
+    .card-area { padding-left: 6px !important; padding-right: 6px !important; }
+    .study-title { width: calc(100% - 12px) !important; }
+    .question-text { font-size: clamp(16px, 4.5vw, 20px); max-width: 100%; }
+    .answer-text { font-size: clamp(14px, 4.1vw, 18px); }
+  }
+
 </style>
 <!-- TERCEIRA AUDITORIA COMPLETA: 4.488 cards reavaliados card a card; vínculos e sínteses preservados/expandidos sem meta artificial de quantidade. -->
 </head>
@@ -1408,6 +1611,7 @@
 </div>
 
 <div id="app" style="display:none;">
+  <button class="study-focus-restore" id="study-focus-restore" type="button" onclick="setStudyFocus(false)" aria-label="Mostrar novamente o painel superior" title="Mostrar painel">▣ Mostrar painel</button>
   <!-- HEADER -->
   <div class="header">
     <div class="header-top">
@@ -1419,6 +1623,7 @@
         <div class="flash-search-results" id="flashcard-search-results" role="listbox" aria-label="Resultados da busca"></div>
       </div>
       <div class="score-box">
+        <button class="study-focus-btn" id="study-focus-btn" type="button" onclick="setStudyFocus(true)" title="Ocultar painel e focar no flashcard" aria-label="Ocultar painel e focar no flashcard">⛶ Foco</button>
         <button class="theme-toggle" id="theme-toggle" type="button" onclick="toggleTheme()" aria-label="Ativar modo claro" title="Ativar modo claro">
           <span class="theme-toggle-icon" id="theme-toggle-icon" aria-hidden="true">☀</span>
           <span class="theme-toggle-label" id="theme-toggle-label">Claro</span>
@@ -1762,6 +1967,10 @@
             <span class="card-head-right"><button class="favorite-btn" id="favorite-btn-back" type="button" onclick="toggleCurrentImportant(event)" title="Marcar como favorito" aria-label="Marcar como favorito">☆</button><button class="diff-badge status-badge level-badge-btn level-0" id="back-diff" type="button" onclick="openCardLevelModal(event)" title="Alterar nível do card" aria-label="Alterar nível do card">Nível 0</button></span>
           </div>
           <div class="card-body" style="overflow-y:auto; max-height: calc(var(--card-h) - 100px);">
+            <div class="back-question-block" id="back-question-block">
+              <div class="back-question-label">Pergunta</div>
+              <div class="back-question-text" id="back-question-text">—</div>
+            </div>
             <div id="a-text" class="answer-text">—</div>
             <div class="card-img-wrap" id="a-img-wrap" style="display:none;">
               <img id="a-img" class="card-img" alt="">
@@ -9473,6 +9682,17 @@ function setCardActionButtonsDisabled(disabled){
   });
 }
 
+function setStudyFocus(enabled){
+  const on = !!enabled;
+  document.body.classList.toggle('study-focus', on);
+  const btn = document.getElementById('study-focus-btn');
+  if(btn) btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  // Quando o painel some/aparece, força um recálculo visual sem alterar o card.
+  requestAnimationFrame(() => {
+    try { window.dispatchEvent(new Event('resize')); } catch(_) {}
+  });
+}
+
 function showCard(){
   CARD_ANSWER_LOCK = false;
   setCardActionButtonsDisabled(false);
@@ -9497,6 +9717,8 @@ function showCard(){
   // Verso: a legenda pode aparecer, pois já é área de resposta.
   setCardImage("a", c.image_a_url || "", c.image_caption || "");
   document.getElementById('q-text').textContent = frontQuestionText(c);
+  const backQuestionText = document.getElementById('back-question-text');
+  if(backQuestionText) backQuestionText.textContent = frontQuestionText(c);
   const baseHint = c.hint ? '💡 ' + c.hint : '';
   document.getElementById('q-hint').textContent = reviewedInSession
     ? `${baseHint}${baseHint ? ' · ' : ''}Card já respondido nesta sessão.`
@@ -11995,6 +12217,125 @@ initApp().catch(error => {
 #cx-dialog::backdrop{background:#040b16c9;backdrop-filter:blur(5px)}#cx-dialog *{box-sizing:border-box}#cx-dialog button,#cx-dialog select,#cx-dialog input{font:inherit;color:inherit}#cx-dialog button{cursor:pointer;background:#1a2840;border:1px solid var(--cx-line);border-radius:10px;padding:8px 12px}#cx-dialog button:hover{background:#263c58;border-color:var(--cx-blue)}#cx-dialog button:disabled{opacity:.45;cursor:default}#cx-dialog :focus-visible{outline:3px solid var(--cx-blue);outline-offset:3px}#cx-dialog h2,#cx-dialog h3,#cx-dialog p{margin:0}#cx-dialog h2{font-size:25px;line-height:1.25;letter-spacing:-.6px}#cx-dialog h3{font-size:16px;line-height:1.3}#cx-dialog strong{color:#fff}#cx-dialog .cx-small{font-size:12px;color:var(--cx-muted);line-height:1.5}.cx-head{padding:17px 22px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--cx-line);gap:12px}.cx-brand{font-size:12px;font-weight:750;letter-spacing:1.2px;color:var(--cx-blue)}.cx-head-actions{display:flex;gap:8px;align-items:center}.cx-scroll{max-height:calc(92dvh - 74px);overflow:auto;overscroll-behavior:contain;padding:24px}.cx-kicker{font-size:11px;font-weight:800;letter-spacing:1.3px;text-transform:uppercase;color:var(--cx-blue);margin-bottom:8px}.cx-title-row{margin-bottom:18px}.cx-common{border-left:3px solid var(--cx-green);padding:12px 15px;background:#173a354d;border-radius:0 10px 10px 0;margin:18px 0}.cx-common .cx-label{color:var(--cx-green)}.cx-label{display:block;font-size:10px;letter-spacing:1.4px;font-weight:800;margin-bottom:5px}.cx-points{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.cx-point{padding:17px;border:1px solid var(--cx-line);background:var(--cx-card);border-radius:13px;overflow-wrap:anywhere}.cx-point:nth-child(3){grid-column:1/-1}.cx-point h3{color:var(--cx-blue);margin-bottom:8px!important}.cx-point p{font-size:14px;line-height:1.65}.cx-source-tag{display:block;font-size:10px;color:var(--cx-muted);margin-top:12px}.cx-warning{margin-top:16px;padding:14px 16px;background:#3b2c214f;border:1px solid #745535;border-radius:12px;font-size:14px}.cx-warning .cx-label{color:var(--cx-amber)}.cx-flow{display:flex;align-items:stretch;gap:8px;margin:14px 0;font-size:12px}.cx-flow span{flex:1;background:#22334c;padding:10px;border-radius:8px}.cx-flow b{align-self:center;color:var(--cx-blue)}.cx-footer{display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px}.cx-nav{display:flex;align-items:center;gap:8px}.cx-related{margin-top:20px;padding-top:16px;border-top:1px solid var(--cx-line)}.cx-related-buttons{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}.cx-related-buttons button{font-size:12px!important;text-align:left}.cx-source-list{margin-top:18px;border-top:1px solid var(--cx-line);padding-top:14px}.cx-source-list summary{cursor:pointer;color:var(--cx-muted);font-size:12px}.cx-source-card{margin-top:12px;padding:14px;background:#1a2840;border-radius:10px;font-size:13px;overflow-wrap:anywhere}.cx-source-card p{margin-top:7px!important;white-space:pre-line}.cx-source-card img{max-width:100%;max-height:300px;object-fit:contain;margin-top:10px}.cx-source-card code{font-size:10px;word-break:break-all;color:var(--cx-muted)}.cx-catalog-tools{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0 12px}.cx-catalog-tools input,.cx-catalog-tools select{background:#1a2840;border:1px solid var(--cx-line);padding:11px;border-radius:9px;min-width:0;max-width:100%}.cx-catalog-tools input{flex:1 1 230px}.cx-catalog-tools select{flex:1 1 155px}.cx-catalog-list{display:grid;grid-template-columns:1fr 1fr;gap:10px}.cx-catalog-item{text-align:left;padding:15px!important;display:flex;flex-direction:column;gap:7px;line-height:1.4!important}.cx-catalog-item b{font-size:14px}.cx-catalog-item small{font-size:11px;color:var(--cx-muted)}.cx-empty{padding:30px 10px;text-align:center;color:var(--cx-muted)}.cx-quiz{padding:25px;text-align:center;border:1px dashed var(--cx-line);border-radius:12px}.cx-quiz button{margin-top:14px}.cx-context{padding:9px 12px;background:#1d2a40;margin-bottom:14px;border-radius:8px;font-size:12px;color:var(--cx-muted)}
 #cx-preview-launch{position:fixed;right:18px;bottom:16px;z-index:100002;background:#17364f;color:#e3f4ff;border:1px solid #6c9bc0;border-radius:30px;padding:10px 16px;font:600 12px system-ui;box-shadow:0 5px 25px #0005;cursor:pointer}body:has(#auth-screen[style*="none"]) #cx-preview-launch{display:none}.cx-card-button[hidden]{display:none!important}
 @media(max-width:580px){#cx-dialog{width:calc(100vw - 12px);max-height:95dvh;border-radius:16px;font-size:14px}.cx-head{padding:12px}.cx-brand{font-size:10px}.cx-scroll{padding:17px 14px;max-height:calc(95dvh - 65px)}#cx-dialog h2{font-size:22px}.cx-points,.cx-catalog-list{grid-template-columns:1fr}.cx-point:nth-child(3){grid-column:auto}.cx-point{padding:13px}.cx-source-tag{margin-top:6px}.cx-flow{flex-direction:column}.cx-flow b{transform:rotate(90deg)}#cx-preview-launch{right:10px;bottom:10px;font-size:11px}.cx-head-actions button{font-size:12px!important;padding:7px 9px!important}}
+
+
+  /* MODO FOCO — esconde toda a área superior e deixa o estudo ocupar a tela */
+  .study-focus-btn {
+    border: 1px solid rgba(124,140,248,.42);
+    background: rgba(91,106,240,.14);
+    color: var(--accent2);
+    border-radius: 999px;
+    padding: 7px 11px;
+    font-size: 11px;
+    font-weight: 900;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .study-focus-btn:hover { background: rgba(91,106,240,.23); border-color: rgba(124,140,248,.66); }
+  .study-focus-btn:active { transform: scale(.97); }
+
+  .study-focus-restore {
+    display: none;
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    right: auto;
+    z-index: 15000;
+    border: 1px solid rgba(124,140,248,.58);
+    background: rgba(26,29,39,.94);
+    color: #c5ccff;
+    border-radius: 999px;
+    padding: 9px 13px;
+    font-size: 11px;
+    font-weight: 950;
+    cursor: pointer;
+    box-shadow: 0 8px 28px rgba(0,0,0,.30);
+    backdrop-filter: blur(8px);
+  }
+  .study-focus-restore:active { transform: scale(.97); }
+
+  body.study-focus .header,
+  body.study-focus .tabbar,
+  body.study-focus #daily-goal-widget,
+  body.study-focus .prog-wrap,
+  body.study-focus #study-title {
+    display: none !important;
+  }
+
+  body.study-focus .study-focus-restore { display: inline-flex; align-items:center; gap:6px; }
+
+  body.study-focus #app {
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+  }
+
+  body.study-focus #card-area {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    height: 100dvh !important;
+    /* Reserva uma faixa superior para o botão “Mostrar painel”, evitando sobreposição com o card. */
+    padding-top: 54px !important;
+    padding-bottom: 8px !important;
+  }
+
+  body.study-focus .card-wrapper {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+  }
+
+  body.study-focus .card {
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+
+  body.study-focus .card-face {
+    height: 100% !important;
+    min-height: 0 !important;
+  }
+
+  body.study-focus .card-body {
+    min-height: 0 !important;
+  }
+
+  /* No verso, repete a pergunta em tamanho menor antes da resposta. */
+  .back-question-block {
+    flex: 0 0 auto;
+    width: 100%;
+    margin: 0 0 clamp(14px, 1.4vw, 22px);
+    padding: 0 0 clamp(12px, 1.2vw, 18px);
+    border-bottom: 1px solid var(--border);
+  }
+
+  .back-question-label {
+    color: var(--muted);
+    font-size: clamp(9px, .70vw, 12px);
+    font-weight: 950;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+
+  .back-question-text {
+    color: var(--text);
+    font-size: clamp(14px, 1.08vw, 20px);
+    font-weight: 750;
+    line-height: 1.42;
+    overflow-wrap: break-word;
+  }
+
+  body.light-theme .study-focus-restore {
+    background: rgba(255,255,255,.95);
+    color: #3e4baf;
+    box-shadow: 0 8px 28px rgba(30,42,70,.16);
+  }
+
+  @media (max-width: 620px) {
+    .study-focus-btn { padding: 7px 9px; font-size: 10px; }
+    .study-focus-restore { top: 7px; left: 7px; right: auto; padding: 8px 11px; font-size: 10px; }
+    .back-question-text { font-size: clamp(13px, 3.7vw, 17px); }
+    body.study-focus #card-area { padding-top: 48px !important; padding-bottom: 5px !important; }
+  }
+
 </style>
 <button id="cx-preview-launch" type="button">◎ Ver comparações</button>
 <dialog id="cx-dialog" aria-labelledby="cx-title"><header class="cx-head"><span class="cx-brand">FLASHPRÁTICO / CONEXÕES</span><div class="cx-head-actions"><button id="cx-catalog-button" type="button">Catálogo</button><button id="cx-close" type="button" aria-label="Fechar comparações">✕</button></div></header><div class="cx-scroll" id="cx-content"></div></dialog>
