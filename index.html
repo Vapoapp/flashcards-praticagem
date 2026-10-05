@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<!-- EXPLICAÇÕES v1 · 2026-10-03: botão opcional no verso, dados no Supabase e cache local em IndexedDB; SRS/metas/histórico preservados. -->
 <!-- AUDITORIA 54 · 2026-10-01: correções documentadas em auditoria_comparacoes_index54.json. -->
 <html lang="pt-BR">
 <!-- AJUSTE TELA CHEIA: card, controles e tipografia passam a usar toda a área útil da tela. -->
@@ -1564,6 +1565,68 @@
     .answer-text { font-size: clamp(14px, 4.1vw, 18px); }
   }
 
+
+  /* EXPLICAÇÃO DO FLASHCARD — conteúdo externo no Supabase, sem alterar o SRS */
+  .explanation-link {
+    border: 1px solid rgba(124,140,248,.42);
+    background: rgba(91,106,240,.12);
+    color: var(--accent2);
+    font-size: clamp(10px, .82vw, 14px);
+    font-weight: 950;
+    cursor: pointer;
+    padding: 5px 9px;
+    border-radius: 10px;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .explanation-link:hover { background: rgba(91,106,240,.20); border-color: rgba(124,140,248,.64); }
+  .explanation-link:active { transform: scale(.97); }
+  .explanation-link[hidden] { display: none !important; }
+  .explanation-modal-backdrop {
+    position: fixed; inset: 0; z-index: 22100; display: none; align-items: center; justify-content: center;
+    padding: 14px; background: rgba(0,0,0,.74); backdrop-filter: blur(4px);
+  }
+  .explanation-modal-backdrop.show { display: flex; }
+  .explanation-modal {
+    width: min(680px, 100%); max-height: min(90dvh, 760px); overflow: hidden;
+    background: var(--surface); border: 1px solid rgba(124,140,248,.46); border-radius: 20px;
+    box-shadow: 0 28px 100px rgba(0,0,0,.62); display: flex; flex-direction: column;
+  }
+  .explanation-modal-head {
+    display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+    padding: 15px 16px; border-bottom: 1px solid var(--border);
+  }
+  .explanation-modal-title { font-size: 18px; font-weight: 950; color: var(--text); }
+  .explanation-modal-sub { margin-top: 4px; font-size: 12px; color: var(--muted); line-height: 1.45; }
+  .explanation-modal-close {
+    flex: 0 0 auto; width: 36px; height: 34px; border: 1px solid var(--border2);
+    background: var(--surface2); color: var(--text); border-radius: 11px; font-size: 20px; cursor: pointer;
+  }
+  .explanation-modal-body { padding: 16px; overflow-y: auto; }
+  .explanation-kicker {
+    display: inline-flex; align-items: center; gap: 6px; margin-bottom: 10px;
+    color: var(--accent2); background: rgba(91,106,240,.13); border: 1px solid rgba(124,140,248,.34);
+    border-radius: 999px; padding: 4px 9px; font-size: 11px; font-weight: 950;
+  }
+  .explanation-question {
+    color: var(--muted); font-size: 12px; line-height: 1.45; margin-bottom: 12px;
+    padding-bottom: 12px; border-bottom: 1px solid var(--border);
+  }
+  .explanation-text { color: var(--text); font-size: 15px; line-height: 1.65; white-space: pre-wrap; overflow-wrap: break-word; }
+  .explanation-source {
+    margin-top: 16px; color: var(--muted); font-size: 12px; line-height: 1.5;
+    border-left: 3px solid rgba(124,140,248,.55); padding-left: 10px;
+  }
+  .explanation-status { color: var(--muted); font-size: 13px; line-height: 1.5; }
+  @media (max-width: 620px) {
+    .explanation-modal-backdrop { padding: 7px; }
+    .explanation-modal { max-height: 94dvh; border-radius: 16px; }
+    .explanation-modal-head { padding: 13px; }
+    .explanation-modal-body { padding: 13px; }
+    .explanation-text { font-size: 14px; }
+  }
+
 </style>
 <!-- TERCEIRA AUDITORIA COMPLETA: 4.488 cards reavaliados card a card; vínculos e sínteses preservados/expandidos sem meta artificial de quantidade. -->
 </head>
@@ -1977,7 +2040,7 @@
               <div id="a-img-caption" class="card-img-caption"></div>
             </div>
           </div>
-          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="compare-link cx-card-button" onclick="openConnections(event)" title="Ver comparação resumida" hidden>🧠 Comparação disponível</button><button class="compare-link" onclick="openCompareModal(event)" title="Ver cards automaticamente relacionados pelo assunto">Relacionados</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
+          <div class="card-footer"><span class="tap-hint">Avalie seu desempenho abaixo</span><br><span class="footer-actions"><button class="explanation-link" id="explanation-btn" type="button" onclick="openCardExplanation(event)" title="Abrir explicação breve baseada na publicação original" hidden>💡 Explicação</button><button class="compare-link cx-card-button" onclick="openConnections(event)" title="Ver comparação resumida" hidden>🧠 Comparação disponível</button><button class="compare-link" onclick="openCompareModal(event)" title="Ver cards automaticamente relacionados pelo assunto">Relacionados</button><button class="edit-link" onclick="editCurrentCard(event)">Editar</button><button class="archive-link" onclick="archiveCurrentCard(event)">Não mostrar mais</button></span></div>
         </div>
       </div>
     </div>
@@ -2135,6 +2198,26 @@
         <button class="compare-close" type="button" onclick="closeCompareModal()" aria-label="Fechar">×</button>
       </div>
       <div class="compare-list" id="compare-list"></div>
+    </div>
+  </div>
+
+  <!-- EXPLICAÇÃO DO FLASHCARD -->
+  <div class="explanation-modal-backdrop" id="explanation-modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="explanation-modal-title" onclick="closeCardExplanation(event)">
+    <div class="explanation-modal" onclick="event.stopPropagation()">
+      <div class="explanation-modal-head">
+        <div>
+          <div class="explanation-modal-title" id="explanation-modal-title">💡 Por que isso acontece?</div>
+          <div class="explanation-modal-sub">Explicação curta baseada somente na publicação original cadastrada para este card.</div>
+        </div>
+        <button class="explanation-modal-close" type="button" onclick="closeCardExplanation(event)" aria-label="Fechar explicação">×</button>
+      </div>
+      <div class="explanation-modal-body">
+        <div class="explanation-kicker">Somente a fonte original</div>
+        <div class="explanation-question" id="explanation-question"></div>
+        <div class="explanation-status" id="explanation-status">Carregando explicação…</div>
+        <div class="explanation-text" id="explanation-text" style="display:none;"></div>
+        <div class="explanation-source" id="explanation-source" style="display:none;"></div>
+      </div>
     </div>
   </div>
 
@@ -9698,6 +9781,7 @@ function showCard(){
   if(idx >= deck.length){ showComplete(); return; }
   const c = deck[idx];
   if(typeof updateSynthesisButtons === 'function') updateSynthesisButtons(c);
+  if(typeof updateExplanationButton === 'function') updateExplanationButton(c);
   const reviewedInSession = SESSION_RESULTS.has(c.id);
   updateImportantButtons(c);
   isFlipped = false;
@@ -11781,6 +11865,226 @@ function refreshCardUiAfterRemoteUpdate(){
   if(activeTab === "db") renderSummary("db-summary");
 }
 
+
+// ================= EXPLICAÇÕES DOS FLASHCARDS =================
+// O HTML carrega apenas o índice leve (card_id + updated_at).
+// O texto de cada explicação é buscado sob demanda e armazenado em IndexedDB.
+const EXPLANATION_CACHE_DB_NAME = "flashpratico_explanation_cache_v1";
+const EXPLANATION_CACHE_DB_VERSION = 1;
+const EXPLANATION_CACHE_STORE = "explanations";
+const EXPLANATION_REMOTE_TIMEOUT_MS = 9000;
+let EXPLANATION_INDEX = new Map();
+let EXPLANATION_TABLE_READY = true;
+let EXPLANATION_INDEX_LOADED = false;
+let EXPLANATION_CURRENT_REQUEST = 0;
+let EXPLANATION_CACHE_DB_PROMISE = null;
+
+function explanationCardId(card){
+  return card?.id == null ? "" : String(card.id);
+}
+
+function explanationTimestamp(value){
+  const ms = Date.parse(String(value || ""));
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function openExplanationCacheDb(){
+  if(EXPLANATION_CACHE_DB_PROMISE) return EXPLANATION_CACHE_DB_PROMISE;
+  if(!("indexedDB" in window)) return Promise.resolve(null);
+  EXPLANATION_CACHE_DB_PROMISE = new Promise(resolve => {
+    try{
+      const req = indexedDB.open(EXPLANATION_CACHE_DB_NAME, EXPLANATION_CACHE_DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if(!db.objectStoreNames.contains(EXPLANATION_CACHE_STORE)){
+          db.createObjectStore(EXPLANATION_CACHE_STORE, { keyPath:"card_id" });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
+    }catch(_){ resolve(null); }
+  });
+  return EXPLANATION_CACHE_DB_PROMISE;
+}
+
+async function readExplanationCache(cardId){
+  const db = await openExplanationCacheDb();
+  if(!db || !cardId) return null;
+  return await new Promise(resolve => {
+    try{
+      const tx = db.transaction(EXPLANATION_CACHE_STORE, "readonly");
+      const req = tx.objectStore(EXPLANATION_CACHE_STORE).get(String(cardId));
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => resolve(null);
+    }catch(_){ resolve(null); }
+  });
+}
+
+async function writeExplanationCache(row){
+  const db = await openExplanationCacheDb();
+  if(!db || !row?.card_id) return false;
+  return await new Promise(resolve => {
+    try{
+      const tx = db.transaction(EXPLANATION_CACHE_STORE, "readwrite");
+      tx.objectStore(EXPLANATION_CACHE_STORE).put({ ...row, card_id:String(row.card_id), cached_at:new Date().toISOString() });
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+      tx.onabort = () => resolve(false);
+    }catch(_){ resolve(false); }
+  });
+}
+
+function updateExplanationButton(card){
+  const btn = document.getElementById("explanation-btn");
+  if(!btn) return;
+  const id = explanationCardId(card);
+  const available = !!id && EXPLANATION_INDEX.has(id);
+  btn.hidden = !available;
+  btn.disabled = !available;
+  btn.setAttribute("aria-hidden", available ? "false" : "true");
+}
+
+async function loadExplanationAvailabilityFromSupabase(){
+  EXPLANATION_INDEX_LOADED = false;
+  EXPLANATION_TABLE_READY = true;
+  try{
+    if(!supabaseClient) throw new Error("Supabase JS não carregado");
+    const rows = await fetchSupabasePages((from, to) => promiseWithTimeout(
+      supabaseClient
+        .from("card_explanations")
+        .select("card_id,updated_at,ativo")
+        .eq("ativo", true)
+        .order("card_id", { ascending:true })
+        .range(from, to),
+      EXPLANATION_REMOTE_TIMEOUT_MS,
+      `índice de explicações — página ${Math.floor(from / 1000) + 1}`
+    ), 1000, 50000);
+    EXPLANATION_INDEX = new Map((rows || []).filter(r => r?.card_id != null).map(r => [String(r.card_id), r.updated_at || ""]));
+    EXPLANATION_INDEX_LOADED = true;
+    const current = typeof deck !== "undefined" ? deck[idx] : null;
+    updateExplanationButton(current);
+    try{ technicalDiagLog("explicações: índice carregado", { total:EXPLANATION_INDEX.size }, "ok"); }catch(_){}
+    return EXPLANATION_INDEX.size;
+  }catch(error){
+    EXPLANATION_TABLE_READY = false;
+    EXPLANATION_INDEX = new Map();
+    EXPLANATION_INDEX_LOADED = true;
+    updateExplanationButton(null);
+    try{ technicalDiagLog("explicações: tabela indisponível", { erro:String(error?.message || error) }, "warn"); }catch(_){}
+    // Recurso opcional: ausência da tabela não afeta estudo, histórico ou revisão.
+    return 0;
+  }
+}
+
+function formatExplanationSource(row){
+  const parts = [];
+  if(row?.fonte) parts.push(String(row.fonte).trim());
+  if(row?.edicao) parts.push(`edição ${String(row.edicao).trim()}`);
+  if(row?.pagina) parts.push(`p. ${String(row.pagina).trim()}`);
+  return parts.filter(Boolean).join(" · ");
+}
+
+function paintExplanation(row, card){
+  const status = document.getElementById("explanation-status");
+  const textEl = document.getElementById("explanation-text");
+  const sourceEl = document.getElementById("explanation-source");
+  const questionEl = document.getElementById("explanation-question");
+  if(questionEl) questionEl.textContent = frontQuestionText(card || {});
+  if(status) status.style.display = "none";
+  if(textEl){
+    textEl.style.display = "block";
+    textEl.textContent = String(row?.explicacao || "").trim();
+  }
+  const source = formatExplanationSource(row);
+  if(sourceEl){
+    sourceEl.style.display = source ? "block" : "none";
+    sourceEl.textContent = source ? `Fonte: ${source}` : "";
+  }
+}
+
+function paintExplanationStatus(message){
+  const status = document.getElementById("explanation-status");
+  const textEl = document.getElementById("explanation-text");
+  const sourceEl = document.getElementById("explanation-source");
+  if(status){ status.style.display = "block"; status.textContent = message; }
+  if(textEl){ textEl.style.display = "none"; textEl.textContent = ""; }
+  if(sourceEl){ sourceEl.style.display = "none"; sourceEl.textContent = ""; }
+}
+
+async function fetchExplanationFromSupabase(cardId){
+  const query = supabaseClient
+    .from("card_explanations")
+    .select("card_id,explicacao,fonte,edicao,pagina,updated_at,ativo")
+    .eq("card_id", String(cardId))
+    .eq("ativo", true)
+    .maybeSingle();
+  const { data, error } = await promiseWithTimeout(query, EXPLANATION_REMOTE_TIMEOUT_MS, "explicação do card");
+  if(error) throw error;
+  return data || null;
+}
+
+async function getCardExplanation(card){
+  const cardId = explanationCardId(card);
+  if(!cardId) return null;
+  const remoteUpdatedAt = EXPLANATION_INDEX.get(cardId) || "";
+  const cached = await readExplanationCache(cardId);
+  const cacheIsFresh = cached && (!remoteUpdatedAt || explanationTimestamp(cached.updated_at) >= explanationTimestamp(remoteUpdatedAt));
+  if(cacheIsFresh) return cached;
+
+  if(navigator.onLine && supabaseClient && EXPLANATION_TABLE_READY){
+    try{
+      const remote = await fetchExplanationFromSupabase(cardId);
+      if(remote){
+        await writeExplanationCache(remote);
+        EXPLANATION_INDEX.set(cardId, remote.updated_at || remoteUpdatedAt || "");
+        return remote;
+      }
+    }catch(error){
+      console.warn("Não foi possível buscar explicação do card:", error);
+    }
+  }
+  return cached || null;
+}
+
+async function openCardExplanation(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  const card = typeof deck !== "undefined" ? deck[idx] : null;
+  const cardId = explanationCardId(card);
+  if(!card || !cardId || !EXPLANATION_INDEX.has(cardId)) return;
+  const backdrop = document.getElementById("explanation-modal-backdrop");
+  if(!backdrop) return;
+  backdrop.classList.add("show");
+  document.body.classList.add("explanation-modal-open");
+  const questionEl = document.getElementById("explanation-question");
+  if(questionEl) questionEl.textContent = frontQuestionText(card);
+  paintExplanationStatus("Carregando explicação…");
+  const requestId = ++EXPLANATION_CURRENT_REQUEST;
+  const row = await getCardExplanation(card);
+  if(requestId !== EXPLANATION_CURRENT_REQUEST) return;
+  if(row?.explicacao){
+    paintExplanation(row, card);
+  }else{
+    paintExplanationStatus(navigator.onLine
+      ? "A explicação deste card não pôde ser carregada agora."
+      : "Sem conexão e esta explicação ainda não está salva neste aparelho.");
+  }
+}
+
+function closeCardExplanation(event){
+  if(event){ event.preventDefault(); event.stopPropagation(); }
+  EXPLANATION_CURRENT_REQUEST++;
+  document.getElementById("explanation-modal-backdrop")?.classList.remove("show");
+  document.body.classList.remove("explanation-modal-open");
+  document.getElementById("explanation-btn")?.focus({ preventScroll:true });
+}
+
+document.addEventListener("keydown", event => {
+  if(event.key === "Escape" && document.getElementById("explanation-modal-backdrop")?.classList.contains("show")){
+    closeCardExplanation(event);
+  }
+});
+
 async function startAuthenticatedApp(){
   hydrateReviewStateLocalCache();
   document.getElementById("auth-screen").style.display = "none";
@@ -11846,6 +12150,7 @@ async function startAuthenticatedApp(){
         const backgroundTasks = [
           fastGoalTask.then(r => { if(!r.ok) console.warn("Metas rápidas não carregaram:", r.error); }),
           loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
+          loadExplanationAvailabilityFromSupabase().catch(err => { console.warn("Índice de explicações não carregou:", err); }),
           loadImportantFromSupabase().catch(err => { console.warn("Importantes não carregaram:", err); }),
           loadReviewStateFromSupabase().catch(err => { console.warn("Revisão não carregou:", err); }),
           loadGoalSettingsFromSupabase()
