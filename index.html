@@ -1,5 +1,7 @@
 <!DOCTYPE html>
 <!-- EXPLICAÇÕES v1 · 2026-10-03: botão opcional no verso, dados no Supabase e cache local em IndexedDB; SRS/metas/histórico preservados. -->
+<!-- EXPLICAÇÕES FIX v3 · 2026-10-05: fallback direto por card_id sempre que o índice não contiver o card. -->
+<!-- EXPLICAÇÕES FIX v2 · 2026-10-05: retry por card quando a carga global do índice falha; evita botão oculto após falha transitória/permissão. -->
 <!-- AUDITORIA 54 · 2026-10-01: correções documentadas em auditoria_comparacoes_index54.json. -->
 <html lang="pt-BR">
 <!-- AJUSTE TELA CHEIA: card, controles e tipografia passam a usar toda a área útil da tela. -->
@@ -11877,6 +11879,7 @@ let EXPLANATION_INDEX = new Map();
 let EXPLANATION_TABLE_READY = true;
 let EXPLANATION_INDEX_LOADED = false;
 let EXPLANATION_CURRENT_REQUEST = 0;
+let EXPLANATION_BUTTON_PROBE_REQUEST = 0;
 let EXPLANATION_CACHE_DB_PROMISE = null;
 
 function explanationCardId(card){
@@ -11935,14 +11938,60 @@ async function writeExplanationCache(row){
   });
 }
 
-function updateExplanationButton(card){
+function setExplanationButtonAvailability(available){
   const btn = document.getElementById("explanation-btn");
   if(!btn) return;
+  const show = !!available;
+  btn.hidden = !show;
+  btn.disabled = !show;
+  btn.setAttribute("aria-hidden", show ? "false" : "true");
+}
+
+async function probeExplanationAvailabilityForCard(cardId, requestId){
+  if(!cardId || !navigator.onLine || !supabaseClient) return false;
+  try{
+    const query = supabaseClient
+      .from("card_explanations")
+      .select("card_id,updated_at")
+      .eq("card_id", String(cardId))
+      .eq("ativo", true)
+      .maybeSingle();
+    const { data, error } = await promiseWithTimeout(query, EXPLANATION_REMOTE_TIMEOUT_MS, "verificação direta da explicação");
+    if(error) throw error;
+    if(requestId !== EXPLANATION_BUTTON_PROBE_REQUEST) return false;
+    const current = typeof deck !== "undefined" ? deck[idx] : null;
+    if(explanationCardId(current) !== String(cardId)) return false;
+    if(data?.card_id != null){
+      EXPLANATION_INDEX.set(String(data.card_id), data.updated_at || "");
+      EXPLANATION_TABLE_READY = true;
+      setExplanationButtonAvailability(true);
+      try{ technicalDiagLog("explicações: card confirmado por consulta direta", { card_id:String(cardId) }, "ok"); }catch(_){}
+      return true;
+    }
+    setExplanationButtonAvailability(false);
+    return false;
+  }catch(error){
+    if(requestId === EXPLANATION_BUTTON_PROBE_REQUEST){
+      setExplanationButtonAvailability(false);
+      try{ technicalDiagLog("explicações: consulta direta falhou", { card_id:String(cardId), erro:String(error?.message || error) }, "warn"); }catch(_){}
+    }
+    return false;
+  }
+}
+
+function updateExplanationButton(card){
   const id = explanationCardId(card);
   const available = !!id && EXPLANATION_INDEX.has(id);
-  btn.hidden = !available;
-  btn.disabled = !available;
-  btn.setAttribute("aria-hidden", available ? "false" : "true");
+  setExplanationButtonAvailability(available);
+  if(available || !id) return;
+
+  // Fallback robusto: se o card atual não estiver no índice, confirma diretamente
+  // pelo card_id. Isso funciona mesmo quando a carga global retorna zero linhas,
+  // ainda está em andamento ou falhou anteriormente.
+  if(navigator.onLine && supabaseClient){
+    const requestId = ++EXPLANATION_BUTTON_PROBE_REQUEST;
+    probeExplanationAvailabilityForCard(id, requestId);
+  }
 }
 
 async function loadExplanationAvailabilityFromSupabase(){
@@ -11970,8 +12019,9 @@ async function loadExplanationAvailabilityFromSupabase(){
     EXPLANATION_TABLE_READY = false;
     EXPLANATION_INDEX = new Map();
     EXPLANATION_INDEX_LOADED = true;
-    updateExplanationButton(null);
-    try{ technicalDiagLog("explicações: tabela indisponível", { erro:String(error?.message || error) }, "warn"); }catch(_){}
+    const current = typeof deck !== "undefined" ? deck[idx] : null;
+    updateExplanationButton(current);
+    try{ technicalDiagLog("explicações: índice global indisponível; usando verificação direta por card", { erro:String(error?.message || error) }, "warn"); }catch(_){}
     // Recurso opcional: ausência da tabela não afeta estudo, histórico ou revisão.
     return 0;
   }
@@ -12051,7 +12101,12 @@ async function openCardExplanation(event){
   if(event){ event.preventDefault(); event.stopPropagation(); }
   const card = typeof deck !== "undefined" ? deck[idx] : null;
   const cardId = explanationCardId(card);
-  if(!card || !cardId || !EXPLANATION_INDEX.has(cardId)) return;
+  if(!card || !cardId) return;
+  if(!EXPLANATION_INDEX.has(cardId)){
+    const requestId = ++EXPLANATION_BUTTON_PROBE_REQUEST;
+    const exists = await probeExplanationAvailabilityForCard(cardId, requestId);
+    if(!exists) return;
+  }
   const backdrop = document.getElementById("explanation-modal-backdrop");
   if(!backdrop) return;
   backdrop.classList.add("show");
