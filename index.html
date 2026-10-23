@@ -2032,6 +2032,7 @@
         </div>
         <div class="db-actions">
           <button class="mini-btn sync-now-btn" id="sync-now-btn" onclick="forceSyncNow()">Sincronizar agora</button>
+          <button class="mini-btn" id="sync-history-retry-btn" onclick="retryHistoryLoadNow()" title="Consulta o histórico remoto quando o iPhone não conseguiu iniciar as páginas; preserva seus dados locais.">Carregar histórico remoto</button>
           <button class="mini-btn" id="sync-deep-history-btn" onclick="requestFullHistoryAudit()" title="Reconfere TODOS os registros remotos, inclusive mudanças em respostas com os mesmos IDs. Só usar se houver suspeita de inconsistência.">Conferir histórico completo</button>
           <button class="mini-btn" onclick="syncImportantNow()">Sincronizar favoritos</button>
           <button class="mini-btn" onclick="diagnoseImportantSync()">Diagnóstico favoritos</button>
@@ -2612,11 +2613,16 @@ const CARD_HISTORY_REMOTE_PAGE_SIZE = 1000;
 const CARD_HISTORY_REMOTE_PAGE_TIMEOUT_MS = 22000;
 const CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS = 18000;
 const CARD_HISTORY_REMOTE_PAGE_RETRIES = 2;
-const CARD_HISTORY_REMOTE_CONCURRENCY = 2;
-const CARD_HISTORY_REMOTE_RETRY_INTERVAL_MS = 45000;
+// Em iOS Safari, evitar muitas páginas pesadas ao mesmo tempo.
+// Outras plataformas mantêm o paralelismo anterior.
+const MOBILE_SAFARI_HISTORY_MODE = /iPhone|iPad|iPod/i.test(navigator.userAgent || "");
+const CARD_HISTORY_REMOTE_CONCURRENCY = MOBILE_SAFARI_HISTORY_MODE ? 1 : 2;
+// Não repetir automaticamente 118 páginas a cada retorno do Safari.
+const CARD_HISTORY_REMOTE_RETRY_INTERVAL_MS = MOBILE_SAFARI_HISTORY_MODE ? 300000 : 45000;
 let FAST_GOAL_REMOTE_LOAD_PROMISE = null;
 let FAST_GOAL_REMOTE_LAST_REFRESH_AT = 0;
 let FAST_GOAL_REMOTE_LAST_INCOMPLETE = false;
+let FAST_GOAL_REMOTE_LAST_WARNING_AT = 0;
 let FAST_GOAL_REMOTE_CARD_ROWS = 0;
 let FAST_GOAL_REMOTE_QUESTION_ROWS = 0;
 const FAST_GOAL_REMOTE_PAGE_TIMEOUT_MS = 18000;
@@ -3015,6 +3021,15 @@ function promiseWithTimeout(promise, ms, label="operação remota"){
     timer = setTimeout(() => reject(new Error(`${label} excedeu ${Math.round(ms/1000)} s`)), ms);
   });
   return Promise.race([Promise.resolve(promise), timeout]).finally(() => clearTimeout(timer));
+}
+// Exibe erros PostgREST/fetch legivelmente; não mostra chaves ou tokens.
+function explainHistoryNetworkError(error){
+  if(typeof error === "string") return error.slice(0,260);
+  const pieces=[error?.message,error?.code ? `código ${error.code}` : "",error?.details];
+  let msg=pieces.filter(v=>typeof v==="string" && v.trim()).join(" — ");
+  if(!msg && error instanceof Error) msg=error.name || "Erro de rede";
+  if(!msg) msg="Erro de rede sem descrição. Abra o diagnóstico técnico para detalhes.";
+  return msg.slice(0,320);
 }
 
 // Banco de questões embutido no HTML para evitar limite do SQL Editor.
@@ -3888,6 +3903,34 @@ function requestFullHistoryAudit(){
     }finally{SYNC_BUSY=false;if(btn){btn.disabled=false;btn.textContent="Conferir histórico completo";}renderSyncPanel();}
   },{confirmText:"Conferir tudo",tone:"warn"});
 }
+// Auditoria 142 — Retentativa MANUAL da carga histórica sem apagar nenhum cache.
+// A primeira reconstrução completa ainda precisa receber todas as páginas.
+async function retryHistoryLoadNow(){
+  if(!currentUser?.id || !supabaseClient){showToast('Entre na sua conta para carregar o histórico.','warn');return;}
+  if(CARD_HISTORY_REMOTE_LOAD_PROMISE){
+    showToast('O histórico já está carregando. Veja o progresso em Banco → Sincronização.','info',4500);
+    renderSyncPanel();
+    return;
+  }
+  const btn=document.getElementById('sync-history-retry-btn');
+  if(btn){btn.disabled=true;btn.textContent='Carregando histórico...';}
+  try{
+    const result=await verifyAndRefreshHistory();
+    renderSyncPanel();renderDailyGoalWidget();
+    if(activeTab==='goals')renderGoalsPage();
+    showToast(HISTORY_SNAPSHOT_DURABLE?'Histórico conferido; cache persistente gravado.':'Histórico recebido, mas cache persistente ainda não foi gravado.',HISTORY_SNAPSHOT_DURABLE?'success':'warn',6500);
+    return result;
+  }catch(error){
+    const msg=explainHistoryNetworkError(error);
+    HISTORY_SNAPSHOT_LAST_STATUS='Histórico ainda pendente: '+msg;
+    renderSyncPanel();
+    showToast('Histórico não concluído: '+msg,'warn',7500);
+    return null;
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Carregar histórico remoto';}
+  }
+}
+
 async function forceSyncNow(){
   if(SYNC_BUSY) return;
   if(!currentUser?.id || !supabaseClient){ showToast("Você precisa estar logado para sincronizar com o Supabase.", "warn"); return; }
@@ -7030,43 +7073,74 @@ async function saveGoalSettings(){
   renderDailyGoalWidget();
 }
 
-function startOfLocalDay(date = new Date()){
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 0, 0, 0, 0);
+// AUDITORIA 140 — Todas as metas e o calendário usam um único fuso:
+// America/Sao_Paulo. Instantes persistidos seguem em UTC; nenhum evento é alterado.
+const GOAL_TIME_ZONE = 'America/Sao_Paulo';
+const GOAL_ZONE_DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: GOAL_TIME_ZONE, year:'numeric', month:'2-digit', day:'2-digit'
+});
+const GOAL_ZONE_CLOCK_FORMATTER = new Intl.DateTimeFormat('en-US', {
+  timeZone: GOAL_TIME_ZONE, year:'numeric', month:'2-digit', day:'2-digit',
+  hour:'2-digit', minute:'2-digit', second:'2-digit', hourCycle:'h23'
+});
+function goalDateParts(date, withClock=false){
+  const values = Object.fromEntries((withClock ? GOAL_ZONE_CLOCK_FORMATTER : GOAL_ZONE_DATE_FORMATTER)
+    .formatToParts(new Date(date)).filter(p => p.type !== 'literal').map(p => [p.type, Number(p.value)]));
+  return values;
 }
-
-function endOfLocalDay(date = new Date()){
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate(), 23, 59, 59, 999);
-}
-
-function startOfLocalWeek(date = new Date()){
-  const d = startOfLocalDay(date);
-  const day = d.getDay(); // 0 domingo, 1 segunda...
-  const diff = (day + 6) % 7; // segunda = 0
-  d.setDate(d.getDate() - diff);
-  return d;
-}
-
-function endOfLocalWeek(date = new Date()){
-  const d = startOfLocalWeek(date);
-  d.setDate(d.getDate() + 6);
-  d.setHours(23, 59, 59, 999);
-  return d;
-}
-
-function startOfLocalMonth(date = new Date()){
-  return new Date(date.getFullYear(), date.getMonth(), 1, 0, 0, 0, 0);
-}
-
-function endOfLocalMonth(date = new Date()){
-  return new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59, 999);
-}
-
 function dateKeyLocal(date){
-  const d = new Date(date);
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, "0");
-  const day = String(d.getDate()).padStart(2, "0");
-  return `${y}-${m}-${day}`;
+  const p = goalDateParts(date);
+  return `${p.year}-${String(p.month).padStart(2,'0')}-${String(p.day).padStart(2,'0')}`;
+}
+function goalAddDays(key, delta){
+  const [y,m,d] = key.split('-').map(Number);
+  return new Date(Date.UTC(y,m-1,d+delta)).toISOString().slice(0,10);
+}
+function goalDateAtStart(key){
+  // Itera até coincidir com meia-noite civil de São Paulo, inclusive em DST histórico.
+  const [y,m,d] = key.split('-').map(Number);
+  const midnightUtc = Date.UTC(y,m-1,d);
+  let guess = midnightUtc;
+  for(let i=0;i<4;i++){
+    const p = goalDateParts(guess,true);
+    const wallUtc = Date.UTC(p.year,p.month-1,p.day,p.hour,p.minute,p.second);
+    const diff = midnightUtc-wallUtc;
+    if(!diff) break;
+    guess += diff;
+  }
+  // Se meia-noite não existiu (horário de verão histórico), obtém o primeiro
+  // instante válido do dia. O caminho normal retorna imediatamente.
+  if(dateKeyLocal(guess) === key && dateKeyLocal(guess-1) !== key) return new Date(guess);
+  let lo=midnightUtc-86400000, hi=midnightUtc+86400000;
+  while(lo<hi){
+    const mid=Math.floor((lo+hi)/2);
+    if(dateKeyLocal(mid)<key) lo=mid+1;
+    else hi=mid;
+  }
+  return new Date(lo);
+}
+function startOfLocalDay(date = new Date()){
+  return goalDateAtStart(dateKeyLocal(date));
+}
+function endOfLocalDay(date = new Date()){
+  return new Date(goalDateAtStart(goalAddDays(dateKeyLocal(date),1)).getTime()-1);
+}
+function startOfLocalWeek(date = new Date()){
+  const key = dateKeyLocal(date);
+  const [y,m,d] = key.split('-').map(Number);
+  const weekday = new Date(Date.UTC(y,m-1,d)).getUTCDay();
+  return goalDateAtStart(goalAddDays(key,-((weekday+6)%7)));
+}
+function endOfLocalWeek(date = new Date()){
+  return new Date(goalDateAtStart(goalAddDays(dateKeyLocal(startOfLocalWeek(date)),7)).getTime()-1);
+}
+function startOfLocalMonth(date = new Date()){
+  return goalDateAtStart(dateKeyLocal(date).slice(0,7)+'-01');
+}
+function endOfLocalMonth(date = new Date()){
+  const [y,m] = dateKeyLocal(date).split('-').map(Number);
+  const nextMonth = new Date(Date.UTC(y,m,1)).toISOString().slice(0,7)+'-01';
+  return new Date(goalDateAtStart(nextMonth).getTime()-1);
 }
 
 function isAnsweredResult(result){
@@ -7180,14 +7254,14 @@ function goalPeriodKeys(now = new Date()){
   return {
     today: dateKeyLocal(now),
     week: dateKeyLocal(startOfLocalWeek(now)),
-    month: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+    month: dateKeyLocal(now).slice(0,7)
   };
 }
 
 function readGoalDashboardCache(){
   try{
     const cached = JSON.parse(localStorage.getItem(GOAL_DASHBOARD_CACHE_KEY) || "null");
-    if(!cached || typeof cached !== "object") return null;
+    if(!cached || typeof cached !== "object" || Number(cached.version) !== 2) return null;
     const keys = goalPeriodKeys();
     if(cached.today_key !== keys.today || cached.week_key !== keys.week || cached.month_key !== keys.month) return null;
     // Com usuário autenticado, aceite somente cache explicitamente pertencente
@@ -7216,13 +7290,13 @@ function saveGoalDashboardCache(snapshot, streak, details = null){
   const keys = goalPeriodKeys();
   let previous = null;
   try{ previous = JSON.parse(localStorage.getItem(GOAL_DASHBOARD_CACHE_KEY) || "null"); }catch(e){}
-  const samePeriods = previous && previous.today_key === keys.today && previous.week_key === keys.week && previous.month_key === keys.month;
+  const samePeriods = previous && Number(previous.version) === 2 && previous.today_key === keys.today && previous.week_key === keys.week && previous.month_key === keys.month;
   const sameOwner = previous && previous.owner_id === (currentUser?.id || previous.owner_id || null);
   // Um carregamento parcial nunca pode substituir o último marco diário visto.
   if(samePeriods && sameOwner && !hasExplicitHistoryReset() &&
      Number(previous?.totals?.daily || 0) > Number(snapshot.totals.daily || 0)) return;
   const payload = {
-    version:1,
+    version:2,
     owner_id:currentUser?.id || previous?.owner_id || null,
     saved_at:new Date().toISOString(),
     today_key:keys.today,
@@ -7307,9 +7381,7 @@ function saveProtectedActiveStreak(count, lastDate){
 }
 function protectActiveStreak(computedCurrent, dayCounts){
   const todayKey = dateKeyLocal(new Date());
-  const yesterday = new Date(startOfLocalDay(new Date()));
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayKey = dateKeyLocal(yesterday);
+  const yesterdayKey = goalAddDays(todayKey,-1);
   const saved = readProtectedActiveStreak();
   const studiedToday = (dayCounts?.get(todayKey) || 0) > 0;
 
@@ -7393,15 +7465,13 @@ function calcStreaks(){
     const key = dateKeyLocal(ev.ts);
     dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
   });
-  const today = startOfLocalDay(new Date());
   let current = 0;
-  const cursor = new Date(today);
+  let cursorKey=dateKeyLocal(new Date());
   // A sequência permanece ativa durante o dia atual mesmo antes da primeira revisão.
-  // Ela só zera quando existe um dia completo sem atividade.
-  if(!(dayCounts.get(dateKeyLocal(cursor)) > 0)) cursor.setDate(cursor.getDate() - 1);
-  while(dayCounts.get(dateKeyLocal(cursor)) > 0){
+  if(!(dayCounts.get(cursorKey) > 0)) cursorKey=goalAddDays(cursorKey,-1);
+  while(dayCounts.get(cursorKey)>0){
     current++;
-    cursor.setDate(cursor.getDate() - 1);
+    cursorKey=goalAddDays(cursorKey,-1);
   }
   current = protectActiveStreak(current, dayCounts);
 
@@ -7469,7 +7539,7 @@ function goalTotalsSnapshot(){
     periods: {
       daily: dateKeyLocal(now),
       weekly: dateKeyLocal(startOfLocalWeek(now)),
-      monthly: `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`
+      monthly: dateKeyLocal(now).slice(0,7)
     }
   };
 }
@@ -7598,13 +7668,16 @@ async function refreshRemoteGoalCounters(reason = "auto"){
       }else{
         // Mantém Hoje/Semana/Mês responsivos mesmo sem o histórico integral.
         await loadRecentGoalEventsFromSupabase({ silent:true });
-        // Se a primeira carga completa falhou, versões anteriores nunca a tentavam
-        // de novo e a sessão podia ficar indefinidamente presa no cache de ~5 mil.
-        // Retenta automaticamente com backoff, sem empilhar leituras concorrentes.
+        // No iPhone, uma consulta de metas falha não deve iniciar NOVAMENTE
+        // as 118 páginas pesadas enquanto o navegador tenta se recuperar.
+        // A contagem parcial continua claramente identificada como incompleta.
+        // AUDITORIA 142 — Falhar a meta NÃO deve bloquear o carregamento do histórico.
+        // Cada fonte é consultada independentemente; backoff evita repetição pesada.
         const sinceLastFullAttempt = Date.now() - CARD_HISTORY_REMOTE_LAST_ATTEMPT_AT;
-        if(!CARD_HISTORY_REMOTE_LOAD_PROMISE && sinceLastFullAttempt >= CARD_HISTORY_REMOTE_RETRY_INTERVAL_MS){
-          try { await loadResponsesFromSupabase({ silent:true }); }
-          catch(err){ console.warn("Nova tentativa automática do histórico completo falhou:", err); }
+        if(!CARD_HISTORY_REMOTE_LOAD_PROMISE
+            && sinceLastFullAttempt >= CARD_HISTORY_REMOTE_RETRY_INTERVAL_MS){
+          try { await verifyAndRefreshHistory(); }
+          catch(err){ console.warn("Histórico remoto ainda pendente (independente da meta):", explainHistoryNetworkError(err)); }
         }
       }
     } catch(err){
@@ -7696,14 +7769,13 @@ function renderWeekCalendar(goals){
   const el = document.getElementById("goal-week-calendar");
   if(!el) return;
   const start = startOfLocalWeek(new Date());
+  const startKey = dateKeyLocal(start);
   const todayKey = dateKeyLocal(new Date());
-  const stats = calcPeriodStats(startOfLocalWeek(new Date()), endOfLocalWeek(new Date()));
+  const stats = calcPeriodStats(start, endOfLocalWeek(start));
   const names = ["Seg", "Ter", "Qua", "Qui", "Sex", "Sáb", "Dom"];
   const parts = [];
   for(let i = 0; i < 7; i++){
-    const d = new Date(start);
-    d.setDate(start.getDate() + i);
-    const key = dateKeyLocal(d);
+    const key = goalAddDays(startKey,i);
     const day = stats.daily.get(key) || { total:0, right:0, wrong:0 };
     const pct = day.total ? Math.round((day.right / day.total) * 100) : null;
     const hit = day.total >= goals.daily;
@@ -7720,13 +7792,13 @@ function renderWeekCalendar(goals){
   if(statusNode){
     const pending=!HISTORY_REMOTE_VERIFIED_THIS_SESSION || FAST_GOAL_REMOTE_LAST_INCOMPLETE;
     statusNode.textContent = pending
-      ? 'Números deste aparelho — conferência remota do histórico ainda pendente ou incompleta. Podem diferir de outro dispositivo.'
-      : 'Números calculados pelo histórico disponível neste aparelho; para verificar o total remoto real, use “Conferir semana no Supabase”.';
+      ? 'Números deste aparelho (fuso America/Sao_Paulo) — sincronização remota pendente ou incompleta.'
+      : 'Números do histórico deste aparelho (fuso America/Sao_Paulo; flashcards + questões). Confira o servidor se houver diferença.';
   }
 }
 
-// AUDITORIA 139: diagnóstico somente de leitura, independente do cache local.
-// Não sobrescreve ONLINE_HISTORY, QUESTION_ATTEMPTS, IndexedDB, SRS ou filas de envio.
+// AUDITORIA 140: consulta somente-leitura. Mesma janela, fuso e deduplicação
+// do calendário local. A consulta começa 3s antes da semana para deduplicação.
 let GOAL_WEEK_AUDIT_RUNNING=false;
 async function auditWeekAgainstSupabase(){
   const output=document.getElementById('goal-week-server-audit-result');
@@ -7737,27 +7809,27 @@ async function auditWeekAgainstSupabase(){
     return;
   }
   if(!navigator.onLine){
-    output.textContent='Sem conexão: os dados locais continuam preservados. A conferência remota não foi executada.';
+    output.textContent='Sem conexão: o diagnóstico não alterou dados locais ou remotos.';
     return;
   }
   const owner=historyOwnerToken();
   const weekStart=startOfLocalWeek(new Date());
   const weekEnd=endOfLocalWeek(weekStart);
-  const fromIso=weekStart.toISOString();
+  const weekStartMs=weekStart.getTime();
+  const weekEndMs=weekEnd.getTime();
+  const fromIso=new Date(weekStartMs-3000).toISOString();
   const toIso=weekEnd.toISOString();
-  const offsetMinutes=-weekStart.getTimezoneOffset();
-  const zone=Intl.DateTimeFormat().resolvedOptions().timeZone || 'desconhecido';
   const maxRows=50000;
   GOAL_WEEK_AUDIT_RUNNING=true;
-  if(button){button.disabled=true;button.textContent='Conferindo respostas da semana…';}
-  output.textContent='Lendo apenas as respostas desta semana diretamente das duas tabelas do Supabase. Nenhuma gravação será realizada.';
+  if(button){button.disabled=true;button.textContent='Conferindo semana…';}
+  output.textContent='Conferindo flashcards e questões, sem modificar os dados. Fuso de referência: America/Sao_Paulo.';
   const pageQuery=(table,fields)=>(from,to)=>supabaseClient.from(table)
     .select(fields).eq('user_id',owner.uid)
     .gte('created_at',fromIso).lte('created_at',toIso)
     .order('created_at',{ascending:true}).order('id',{ascending:true}).range(from,to);
   const load=async(table,fields)=>{
-    const rows=await promiseWithTimeout(fetchSupabasePages(pageQuery(table,fields),1000,maxRows),25000,'Conferência semanal '+table);
-    if(rows.length>=maxRows) throw new Error('A tabela '+table+' atingiu o limite de '+maxRows+' registros; conferência incompleta.');
+    const rows=await promiseWithTimeout(fetchSupabasePages(pageQuery(table,fields),1000,maxRows),30000,'Diagnóstico semanal '+table);
+    if(rows.length>=maxRows) throw new Error('A tabela '+table+' alcançou '+maxRows+' registros: diagnóstico incompleto.');
     assertHistoryOwner(owner);
     return rows;
   };
@@ -7767,42 +7839,50 @@ async function auditWeekAgainstSupabase(){
       load('questoes_respostas','id,user_id,questao_id,resultado,created_at')
     ]);
     assertHistoryOwner(owner);
-    const rowsCards=results[0].status==='fulfilled'?results[0].value:[];
-    const rowsQuestions=results[1].status==='fulfilled'?results[1].value:[];
     const complete=results.every(r=>r.status==='fulfilled');
-    const makeCard=(r)=>({id:String(r.id),user_id:r.user_id,card_id:String(r.card_id),result:r.resultado,ts:r.created_at,kind:'card'});
-    const makeQuestion=(r)=>({id:'q:'+r.id,user_id:r.user_id,card_id:'q:'+r.questao_id,result:r.resultado,ts:r.created_at,kind:'question'});
-    const cards=dedupeGoalEvents(rowsCards.map(makeCard));
-    const questions=dedupeGoalEvents(rowsQuestions.map(makeQuestion));
-    const remote=dedupeGoalEvents([...cards,...questions]);
-    const local=getGoalHistory();
-    const dayCount=(list,key)=>list.filter(ev=>dateKeyLocal(ev.ts)===key).length;
+    const cards=(results[0].status==='fulfilled'?results[0].value:[]).map(r=>({
+      id:String(r.id),user_id:r.user_id,card_id:String(r.card_id),result:r.resultado,ts:r.created_at,kind:'card'
+    }));
+    const questions=(results[1].status==='fulfilled'?results[1].value:[]).map(r=>({
+      id:'q:'+r.id,user_id:r.user_id,card_id:'q:'+r.questao_id,result:r.resultado,ts:r.created_at,kind:'question'
+    }));
+    // Dedupe ANTES de filtrar o período. A busca remota inclui 3s anteriores,
+    // pois um evento às 00:00:01 pode duplicar outro às 23:59:59 de domingo.
+    const within=ev=>{const t=goalEventTimestamp(ev);return Number.isFinite(t)&&t>=weekStartMs&&t<=weekEndMs;};
+    const remote=dedupeGoalEvents([...cards,...questions]).filter(within);
+    const local=getGoalHistory().filter(within); // getGoalHistory já deduplica histórico inteiro
+    const stat=(list,key,kind)=>{
+      const a=list.filter(ev=>dateKeyLocal(ev.ts)===key && (!kind || String(ev.kind||'card')===kind));
+      const correct=a.filter(ev=>ev.result==='right').length;
+      return {n:a.length,correct,pct:a.length?Math.round(100*correct/a.length):null};
+    };
+    const startKey=dateKeyLocal(weekStart);
     const names=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
     const table=names.map((name,i)=>{
-      const d=new Date(weekStart);d.setDate(d.getDate()+i);
-      const key=dateKeyLocal(d);
-      const localN=dayCount(local,key);
-      const cloudN=dayCount(remote,key);
-      const cloudCard=dayCount(cards,key);
-      const cloudQuestion=dayCount(questions,key);
-      const delta=localN-cloudN;
-      return '<tr><td style="padding:5px">'+name+'</td><td style="padding:5px;text-align:right">'+localN+'</td>'+
-        '<td style="padding:5px;text-align:right">'+(complete?String(cloudN):'parcial')+'</td>'+
-        '<td style="padding:5px;text-align:right">'+cloudCard+'</td>'+
-        '<td style="padding:5px;text-align:right">'+cloudQuestion+'</td>'+
+      const key=goalAddDays(startKey,i);
+      const l=stat(local,key),r=stat(remote,key),rc=stat(remote,key,'card'),rq=stat(remote,key,'question');
+      const delta=l.n-r.n;
+      const p=x=>x.pct===null?'—':x.pct+'%';
+      return '<tr><td style="padding:5px">'+name+' '+key.slice(8,10)+'</td>'+ 
+        '<td style="padding:5px;text-align:right">'+l.n+' ('+p(l)+')</td>'+ 
+        '<td style="padding:5px;text-align:right">'+(complete?r.n+' ('+p(r)+')':'INCOMPLETO')+'</td>'+ 
+        '<td style="padding:5px;text-align:right">'+(results[0].status==='fulfilled'?rc.n:'—')+'</td>'+ 
+        '<td style="padding:5px;text-align:right">'+(results[1].status==='fulfilled'?rq.n:'—')+'</td>'+ 
         '<td style="padding:5px;text-align:right;font-weight:600">'+(complete?(delta>0?'+':'')+delta:'—')+'</td></tr>';
     }).join('');
-    const errText=results.map((r,i)=>r.status==='rejected'?(["respostas","questoes_respostas"][i]+': '+String(r.reason?.message||r.reason)):'').filter(Boolean).join(' | ');
-    const localCount=names.reduce((a,_,i)=>{const d=new Date(weekStart);d.setDate(d.getDate()+i);return a+dayCount(local,dateKeyLocal(d));},0);
-    output.innerHTML='<div style="margin:6px 0;font-weight:600">'+(complete?'Conferência remota concluída':'Conferência remota INCOMPLETA')+'</div>'+
-      '<div style="margin-bottom:7px">Semana de '+dateKeyLocal(weekStart)+' a '+dateKeyLocal(weekEnd)+'. Fuso do aparelho: '+escapeHtml(zone)+' (UTC'+(offsetMinutes>=0?'+':'')+(offsetMinutes/60)+').</div>'+
-      (errText?'<div style="margin-bottom:7px;color:var(--red)">'+escapeHtml(errText)+'</div>':'')+
-      '<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:12px">'+
-      '<thead><tr><th style="text-align:left;padding:5px">Dia</th><th>Local</th><th>Servidor</th><th>Cards no servidor</th><th>Questões no servidor</th><th>Local − servidor</th></tr></thead><tbody>'+table+'</tbody></table></div>'+
-      '<div style="margin-top:7px">Total local: <strong>'+localCount+'</strong>; total remoto '+(complete?'completo':'parcial')+': <strong>'+remote.length+'</strong>. '+
-      (complete?'Se diferirem, há dados locais pendentes, duplicados ou ausentes neste aparelho; esta ferramenta não modifica os registros.':'Não utilize estes números parciais para corrigir a meta.')+'</div>';
+    const errors=results.map((r,i)=>r.status==='rejected'?(['respostas','questoes_respostas'][i]+': '+String(r.reason?.message||r.reason)):'').filter(Boolean);
+    output.innerHTML='<div style="font-weight:600;margin:6px 0">'+(complete?'Diagnóstico concluído':'Diagnóstico INCOMPLETO')+'</div>'+ 
+      '<div style="margin-bottom:7px">Semana: '+startKey+' a '+goalAddDays(startKey,6)+'. Fuso único: <strong>America/Sao_Paulo</strong>. '+ 
+      'Período UTC da semana: '+weekStart.toISOString()+' a '+weekEnd.toISOString()+'.</div>'+ 
+      (errors.length?'<div style="color:var(--red)">'+escapeHtml(errors.join(' | '))+'</div>':'')+ 
+      '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr>'+ 
+      '<th style="text-align:left">Dia</th><th>Local (acerto)</th><th>Servidor (acerto)</th>'+ 
+      '<th>Cards servidor</th><th>Questões servidor</th><th>Local − servidor</th></tr></thead><tbody>'+table+'</tbody></table></div>'+ 
+      '<div style="margin-top:8px">Total local: <strong>'+local.length+'</strong>; total remoto: <strong>'+(complete?remote.length:'INCOMPLETO')+'</strong>. '+ 
+      'Somente resultados right/wrong. Deduplicação de 3 segundos aplicada antes do recorte semanal.</div>'+ 
+      '<div style="margin-top:5px">'+(complete?'Diferenças ainda podem refletir respostas pendentes, registros ausentes ou dados locais divergentes; não comprovam, sozinhas, perda de respostas.':'Não compare os totais enquanto qualquer tabela estiver incompleta.')+'</div>';
   }catch(error){
-    output.textContent='A conferência não foi concluída: '+String(error?.message||error)+'. Nenhum registro foi alterado.';
+    output.textContent='Diagnóstico não concluído: '+String(error?.message||error)+'. Nenhum dado foi modificado.';
   }finally{
     GOAL_WEEK_AUDIT_RUNNING=false;
     if(button){button.disabled=false;button.textContent='Conferir semana no Supabase (somente leitura)';}
@@ -7810,16 +7890,14 @@ async function auditWeekAgainstSupabase(){
 }
 
 function formatDateShortBR(date){
-  const d = new Date(date);
-  const dd = String(d.getDate()).padStart(2, "0");
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  return `${dd}/${mm}`;
+  const key=dateKeyLocal(date);
+  return `${key.slice(8,10)}/${key.slice(5,7)}`;
 }
 
 function formatMonthBR(date){
-  const d = new Date(date);
+  const key=dateKeyLocal(date);
   const names = ["Jan", "Fev", "Mar", "Abr", "Mai", "Jun", "Jul", "Ago", "Set", "Out", "Nov", "Dez"];
-  return `${names[d.getMonth()]}/${d.getFullYear()}`;
+  return `${names[Number(key.slice(5,7))-1]}/${key.slice(0,4)}`;
 }
 
 function goalHistoryRow(label, sub, stats, target, current=false, startMs=null, endMs=null){
@@ -7870,7 +7948,8 @@ function renderGoalHistory(goals){
   if(monthEl){
     const rows = [];
     for(let i = 0; i < 12; i++){
-      const ref = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const [baseYear,baseMonth] = dateKeyLocal(now).split('-').map(Number);
+      const ref = new Date(Date.UTC(baseYear, baseMonth - 1 - i, 15, 12));
       const start = startOfLocalMonth(ref);
       const end = endOfLocalMonth(ref);
       const st = calcPeriodStats(start, end);
@@ -7903,12 +7982,13 @@ function renderGoalsPage(){
     totals:{ daily:t.total, weekly:w.total, monthly:m.total },
     periods:{ daily:dateKeyLocal(now), weekly:dateKeyLocal(startOfLocalWeek(now)), monthly:`${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}` }
   }, streak, { daily:t, weekly:w, monthly:m });
-  const dayIndex = (now.getDay() + 6) % 7;
+  const [goalY,goalM,goalD] = dateKeyLocal(now).split('-').map(Number);
+  const dayIndex = (new Date(Date.UTC(goalY,goalM-1,goalD)).getUTCDay() + 6) % 7;
   const elapsedWeekDays = dayIndex + 1;
   const remainingWeekDays = Math.max(1, 7 - dayIndex);
-  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
-  const elapsedMonthDays = now.getDate();
-  const remainingMonthDays = Math.max(1, daysInMonth - now.getDate() + 1);
+  const daysInMonth = new Date(Date.UTC(goalY,goalM,0)).getUTCDate();
+  const elapsedMonthDays = goalD;
+  const remainingMonthDays = Math.max(1, daysInMonth - goalD + 1);
   const weekProjection = Math.round((w.total / elapsedWeekDays) * 7);
   const monthProjection = Math.round((m.total / elapsedMonthDays) * daysInMonth);
   const weekNeeded = Math.max(0, goals.weekly - w.total);
@@ -11768,15 +11848,13 @@ function calcStreaksFromEvents(events){
     const key = dateKeyLocal(ev.ts);
     dayCounts.set(key, (dayCounts.get(key) || 0) + 1);
   });
-  const today = startOfLocalDay(new Date());
   let current = 0;
-  const cursor = new Date(today);
+  let cursorKey=dateKeyLocal(new Date());
   // A sequência permanece ativa durante o dia atual mesmo antes da primeira revisão.
-  // Ela só zera quando existe um dia completo sem atividade.
-  if(!(dayCounts.get(dateKeyLocal(cursor)) > 0)) cursor.setDate(cursor.getDate() - 1);
-  while(dayCounts.get(dateKeyLocal(cursor)) > 0){
+  if(!(dayCounts.get(cursorKey) > 0)) cursorKey=goalAddDays(cursorKey,-1);
+  while(dayCounts.get(cursorKey)>0){
     current++;
-    cursor.setDate(cursor.getDate() - 1);
+    cursorKey=goalAddDays(cursorKey,-1);
   }
   current = protectActiveStreak(current, dayCounts);
   const keys = Array.from(dayCounts.keys()).sort();
@@ -12560,7 +12638,15 @@ async function loadRecentGoalEventsFromSupabase(options = {}){
     if(questionResult.status === "rejected") console.warn("Metas rápidas: questões recentes não carregaram:", questionResult.reason);
     if(FAST_GOAL_REMOTE_LAST_INCOMPLETE){
       setSyncStatus('A sincronização da meta ficou INCOMPLETA. Os totais podem estar parciais; use Sincronizar agora quando a conexão melhorar.');
-      showToast('Meta ainda incompleta: uma consulta ao Supabase falhou. Nenhuma resposta foi apagada pelo contador.', 'warn', 6500);
+      // focus/pageshow/visibility podem coincidir no Safari; evitar pilha de avisos.
+      if(Date.now()-FAST_GOAL_REMOTE_LAST_WARNING_AT > 90000){
+        FAST_GOAL_REMOTE_LAST_WARNING_AT=Date.now();
+        showToast('Meta ainda incompleta: uma consulta ao Supabase falhou. Nenhuma resposta foi apagada pelo contador.', 'warn', 6500);
+      }
+      try{technicalDiagLog('metas rápidas: consultas incompletas',{
+        flashcards:cardResult.status==='rejected'?explainHistoryNetworkError(cardResult.reason):'ok',
+        questoes:questionResult.status==='rejected'?explainHistoryNetworkError(questionResult.reason):'ok'
+      },'warn');}catch(_){}
     }
 
     if(cardRows.length){
@@ -12671,11 +12757,18 @@ async function fetchCardHistoryPageWithRetry(from, to, incremental, watermark, p
       await new Promise(resolve => setTimeout(resolve, 250 * (attempt + 1)));
     }
   }
-  throw lastError || new Error(`Falha ao carregar a página ${pageIndex + 1} do histórico.`);
+  const reason=explainHistoryNetworkError(lastError);
+  const detail=new Error(`Página ${pageIndex + 1} (${from+1}–${to+1}) do histórico não carregou após ${CARD_HISTORY_REMOTE_PAGE_RETRIES+1} tentativa(s): ${reason}`);
+  detail.cause=lastError;
+  throw detail;
 }
 
 async function fetchCardHistoryRowsParallel(incremental = false, watermark = 0, owner = historyOwnerToken()){
   assertHistoryOwner(owner);
+  if(!incremental){
+    HISTORY_SNAPSHOT_LAST_STATUS='contando registros do histórico no Supabase...';
+    if(activeTab === "db") renderSyncPanel();
+  }
   const expectedRows = await remoteCardResponseCountForLoad(incremental, watermark, owner);
   assertHistoryOwner(owner);
   CARD_HISTORY_REMOTE_EXPECTED_ROWS = expectedRows;
@@ -13511,7 +13604,7 @@ async function loadResponsesFromSupabase(options = {}){
   }catch(error){
     if(CARD_HISTORY_REMOTE_LOAD_PROMISE===activeLoad){
       HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
-      CARD_HISTORY_REMOTE_LAST_ERROR=String(error?.message || error || "erro desconhecido");
+      CARD_HISTORY_REMOTE_LAST_ERROR=explainHistoryNetworkError(error);
       invalidateSyncSummaryCache();
       renderSyncPanel();
       try{technicalDiagLog("histórico remoto: carga falhou",{mode:CARD_HISTORY_REMOTE_LOAD_MODE,error:CARD_HISTORY_REMOTE_LAST_ERROR},"err");}catch(_){ }
@@ -13900,8 +13993,31 @@ async function startAuthenticatedApp(){
       // Inicia hidratação/conferência já com os cards em cache, sem aguardar
       // a consulta de todos os cards ao servidor.
       const earlyHistoryTask=earlyHistorySnapshot
-        .then(snapshot=>loadResponsesUsingPersistentCache(snapshot,startupHistoryOwner))
-        .then(result=>{responsesLoaded=true;renderDailyGoalWidget();if(activeTab==="goals")renderGoalsPage();return result;})
+        .then(async snapshot=>{
+          // O snapshot existente continua disponível sem bloqueio por rede.
+          // Sem snapshot no iPhone, priorizar as duas consultas do período atual.
+          // Evita que uma reconstrução com 118 páginas provoque timeouts na meta.
+          if(MOBILE_SAFARI_HISTORY_MODE && !snapshot){
+            // Aguardar apenas que as requisições iniciais mais curtas terminem.
+            // Resultado de erro na meta não impede consultar a tabela respostas.
+            const fast=await fastGoalTask;
+            assertHistoryOwner(startupHistoryOwner);
+            if(!fast.ok || FAST_GOAL_REMOTE_LAST_INCOMPLETE){
+              HISTORY_SNAPSHOT_LAST_STATUS='snapshot ausente; consulta da meta incompleta, iniciando histórico separadamente';
+            }else{
+              HISTORY_SNAPSHOT_LAST_STATUS='snapshot ausente; preparando primeira carga paginada do histórico';
+            }
+            renderSyncPanel();
+            // Não concorrer com a atualização completa dos 5.828 cards no Safari.
+            const cardLoad=await remoteCardsTask;
+            assertHistoryOwner(startupHistoryOwner);
+            if(!cardLoad.ok && !CARDS.length){
+              console.warn('Cards remotos também falharam; histórico seguirá usando dados locais disponíveis:',explainHistoryNetworkError(cardLoad.error));
+            }
+          }
+          return loadResponsesUsingPersistentCache(snapshot,startupHistoryOwner);
+        })
+        .then(result=>{responsesLoaded=!!result&&!result.deferred;renderDailyGoalWidget();if(activeTab==="goals")renderGoalsPage();return result;})
         .catch(error=>{console.warn("Histórico remoto ainda não foi conferido:",error);return null;});
       try{
         // Se o app abriu pelo cache, deixa a consulta principal de cards acabar
@@ -13915,8 +14031,11 @@ async function startAuthenticatedApp(){
           setSyncStatus(`usando cache local; atualização remota falhou: ${remoteResult.error?.message || remoteResult.error}`);
         }
 
+        // No Safari móvel, concluir a leitura breve da meta antes de iniciar
+        // as consultas auxiliares; o desktop mantém o paralelismo anterior.
+        if(MOBILE_SAFARI_HISTORY_MODE) await fastGoalTask;
         const backgroundTasks = [
-          fastGoalTask.then(r => { if(!r.ok) console.warn("Metas rápidas não carregaram:", r.error); }),
+          fastGoalTask.then(r => { if(!r.ok) console.warn("Metas rápidas não carregaram:", explainHistoryNetworkError(r.error)); }),
           loadArchivedFromSupabase().catch(err => { console.warn("Arquivados não carregaram:", err); }),
           loadExplanationAvailabilityFromSupabase().catch(err => { console.warn("Índice de explicações não carregou:", err); }),
           loadImportantFromSupabase().catch(err => { console.warn("Importantes não carregaram:", err); }),
