@@ -1940,6 +1940,11 @@
       <div class="goal-settings">
         <div class="goal-settings-title">Calendário da semana</div>
         <div class="week-calendar" id="goal-week-calendar"></div>
+        <div id="goal-week-sync-state" style="font-size:12px;color:var(--muted);margin:9px 0 0"></div>
+        <div class="db-actions" style="margin-top:8px;gap:8px;flex-wrap:wrap">
+          <button class="mini-btn" id="goal-week-server-audit-btn" type="button" onclick="auditWeekAgainstSupabase()">Conferir semana no Supabase (somente leitura)</button>
+        </div>
+        <div id="goal-week-server-audit-result" aria-live="polite" style="font-size:12px;margin-top:8px"></div>
       </div>
       <div class="goal-history-grid">
         <div class="goal-settings">
@@ -2027,6 +2032,7 @@
         </div>
         <div class="db-actions">
           <button class="mini-btn sync-now-btn" id="sync-now-btn" onclick="forceSyncNow()">Sincronizar agora</button>
+          <button class="mini-btn" id="sync-deep-history-btn" onclick="requestFullHistoryAudit()" title="Reconfere TODOS os registros remotos, inclusive mudanças em respostas com os mesmos IDs. Só usar se houver suspeita de inconsistência.">Conferir histórico completo</button>
           <button class="mini-btn" onclick="syncImportantNow()">Sincronizar favoritos</button>
           <button class="mini-btn" onclick="diagnoseImportantSync()">Diagnóstico favoritos</button>
           <button class="mini-btn" onclick="migrateLegacyImportantMetadataNow()">Corrigir token dos Favoritos</button>
@@ -2559,8 +2565,8 @@ const CARDS_CACHE_STORE = "snapshots";
 const CARDS_CACHE_RECORD_KEY = "active_cards";
 const LEGACY_CARDS_CACHE_KEY = "flashpratico_cards_cache_v1";
 const CARDS_CACHE_READ_TIMEOUT_MS = 1400;
-const CARDS_REMOTE_PAGE_TIMEOUT_MS = 12000;
-const CARDS_REMOTE_TOTAL_TIMEOUT_MS = 24000;
+const CARDS_REMOTE_PAGE_TIMEOUT_MS = 20000;
+const CARDS_REMOTE_TOTAL_TIMEOUT_MS = 45000;
 let CARDS_LOAD_PROMISE = null;
 const SETTINGS_KEY = "flashpratico_settings_v2";
 const GOALS_KEY = "flashpratico_goals_v1";
@@ -2603,17 +2609,18 @@ let CARD_HISTORY_REMOTE_LAST_ROWS = 0;
 let CARD_HISTORY_INITIAL_FULL_LOAD_DONE = false;
 let HISTORY_KNOWN_COMPLETE = false;
 const CARD_HISTORY_REMOTE_PAGE_SIZE = 1000;
-const CARD_HISTORY_REMOTE_PAGE_TIMEOUT_MS = 12000;
-const CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS = 10000;
+const CARD_HISTORY_REMOTE_PAGE_TIMEOUT_MS = 22000;
+const CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS = 18000;
 const CARD_HISTORY_REMOTE_PAGE_RETRIES = 2;
-const CARD_HISTORY_REMOTE_CONCURRENCY = 6;
+const CARD_HISTORY_REMOTE_CONCURRENCY = 2;
 const CARD_HISTORY_REMOTE_RETRY_INTERVAL_MS = 45000;
 let FAST_GOAL_REMOTE_LOAD_PROMISE = null;
 let FAST_GOAL_REMOTE_LAST_REFRESH_AT = 0;
+let FAST_GOAL_REMOTE_LAST_INCOMPLETE = false;
 let FAST_GOAL_REMOTE_CARD_ROWS = 0;
 let FAST_GOAL_REMOTE_QUESTION_ROWS = 0;
-const FAST_GOAL_REMOTE_PAGE_TIMEOUT_MS = 8000;
-const FAST_GOAL_REMOTE_TOTAL_TIMEOUT_MS = 15000;
+const FAST_GOAL_REMOTE_PAGE_TIMEOUT_MS = 18000;
+const FAST_GOAL_REMOTE_TOTAL_TIMEOUT_MS = 32000;
 const FAST_GOAL_REMOTE_MAX_ROWS = 6000;
 let REVIEW_REMOTE_LAST_REFRESH_AT = 0;
 const CROSS_DEVICE_HISTORY_REFRESH_MS = 60000;
@@ -3106,7 +3113,7 @@ function questionPayloadForSupabase(ev){
 }
 async function syncLocalQuestionResponsesToSupabase(remoteAttempts = []){
   if(!currentUser?.id || !supabaseClient || QUESTION_SOURCE !== "supabase") return;
-  const local = readLocalQuestionResponses();
+  const local = mergeQuestionAttempts(readLocalQuestionResponses(), QUESTION_ATTEMPTS);
   if(!local.length) return;
 
   // v44: cada clique válido deve ser uma tentativa real.
@@ -3511,105 +3518,107 @@ function isCardForeignKeyError(error){
   const msg = String(error?.message || error?.details || error || "").toLowerCase();
   return msg.includes("respostas_card_id_fkey") || (msg.includes("foreign key") && msg.includes("card"));
 }
-async function fetchRemoteCardResponseKeysForEvents(events){
-  if(!currentUser?.id || !supabaseClient) return new Set();
-  const clean = (events || []).filter(ev => ev && ev.card_id && ev.result && ev.ts);
+async function fetchRemoteCardResponseKeysForEvents(events, owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
+  if(!supabaseClient) throw new Error('Sem conexão autenticada para conferir eventos.');
+  const clean = (events || []).filter(ev=>ev && ev.card_id && ev.result && ev.ts);
   const found = new Set();
-  if(!clean.length) return found;
-  // Lotes menores mantêm a URL do PostgREST curta mesmo com card_ids longos.
-  const chunkSize = 40;
-  for(let i = 0; i < clean.length; i += chunkSize){
-    const chunk = clean.slice(i, i + chunkSize);
-    const cardIds = [...new Set(chunk.map(ev => String(ev.card_id)).filter(Boolean))];
-    const times = [...new Set(chunk.map(ev => String(ev.ts)).filter(Boolean))];
-    if(!cardIds.length || !times.length) continue;
-    const { data, error } = await supabaseClient
-      .from("respostas")
-      .select("user_id,card_id,resultado,created_at")
-      .eq("user_id", currentUser.id)
-      .in("card_id", cardIds)
-      .in("created_at", times);
-    if(error){
-      // Segurança contra duplicação: nunca faça INSERT se a conferência remota
-      // falhar. O evento já está salvo localmente e continuará na fila pendente
-      // para uma nova tentativa. Falhar aberto aqui poderia duplicar uma resposta
-      // que o Supabase já recebeu em uma tentativa anterior.
-      console.warn("Não consegui conferir duplicidades remotas antes do sync:", error);
-      throw new Error("Falha ao conferir duplicidades no Supabase antes do envio: " + (error.message || error));
-    }
-    (data || []).forEach(row => {
-      const key = cardResponseKeyFromRemoteRow(row);
-      if(key){
-        found.add(key);
-        REMOTE_CARD_RESPONSE_KEYS.add(key);
-      }
+  for(let i=0;i<clean.length;i+=40){
+    assertHistoryOwner(owner);
+    const chunk=clean.slice(i,i+40);
+    if(chunk.some(ev=>ev.user_id && String(ev.user_id)!==owner.uid)) throw new Error('Lote de respostas contém outra conta.');
+    const cardIds=[...new Set(chunk.map(ev=>String(ev.card_id)))];
+    const times=[...new Set(chunk.map(ev=>String(ev.ts)))];
+    const {data,error}=await supabaseClient.from('respostas')
+      .select('user_id,card_id,resultado,created_at')
+      .eq('user_id',owner.uid).in('card_id',cardIds).in('created_at',times);
+    assertHistoryOwner(owner);
+    if(error) throw new Error('Falha ao conferir duplicidades: '+String(error.message||error));
+    (data||[]).forEach(row=>{
+      if(row.user_id && String(row.user_id)!==owner.uid) throw new Error('Resposta retornada de outra conta.');
+      const key=cardResponseKeyFromRemoteRow(row);
+      if(key){found.add(key);REMOTE_CARD_RESPONSE_KEYS.add(key);}
     });
   }
   return found;
 }
-async function insertCardResponseEvents(events){
-  // Deduplica também dentro do próprio lote. Sem isso, duas cópias locais do
-  // mesmo evento poderiam passar juntas antes de qualquer delas existir no remoto.
-  const cleanEvents = mergeHistoryEvents(events || []).filter(Boolean);
-  const completedIds = [];
-  const orphanIds = [];
-  if(!cleanEvents.length) return { synced:0, orphaned:0, duplicated:0, completedIds, orphanIds };
-
-  // Antes de inserir, confere no Supabase se algum evento já chegou em tentativa anterior.
-  // Isso evita duplicar quando a conexão cai depois do banco salvar, mas antes do app limpar a fila local.
-  await fetchRemoteCardResponseKeysForEvents(cleanEvents);
-  const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
-  const toInsert = cleanEvents.filter(ev => {
-    const already = remoteKeys.has(cardResponseKeyFromEvent(ev));
-    if(already && ev.id) completedIds.push(String(ev.id));
-    return !already;
-  });
-  if(!toInsert.length){
-    return { synced:0, orphaned:0, duplicated:cleanEvents.length, completedIds, orphanIds };
+const CARD_RESPONSE_SEND_QUEUES=new Map();
+async function insertCardResponseEvents(events, owner = historyOwnerToken()){
+  const predecessor=CARD_RESPONSE_SEND_QUEUES.get(owner.uid)||Promise.resolve();
+  const task=predecessor.catch(()=>{}).then(()=>insertCardResponseEventsCore(events,owner));
+  CARD_RESPONSE_SEND_QUEUES.set(owner.uid,task);
+  try{return await task;}finally{if(CARD_RESPONSE_SEND_QUEUES.get(owner.uid)===task)CARD_RESPONSE_SEND_QUEUES.delete(owner.uid);}
+}
+async function insertCardResponseEventsCore(events, owner){
+  assertHistoryOwner(owner);
+  const uniqueByLocalId=[...new Map((events||[]).filter(Boolean).map(ev=>[String(ev.id),ev])).values()];
+  // UUIDs diferentes podem representar a mesma resposta. Deduplicar pela
+  // identidade persistida no Supabase ANTES de montar o payload do lote.
+  const byIdentity=new Map(), siblings=new Map(), cleanEvents=[];
+  for(const ev of uniqueByLocalId){
+    const key=cardResponseKeyFromEvent(ev)||String(ev.id);
+    if(byIdentity.has(key)){
+      const parent=byIdentity.get(key);
+      if(!siblings.has(parent))siblings.set(parent,[]);
+      siblings.get(parent).push(String(ev.id));
+    }else{
+      byIdentity.set(key,String(ev.id));
+      cleanEvents.push(ev);
+    }
   }
-
-  const payload = toInsert.map(ev => ({
-    user_id: currentUser.id,
-    card_id: ev.card_id,
-    resultado: ev.result,
-    created_at: ev.ts
-  }));
-  const { error } = await supabaseClient.from("respostas").insert(payload);
+  const completedIds=[],orphanIds=[];
+  const completeAliases=()=>{
+    const done=new Set(completedIds),orphan=new Set(orphanIds);
+    let count=0;
+    for(const [parent,aliases] of siblings){
+      if(done.has(parent))for(const id of aliases){if(!done.has(id)){completedIds.push(id);done.add(id);count++;}}
+      else if(orphan.has(parent))for(const id of aliases){if(!orphan.has(id)){orphanIds.push(id);orphan.add(id);}}
+    }
+    return count;
+  };
+  const finish=(synced,orphaned,duplicated)=>{
+    const mergedDuplicates=completeAliases();
+    return {synced,orphaned,duplicated:duplicated+mergedDuplicates,completedIds,orphanIds};
+  };
+  if(!cleanEvents.length) return finish(0,0,0);
+  // Um evento criado numa sessão anterior nunca pode ser enviado à conta recém-aberta.
+  if(cleanEvents.some(ev=>!ev.user_id || String(ev.user_id)!==owner.uid)) throw new Error('Resposta sem proprietário compatível com a sessão. Envio recusado.');
+  const found=await fetchRemoteCardResponseKeysForEvents(cleanEvents,owner);
+  assertHistoryOwner(owner);
+  const toInsert=cleanEvents.filter(ev=>{
+    if(found.has(cardResponseKeyFromEvent(ev))){completedIds.push(String(ev.id));return false;}
+    return true;
+  });
+  if(!toInsert.length) return finish(0,0,cleanEvents.length);
+  const payload=toInsert.map(ev=>({user_id:owner.uid,card_id:ev.card_id,resultado:ev.result,created_at:ev.ts}));
+  assertHistoryOwner(owner);
+  const {error}=await supabaseClient.from('respostas').insert(payload);
+  assertHistoryOwner(owner);
   if(!error){
-    toInsert.forEach(ev => {
-      REMOTE_CARD_RESPONSE_KEYS.add(cardResponseKeyFromEvent(ev));
-      if(ev.id) completedIds.push(String(ev.id));
-    });
-    return { synced: toInsert.length, orphaned:0, duplicated:cleanEvents.length - toInsert.length, completedIds, orphanIds };
+    toInsert.forEach(ev=>{REMOTE_CARD_RESPONSE_KEYS.add(cardResponseKeyFromEvent(ev));completedIds.push(String(ev.id));});
+    return finish(toInsert.length,0,cleanEvents.length-toInsert.length);
   }
   if(!isCardForeignKeyError(error)) throw error;
-  // Se um card_id antigo não existir mais na tabela cards, o lote inteiro falha.
-  // Antes do fallback um a um, faz uma única conferência remota para evitar N consultas.
-  await fetchRemoteCardResponseKeysForEvents(toInsert);
-  // Faz fallback um a um para salvar os válidos e separar os órfãos.
-  let synced = 0, orphaned = 0, duplicated = cleanEvents.length - toInsert.length;
+  // Falha de FK: uma segunda conferência distingue sucesso remoto parcial de órfãos.
+  const foundAgain=await fetchRemoteCardResponseKeysForEvents(toInsert,owner);
+  assertHistoryOwner(owner);
+  let synced=0,orphaned=0,duplicated=cleanEvents.length-toInsert.length;
   for(const ev of toInsert){
-    if(REMOTE_CARD_RESPONSE_KEYS.has(cardResponseKeyFromEvent(ev))){
-      if(ev.id) completedIds.push(String(ev.id));
-      duplicated++;
-      continue;
-    }
-    const one = { user_id: currentUser.id, card_id: ev.card_id, resultado: ev.result, created_at: ev.ts };
-    const { error: oneError } = await supabaseClient.from("respostas").insert(one);
+    assertHistoryOwner(owner);
+    if(foundAgain.has(cardResponseKeyFromEvent(ev))){completedIds.push(String(ev.id));duplicated++;continue;}
+    const one={user_id:owner.uid,card_id:ev.card_id,resultado:ev.result,created_at:ev.ts};
+    const {error:oneError}=await supabaseClient.from('respostas').insert(one);
+    assertHistoryOwner(owner);
     if(oneError){
       if(isCardForeignKeyError(oneError)){
-        markOrphanCardEvents([{...ev, orphan_reason:"card_id não existe mais na tabela cards"}]);
-        if(ev.id) orphanIds.push(String(ev.id));
-        orphaned++;
-        continue;
+        markOrphanCardEvents([{...ev,orphan_reason:'card_id não existe na tabela cards'}]);
+        orphanIds.push(String(ev.id));orphaned++;continue;
       }
       throw oneError;
     }
-    REMOTE_CARD_RESPONSE_KEYS.add(cardResponseKeyFromEvent(ev));
-    if(ev.id) completedIds.push(String(ev.id));
-    synced++;
+    REMOTE_CARD_RESPONSE_KEYS.add(cardResponseKeyFromEvent(ev));completedIds.push(String(ev.id));synced++;
   }
-  return { synced, orphaned, duplicated, completedIds, orphanIds };
+  return finish(synced,orphaned,duplicated);
 }
 function readAllPendingCardSync(){
   try {
@@ -3625,7 +3634,7 @@ function readPendingCardSync(){
 function writePendingCardSync(list){
   const owner = currentUser?.id || null;
   const others = owner ? readAllPendingCardSync().filter(ev => ev.user_id && ev.user_id !== owner) : [];
-  const current = mergeHistoryEvents(list || []).filter(ev => !owner || !ev.user_id || ev.user_id === owner).slice(-2000);
+  const current = mergeHistoryEvents(list || []).filter(ev => !owner || !ev.user_id || ev.user_id === owner).slice(-2000); // Cópia auxiliar; fonte integral: diário IndexedDB.
   const combined = mergeHistoryEvents(others, current);
   try { localStorage.setItem(CARD_PENDING_SYNC_KEY, JSON.stringify(combined)); }
   catch(e){ console.warn("Não consegui salvar fila pendente dos flashcards:", e); }
@@ -3748,10 +3757,10 @@ function renderSyncPanel(){
     const details = summary.missingCardPending ? ` ${summary.missingCardPending} flashcard(s) antigo(s) salvo(s) localmente ainda não constam no Supabase.` : "";
     const important = summary.importantPending ? ` ${summary.importantPending} marcação(ões) de favorito aguardam sincronização.` : "";
     const orphan = summary.orphanCardPending ? ` ${summary.orphanCardPending} evento(s) local(is) referem-se a cards que não existem mais na tabela cards; eles continuam contando na meta local, mas não podem subir para a tabela respostas por causa da chave estrangeira.` : "";
-    const cacheInfo = ` Cache local: ${summary.localCacheTotal} evento(s) (${summary.localCards} flashcards + ${summary.localQuestions} questões).`;
+    const cacheInfo = ` Cache local recente: ${summary.localCacheTotal} evento(s) (${summary.localCards} flashcards + ${summary.localQuestions} questões). Snapshot histórico: ${HISTORY_SNAPSHOT_LAST_STATUS}.` + (STUDY_JOURNAL_LEGACY_UNVERIFIED ? ` Atenção: ${STUDY_JOURNAL_LEGACY_UNVERIFIED} resposta(s) legada(s) de envio indeterminado preservada(s) sem reenvio automático.` : '');
     let historyInfo;
     if(summary.historyComplete){
-      historyInfo = ` Histórico carregado: ${summary.historyTotal} evento(s).`;
+      historyInfo = ` Histórico carregado: ${summary.historyTotal} evento(s).` + (HISTORY_REMOTE_VERIFIED_THIS_SESSION ? " Conferência por contagem e último ID concluída." : " Conferência remota ainda pendente.");
     }else if(summary.historyLoading){
       const progress = summary.historyTotalPages
         ? ` (${summary.historyLoadedPages}/${summary.historyTotalPages} páginas${summary.historyExpectedRows ? `; ${summary.historyExpectedRows} linhas remotas esperadas` : ""})`
@@ -3768,49 +3777,58 @@ function renderSyncPanel(){
   }
 }
 async function syncPendingCardResponsesToSupabase(){
-  if(!currentUser?.id || !supabaseClient) return { synced:0, skipped:readPendingCardSync().length };
-  const pendingAll = readPendingCardSync();
-  if(!pendingAll.length) return { synced:0, skipped:0 };
-  const invalid = pendingAll.filter(ev => !isCardEventSyncable(ev));
+  if(!currentUser?.id||!supabaseClient)return {synced:0,skipped:0};
+  const owner=historyOwnerToken();
+  const durable=await studyJournalPendingCards(owner);
+  assertHistoryOwner(owner);
+  const pendingAll=[...new Map([...readPendingCardSync(),...durable].filter(Boolean).map(ev=>[String(ev.id),ev])).values()]
+    .filter(ev=>ev?.id&&ev.user_id&&String(ev.user_id)===owner.uid&&!STUDY_JOURNAL_RESOLVED_IDS.has(String(ev.id)));
+  if(!pendingAll.length)return {synced:0,skipped:0};
+  const invalid=pendingAll.filter(ev=>!isCardEventSyncable(ev));
+  let skipped=0;
   if(invalid.length){
+    assertHistoryOwner(owner);
     markOrphanCardEvents(invalid);
-    const invalidIds = new Set(invalid.map(ev => String(ev.id)));
-    writePendingCardSync(readPendingCardSync().filter(ev => !invalidIds.has(String(ev.id))));
-  }
-  const pendingValid = readPendingCardSync().filter(isCardEventSyncable);
-  const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
-  const alreadyRemoteIds = new Set(pendingValid
-    .filter(ev => remoteKeys.has(cardResponseKeyFromEvent(ev)))
-    .map(ev => String(ev.id)));
-  if(alreadyRemoteIds.size){
-    writePendingCardSync(readPendingCardSync().filter(ev => !alreadyRemoteIds.has(String(ev.id))));
-  }
-  const pending = readPendingCardSync().filter(isCardEventSyncable).filter(ev => !remoteKeys.has(cardResponseKeyFromEvent(ev)));
-  if(!pending.length){
-    renderSyncPanel();
-    return { synced:0, skipped:alreadyRemoteIds.size + invalid.length };
-  }
-  let synced = 0, orphaned = 0;
-  const chunkSize = 500;
-  for(let i = 0; i < pending.length; i += chunkSize){
-    const chunk = pending.slice(i, i + chunkSize);
-    const result = await insertCardResponseEvents(chunk);
-    synced += result.synced;
-    orphaned += result.orphaned;
-    const doneIds = new Set([...(result.completedIds || []), ...(result.orphanIds || [])]);
-    if(doneIds.size){
-      writePendingCardSync(readPendingCardSync().filter(ev => !doneIds.has(String(ev.id))));
+    if(await studyJournalMarkCards(invalid,'blocked',owner)){
+      const ids=new Set(invalid.map(ev=>String(ev.id)));
+      writePendingCardSync(readPendingCardSync().filter(ev=>!ids.has(String(ev.id))));
+      skipped+=invalid.length;
     }
   }
-  LAST_SYNC_AT = new Date();
-  renderSyncPanel();
-  return { synced, skipped:alreadyRemoteIds.size + invalid.length + orphaned };
+  const pending=pendingAll.filter(isCardEventSyncable);
+  let synced=0;
+  for(let i=0;i<pending.length;i+=350){
+    assertHistoryOwner(owner);
+    const chunk=pending.slice(i,i+350);
+    const result=await insertCardResponseEvents(chunk,owner);
+    assertHistoryOwner(owner);
+    const complete=new Set(result.completedIds||[]);
+    const orphan=new Set(result.orphanIds||[]);
+    const approved=chunk.filter(ev=>complete.has(String(ev.id)));
+    const blocked=chunk.filter(ev=>orphan.has(String(ev.id)));
+    const okConfirmed=await studyJournalMarkCards(approved,'confirmed',owner);
+    assertHistoryOwner(owner);
+    const okBlocked=await studyJournalMarkCards(blocked,'blocked',owner);
+    assertHistoryOwner(owner);
+    const cleared=new Set([
+      ...(okConfirmed?approved:[]),...(okBlocked?blocked:[])
+    ].map(ev=>String(ev.id)));
+    cleared.forEach(id=>{STUDY_JOURNAL_PENDING_IDS.delete(id);STUDY_JOURNAL_RESOLVED_IDS.add(id);});
+    if(cleared.size)writePendingCardSync(readPendingCardSync().filter(ev=>!cleared.has(String(ev.id))));
+    if(!okConfirmed||!okBlocked){
+      setSyncStatus('Servidor recebeu respostas, mas confirmação no armazenamento local falhou. Pendências mantidas para nova conferência.');
+    }
+    synced+=result.synced;
+    skipped+=result.orphaned+result.duplicated;
+  }
+  LAST_SYNC_AT=new Date();renderSyncPanel();
+  return {synced,skipped};
 }
 async function syncMissingLocalCardHistoryToSupabase(){
   if(!currentUser?.id || !supabaseClient) return { synced:0, skipped:readRawLocalCardHistoryForSync().length };
   const remoteKeys = REMOTE_CARD_RESPONSE_KEYS || new Set();
   const queuedKeys = new Set(readPendingCardSync().filter(isCardEventSyncable).map(cardResponseKeyFromEvent).filter(Boolean));
-  const allLocal = readRawLocalCardHistoryForSync();
+  const allLocal = mergeHistoryEvents(readRawLocalCardHistoryForSync(), readLocalCardHistory());
   const invalid = allLocal.filter(ev => !isCardEventSyncable(ev));
   if(invalid.length) markOrphanCardEvents(invalid);
   const missing = allLocal
@@ -3851,6 +3869,25 @@ async function refreshRemoteQuestionIds(){
     ts: r.created_at
   })).filter(Boolean));
 }
+function requestFullHistoryAudit(){
+  if(SYNC_BUSY) return;
+  if(!currentUser?.id || !supabaseClient){showToast("Entre na sua conta para conferir o histórico.","warn");return;}
+  showConfirmToast("Conferir TODO o histórico no Supabase? Pode baixar mais de 100 mil respostas e demorar. Use apenas quando precisar verificar modificações que mantiveram os mesmos IDs.",async()=>{
+    if(SYNC_BUSY) return;
+    const btn=document.getElementById("sync-deep-history-btn");
+    SYNC_BUSY=true;if(btn){btn.disabled=true;btn.textContent="Conferindo histórico...";}
+    try{
+      await verifyAndRefreshHistory({forceRebuild:true});
+      renderDailyGoalWidget();renderSyncPanel();
+      showToast(HISTORY_SNAPSHOT_DURABLE ? "Histórico completo conferido e cache salvo." : "Histórico conferido no servidor, mas o cache local não foi salvo.", HISTORY_SNAPSHOT_DURABLE ? "success":"warn",6800);
+    }catch(error){
+      HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+      console.error("Falha na conferência completa:",error);
+      setSyncStatus("Conferência completa falhou: "+String(error?.message||error));
+      showToast("Não foi possível concluir a conferência completa. O cache não foi certificado.","warn",6000);
+    }finally{SYNC_BUSY=false;if(btn){btn.disabled=false;btn.textContent="Conferir histórico completo";}renderSyncPanel();}
+  },{confirmText:"Conferir tudo",tone:"warn"});
+}
 async function forceSyncNow(){
   if(SYNC_BUSY) return;
   if(!currentUser?.id || !supabaseClient){ showToast("Você precisa estar logado para sincronizar com o Supabase.", "warn"); return; }
@@ -3874,11 +3911,9 @@ async function forceSyncNow(){
 
     const cardResult = await syncPendingCardResponsesToSupabase();
     let missingCardResult = { synced:0, skipped:0 };
-    if(REMOTE_CARD_RESPONSE_KEYS && REMOTE_CARD_RESPONSE_KEYS.size){
-      missingCardResult = await syncMissingLocalCardHistoryToSupabase();
-    } else {
-      console.warn("Assinaturas remotas de flashcards não carregadas; pulando recuperação por comparação para evitar duplicidade.");
-    }
+    // Não ressuscitar registros deliberadamente excluídos em outro aparelho.
+    // A fila de respostas realmente pendentes já foi tratada acima.
+    // Recuperação por comparação requer uma revisão explícita do usuário.
 
     // O botão Sincronizar agora também precisa puxar cards novos do Supabase.
     // Sem isso, um aparelho que ficou aberto no Safari/iOS continuava com o
@@ -3896,7 +3931,7 @@ async function forceSyncNow(){
     // cards e estados de revisão sejam calculados sobre a mesma base.
     await loadImportantFromSupabase();
     await loadReviewStateFromSupabase();
-    await loadResponsesFromSupabase();
+    await verifyAndRefreshHistory();
 
     // v56: antes o botão sincronizava pendências de questões, mas não puxava
     // as respostas feitas em outro aparelho para o QUESTION_ATTEMPTS local.
@@ -4027,6 +4062,235 @@ function mergeHistoryEvents(...lists){
   }
   return out;
 }
+
+// AUDITORIA 133 — Registro durável separado: impede avanço sem guardar o evento.
+// Não altera tabelas Supabase, IDs, respostas, revisões ou o esquema do SRS.
+const STUDY_JOURNAL_DB = 'flashpratico_respostas_seguras_v1';
+const STUDY_JOURNAL_FALLBACK = 'flashpratico_emergencia_evento_v1:';
+const STUDY_JOURNAL_RESET_EPOCH = 'flashpratico_journal_reset_epoch_v1:';
+function studyJournalOwner(){return String(currentUser?.id||'local');}
+function studyJournalPK(kind,ev,owner=studyJournalOwner()){return `${owner}|${kind}|${String(ev.id)}`;}
+function studyJournalAllowed(ev,kind,owner=studyJournalOwner()){
+  if(!ev||!ev.id)return false;
+  try{
+    const resetMs=new Date(localStorage.getItem(STUDY_JOURNAL_RESET_EPOCH+owner)||'1970-01-01T00:00:00Z').getTime();
+    if(kind==='card'&&Number.isFinite(resetMs)&&new Date(ev.ts).getTime()<=resetMs)return false;
+  }catch(_){}
+  return true;
+}
+const STUDY_JOURNAL_TX_TIMEOUT_MS=6500;
+let STUDY_JOURNAL_LEGACY_UNVERIFIED=0;
+let STUDY_JOURNAL_PENDING_IDS=new Set();
+let STUDY_JOURNAL_RESOLVED_IDS=new Set();
+// Uma resposta confirmada continua disponível offline até o snapshot remoto
+// conter seu equivalente. Nunca entra novamente na fila de envio.
+let STUDY_JOURNAL_CONFIRMED_OFFLINE=new Map();
+// Apenas chaves observadas em linhas realmente baixadas do servidor/snapshot.
+// REMOTE_CARD_RESPONSE_KEYS também inclui envios otimistas e NÃO serve para
+// decidir que uma confirmação do diário existe no snapshot.
+let HISTORY_OBSERVED_REMOTE_KEYS=new Set();
+function studyJournalOpen(){
+  return new Promise((resolve,reject)=>{
+    if(!window.indexedDB)return reject(new Error('IndexedDB indisponível'));
+    let done=false;
+    const req=indexedDB.open(STUDY_JOURNAL_DB,1);
+    const timer=setTimeout(()=>{if(!done){done=true;reject(new Error('IndexedDB demorou demais'));}},5500);
+    const finish=(value,err)=>{if(done){try{value?.close?.();}catch(_){}return;}
+      done=true;clearTimeout(timer);err?reject(err):resolve(value);};
+    req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('events'))db.createObjectStore('events',{keyPath:'pk'});};
+    req.onsuccess=()=>finish(req.result,null);
+    req.onerror=()=>finish(null,req.error||new Error('Falha ao abrir IndexedDB'));
+    req.onblocked=()=>finish(null,new Error('IndexedDB bloqueado'));
+  });
+}
+function studyJournalTx(db,mode,work){
+  return new Promise((resolve,reject)=>{
+    let tx,done=false,timer;
+    const settle=(err,result)=>{if(done)return;done=true;clearTimeout(timer);err?reject(err):resolve(result);};
+    try{
+      tx=db.transaction('events',mode);
+      const result=work(tx.objectStore('events'),tx);
+      timer=setTimeout(()=>{
+        try{tx.abort();}catch(_){}
+        settle(new Error('Transação IndexedDB excedeu '+STUDY_JOURNAL_TX_TIMEOUT_MS+' ms'));
+      },STUDY_JOURNAL_TX_TIMEOUT_MS);
+      tx.oncomplete=()=>settle(null,result);
+      tx.onerror=()=>settle(tx.error||new Error('Falha de transação IndexedDB'));
+      tx.onabort=()=>settle(tx.error||new Error('Transação IndexedDB cancelada'));
+    }catch(err){settle(err);}
+  });
+}
+function studyJournalFallbackWrite(record){
+  const key=STUDY_JOURNAL_FALLBACK+record.pk;
+  const value=JSON.stringify(record);
+  localStorage.setItem(key,value);
+  if(localStorage.getItem(key)!==value)throw new Error('Gravação local não confirmada');
+  return true;
+}
+async function studyJournalSave(kind,ev){
+  const owner=studyJournalOwner();
+  if(kind==='card'&&owner!=='local'&&(!ev.user_id||String(ev.user_id)!==owner)) throw new Error('Card vinculado a outra conta; resposta não confirmada.');
+  const record={pk:studyJournalPK(kind,ev,owner),owner,kind,event:{...ev},status:kind==='card'?(owner==='local'?'local':'pending'):'local',updatedAt:Date.now()};
+  try{
+    const db=await studyJournalOpen();
+    try{await studyJournalTx(db,'readwrite',store=>store.put(record));return true;}
+    finally{db.close();}
+  }catch(error){
+    try{return studyJournalFallbackWrite(record);}
+    catch(fallbackError){
+      console.error('Falharam ambos os armazenamentos da resposta',error,fallbackError);
+      throw new Error('Armazenamento indisponível: resposta NÃO confirmada. Não limpe os dados do navegador.');
+    }
+  }
+}
+async function studyJournalRead(owner=studyJournalOwner()){
+  let rows=[];
+  try{
+    const db=await studyJournalOpen();
+    try{
+      let req;
+      await studyJournalTx(db,'readonly',store=>{req=store.getAll();});
+      rows=req?.result||[];
+    }finally{db.close();}
+  }catch(error){console.warn('Leitura do registro IndexedDB falhou:',error);}
+  try{
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key?.startsWith(STUDY_JOURNAL_FALLBACK)){
+        try{rows.push(JSON.parse(localStorage.getItem(key)||'null'));}catch(_){}
+      }
+    }
+  }catch(_){}
+  const unique=new Map();
+  rows.forEach(row=>{
+    if(row?.owner!==owner||!studyJournalAllowed(row.event,row.kind,owner))return;
+    const prev=unique.get(row.pk);
+    if(!prev||Number(row.updatedAt||0)>=Number(prev.updatedAt||0))unique.set(row.pk,row);
+  });
+  return [...unique.values()];
+}
+async function studyJournalMarkCards(events,status,owner=historyOwnerToken()){
+  assertHistoryOwner(owner);
+  if(!['confirmed','deleted','blocked'].includes(status))throw new Error('Estado de resposta inválido');
+  if(!(events||[]).length)return true;
+  if((events||[]).some(ev=>!ev?.id||String(ev.user_id)!==owner.uid))throw new Error('Estado de envio com resposta de outra conta.');
+  const unique=[...new Map((events||[]).map(ev=>[String(ev.id),ev])).values()];
+  const records=unique.map(ev=>({pk:studyJournalPK('card',ev,owner.uid),owner:owner.uid,kind:'card',event:{...ev},status,updatedAt:Date.now()}));
+  if(records.length!==unique.length)throw new Error('Resposta vinculada à conta errada');
+  try{
+    const db=await studyJournalOpen();
+    try{assertHistoryOwner(owner);await studyJournalTx(db,'readwrite',store=>records.forEach(record=>store.put(record)));assertHistoryOwner(owner);}
+    finally{db.close();}
+    records.forEach(record=>{try{localStorage.removeItem(STUDY_JOURNAL_FALLBACK+record.pk);}catch(_){}});
+    for(const ev of unique){
+      if(status==='confirmed')STUDY_JOURNAL_CONFIRMED_OFFLINE.set(String(ev.id),ev);
+      else STUDY_JOURNAL_CONFIRMED_OFFLINE.delete(String(ev.id));
+    }
+    return true;
+  }catch(error){
+    assertHistoryOwner(owner);
+    try{
+      records.forEach(studyJournalFallbackWrite);
+      for(const ev of unique){
+        if(status==='confirmed')STUDY_JOURNAL_CONFIRMED_OFFLINE.set(String(ev.id),ev);
+        else STUDY_JOURNAL_CONFIRMED_OFFLINE.delete(String(ev.id));
+      }
+      return true;
+    }
+    catch(err){console.warn('Não foi possível persistir estado '+status,error,err);return false;}
+  }
+}
+async function studyJournalPendingCards(owner=historyOwnerToken()){
+  assertHistoryOwner(owner);
+  const rows=await studyJournalRead(owner.uid);
+  assertHistoryOwner(owner);
+  const queueIds=new Set(readPendingCardSync().map(ev=>String(ev.id)));
+  STUDY_JOURNAL_LEGACY_UNVERIFIED=0;
+  STUDY_JOURNAL_RESOLVED_IDS=new Set(rows.filter(row=>row.kind==='card' && ['confirmed','deleted','blocked'].includes(row.status)).map(row=>String(row.event?.id)));
+  STUDY_JOURNAL_CONFIRMED_OFFLINE=new Map(rows.filter(row=>row.kind==='card' && row.status==='confirmed' && row.event?.id).map(row=>[String(row.event.id),row.event]));
+  const outstanding=rows.filter(row=>{
+    if(row.kind!=='card')return false;
+    if(!row.status){
+      if(!queueIds.has(String(row.event?.id))){STUDY_JOURNAL_LEGACY_UNVERIFIED++;return false;}
+      return true; // Só legado COM confirmação na fila explícita.
+    }
+    return row.status==='pending';
+  }).map(row=>row.event).filter(ev=>ev.user_id&&String(ev.user_id)===owner.uid);
+  STUDY_JOURNAL_PENDING_IDS=new Set(outstanding.map(ev=>String(ev.id)));
+  return outstanding;
+}
+async function studyJournalRestore(){
+  const owner=historyOwnerToken();
+  const pending=await studyJournalPendingCards(owner);
+  assertHistoryOwner(owner);
+  if(pending.length||STUDY_JOURNAL_RESOLVED_IDS.size){
+    // A fila em localStorage é auxiliar e limitada; o diário durável não é limitado a 2.000.
+    writePendingCardSync(mergeHistoryEvents(readPendingCardSync(),pending).filter(ev=>!STUDY_JOURNAL_RESOLVED_IDS.has(String(ev.id))));
+  }
+  if(STUDY_JOURNAL_RESOLVED_IDS.size){
+    // Apenas excluídos/bloqueados são removidos incondicionalmente.
+    // Confirmados NÃO são pendentes de envio, mas precisam continuar visíveis
+    // offline caso a cópia remota ainda não esteja no snapshot local.
+    const tombstones=new Set(STUDY_JOURNAL_RESOLVED_IDS);
+    for(const id of STUDY_JOURNAL_CONFIRMED_OFFLINE.keys())tombstones.delete(id);
+    const localBefore=readLocalCardHistory();
+    const kept=localBefore.filter(ev=>!tombstones.has(String(ev.id)));
+    const onlineKept=ONLINE_HISTORY.filter(ev=>!tombstones.has(String(ev.id)));
+    const confirmed=[...STUDY_JOURNAL_CONFIRMED_OFFLINE.values()].filter(ev=>String(ev.user_id)===owner.uid);
+    const merged=mergeHistoryEvents(kept,confirmed);
+    ONLINE_HISTORY=mergeHistoryEvents(onlineKept,confirmed);
+    if(kept.length!==localBefore.length || confirmed.length){
+      writeLocalCardHistory(merged,{allowShrink:true,authoritative:true,reason:'journal-offline-confirmed'});
+      invalidateGoalRuntimeCaches();
+    }
+  }
+  if(pending.length){
+    ONLINE_HISTORY=mergeHistoryEvents(ONLINE_HISTORY,pending);
+    writeLocalCardHistory(mergeHistoryEvents(readLocalCardHistory(),pending),{reason:'journal-pending-only'});
+    invalidateGoalRuntimeCaches();
+  }
+  const rows=await studyJournalRead(owner.uid);
+  assertHistoryOwner(owner);
+  const questionEvents=rows.filter(r=>r.kind==='question').map(r=>r.event);
+  if(questionEvents.length){QUESTION_ATTEMPTS=mergeQuestionAttempts(QUESTION_ATTEMPTS,questionEvents);saveEmbeddedQuestionResponses();invalidateGoalRuntimeCaches();}
+  if(STUDY_JOURNAL_LEGACY_UNVERIFIED)console.warn(`${STUDY_JOURNAL_LEGACY_UNVERIFIED} registros antigos sem estado de envio foram preservados, mas não reenviados nem restaurados automaticamente.`);
+  return {cards:pending.length,questions:questionEvents.length,legacyUnverified:STUDY_JOURNAL_LEGACY_UNVERIFIED};
+}
+async function studyJournalDiscardCardIds(cardIds){
+  const keys=new Set((cardIds||[]).map(x=>String(x)));
+  if(!keys.size)return;
+  const owner=studyJournalOwner();
+  const ownerToken=currentUser?.id?historyOwnerToken():null;
+  const assertOwner=()=>{if(ownerToken)assertHistoryOwner(ownerToken);else if(studyJournalOwner()!==owner)throw new Error('Conta alterada durante exclusão local');};
+  const deletedIds=new Set();
+  let dbError=null,fallbackError=null;
+  try{
+    const db=await studyJournalOpen();
+    try{
+      assertOwner();let req;
+      await studyJournalTx(db,'readonly',store=>{req=store.getAll();});
+      assertOwner();
+      const removed=(req?.result||[]).filter(row=>row.owner===owner&&row.kind==='card'&&keys.has(String(row.event?.card_id)));
+      if(removed.length)await studyJournalTx(db,'readwrite',store=>removed.forEach(row=>store.delete(row.pk)));
+      assertOwner();removed.forEach(row=>deletedIds.add(String(row.event?.id)));
+    }finally{db.close();}
+  }catch(error){dbError=error;console.warn('Falha/timeout ao limpar diário IndexedDB:',error);}
+  assertOwner();
+  try{
+    const removed=[];
+    for(let i=0;i<localStorage.length;i++){
+      const key=localStorage.key(i);
+      if(key?.startsWith(STUDY_JOURNAL_FALLBACK+owner+'|card|')){
+        try{const row=JSON.parse(localStorage.getItem(key)||'null');if(keys.has(String(row?.event?.card_id)))removed.push({key,id:String(row.event?.id)});}catch(_){}
+      }
+    }
+    removed.forEach(row=>{localStorage.removeItem(row.key);deletedIds.add(row.id);});
+  }catch(error){fallbackError=error;console.warn('Falha ao limpar diário alternativo:',error);}
+  for(const ev of readPendingCardSync())if(keys.has(String(ev.card_id)))deletedIds.add(String(ev.id));
+  deletedIds.forEach(id=>{STUDY_JOURNAL_PENDING_IDS.delete(id);STUDY_JOURNAL_RESOLVED_IDS.add(id);});
+  if(dbError||fallbackError)throw new Error('Histórico remoto pode ter sido excluído, mas a limpeza do diário local não foi confirmada. Preserve os dados do navegador e tente novamente.');
+}
+
 function readStoredHistoryArray(key){
   try{
     // Limpa também duplicações antigas já persistidas no aparelho.
@@ -4051,7 +4315,8 @@ function hasExplicitHistoryReset(){
   catch(e){ return false; }
 }
 function markExplicitHistoryReset(){
-  try{ localStorage.setItem(CARD_HISTORY_RESET_MARK_KEY, new Date().toISOString()); }catch(e){}
+  const now=new Date().toISOString();
+  try{ localStorage.setItem(CARD_HISTORY_RESET_MARK_KEY, now); localStorage.setItem(STUDY_JOURNAL_RESET_EPOCH + studyJournalOwner(), now); }catch(e){}
 }
 function clearExplicitHistoryReset(){
   try{ localStorage.removeItem(CARD_HISTORY_RESET_MARK_KEY); }catch(e){}
@@ -4287,7 +4552,11 @@ async function saveEvent(card, result){
     result,
     ts: new Date().toISOString()
   };
-  // Backup imediato: a meta diária passa a contar mesmo se o Supabase demorar/falhar.
+  // Captura a identidade antes de qualquer espera; nunca aplicar resposta da conta A em B.
+  const studySaveOwner=currentUser?.id ? historyOwnerToken():null;
+  await studyJournalSave("card", event);
+  if(studySaveOwner)assertHistoryOwner(studySaveOwner);
+  STUDY_JOURNAL_PENDING_IDS.add(String(event.id));
   rememberLocalCardEvent(event);
   enqueuePendingCardSync(event);
 
@@ -4296,17 +4565,25 @@ async function saveEvent(card, result){
   await updateStudyReviewState(card, result, answerContext);
 
   if(isOnlineMode && currentUser){
+    const sendOwner=historyOwnerToken();
     // rememberLocalCardEvent() já incorporou o evento ao ONLINE_HISTORY.
     // Não repetir merge de todo o histórico aqui: isso custava tempo a cada resposta.
     void (async () => {
       try {
-        const syncResult = await insertCardResponseEvents([event]);
+        const syncResult = await insertCardResponseEvents([event],sendOwner);
+        assertHistoryOwner(sendOwner);
         const eventId = String(event.id);
         if(syncResult.completedIds.includes(eventId)){
+          if(!await studyJournalMarkCards([event],'confirmed',sendOwner))throw new Error('Resposta recebida, confirmação local pendente');
+          assertHistoryOwner(sendOwner);
+          STUDY_JOURNAL_PENDING_IDS.delete(String(event.id));STUDY_JOURNAL_RESOLVED_IDS.add(String(event.id));
           removePendingCardSync(event.id);
           LAST_SYNC_AT = new Date();
           setSyncStatus(syncResult.duplicated ? "Resposta já constava no Supabase; fila local limpa." : "Resposta salva no Supabase.");
         } else if(syncResult.orphanIds.includes(eventId)){
+          if(!await studyJournalMarkCards([event],'blocked',sendOwner))throw new Error('Resposta órfã, confirmação local pendente');
+          assertHistoryOwner(sendOwner);
+          STUDY_JOURNAL_PENDING_IDS.delete(String(event.id));STUDY_JOURNAL_RESOLVED_IDS.add(String(event.id));
           removePendingCardSync(event.id);
           setSyncStatus("Resposta mantida localmente, mas não sincronizável: o card não existe mais na tabela cards.");
         } else {
@@ -6023,7 +6300,7 @@ async function loadQuestionsFromSupabase(){
   QUESTION_TABLE_READY = true;
   QUESTION_SOURCE = "supabase";
   QUESTION_BANK = [];
-  QUESTION_ATTEMPTS = [];
+  QUESTION_ATTEMPTS = mergeQuestionAttempts(QUESTION_ATTEMPTS, readLocalQuestionResponses());
   try{
     if(!supabaseClient) throw new Error("Supabase JS não carregado");
     const data = await fetchSupabasePages((from, to) => supabaseClient
@@ -6555,9 +6832,10 @@ async function saveQuestionEvent(q, selected, result){
     result,
     ts: new Date().toISOString()
   };
+  await studyJournalSave("question", event);
   QUESTION_ATTEMPTS = mergeQuestionAttempts(QUESTION_ATTEMPTS, [event]);
   invalidateGoalRuntimeCaches();
-  saveEmbeddedQuestionResponses(); // backup imediato no aparelho antes de tentar nuvem
+  saveEmbeddedQuestionResponses(); // redundância local; registro IndexedDB já foi confirmado
   renderDailyGoalWidget();
   // v43: não travar a tela esperando o Supabase. Salva local na hora e sincroniza em segundo plano.
   if(QUESTION_SOURCE !== "html" && currentUser?.id && supabaseClient){
@@ -6609,7 +6887,17 @@ async function selectQuestionOption(event, letter){
     : `✗ Errada. A correta é ${correct.toUpperCase()}.<small>${escapeHtml(correctText)}</small>`;
   QUESTION_SESSION_RESULTS.set(String(q.id), { selected, result });
   questionSessionDone++;
-  await saveQuestionEvent(q, selected, result);
+  try{
+    await saveQuestionEvent(q, selected, result);
+  }catch(saveError){
+    console.error('Questão não registrada:',saveError);
+    QUESTION_SESSION_RESULTS.delete(String(q.id));
+    questionSessionDone=Math.max(0,questionSessionDone-1);
+    questionAnsweredLocked=false;
+    showQuestionCard();
+    showToast(saveError.message || 'Não foi possível guardar esta resposta.', 'error', 8500);
+    return;
+  }
   celebrateReachedGoals(goalBefore, goalTotalsSnapshot());
   const st = qStatsForSubject(q.assunto);
   document.getElementById("q-study-stats").innerHTML = `
@@ -6929,6 +7217,10 @@ function saveGoalDashboardCache(snapshot, streak, details = null){
   let previous = null;
   try{ previous = JSON.parse(localStorage.getItem(GOAL_DASHBOARD_CACHE_KEY) || "null"); }catch(e){}
   const samePeriods = previous && previous.today_key === keys.today && previous.week_key === keys.week && previous.month_key === keys.month;
+  const sameOwner = previous && previous.owner_id === (currentUser?.id || previous.owner_id || null);
+  // Um carregamento parcial nunca pode substituir o último marco diário visto.
+  if(samePeriods && sameOwner && !hasExplicitHistoryReset() &&
+     Number(previous?.totals?.daily || 0) > Number(snapshot.totals.daily || 0)) return;
   const payload = {
     version:1,
     owner_id:currentUser?.id || previous?.owner_id || null,
@@ -7273,7 +7565,12 @@ function renderDailyGoalWidget(){
   if(!widget) return;
   const snapshot = goalTotalsSnapshot();
   const streak = calcStreaks();
+  const last = readGoalDashboardCache();
   paintDailyGoalWidget(snapshot.totals.daily, snapshot.goals, streak.current);
+  if(last && !hasExplicitHistoryReset() && Number(last.totals?.daily||0) > Number(snapshot.totals.daily||0)){
+    document.getElementById('goal-daily-sub').textContent =
+      `Contagem parcial (${snapshot.totals.daily}). Última contagem salva: ${last.totals.daily}. Sincronização pendente — não limpe os dados.`;
+  }
   saveGoalDashboardCache(snapshot, streak);
 }
 
@@ -7295,8 +7592,9 @@ async function refreshRemoteGoalCounters(reason = "auto"){
 
     try {
       if(CARD_HISTORY_INITIAL_FULL_LOAD_DONE){
-        await loadResponsesFromSupabase({ silent:true, incremental:true });
-        if(REMOTE_CARD_RESPONSE_KEYS?.size) await syncMissingLocalCardHistoryToSupabase();
+        await verifyAndRefreshHistory();
+        // Não recriar remotamente um evento excluído em outro aparelho.
+        // Apenas a fila explícita de pendências locais pode ser enviada.
       }else{
         // Mantém Hoje/Semana/Mês responsivos mesmo sem o histórico integral.
         await loadRecentGoalEventsFromSupabase({ silent:true });
@@ -7418,6 +7716,97 @@ function renderWeekCalendar(goals){
     `);
   }
   el.innerHTML = parts.join("");
+  const statusNode=document.getElementById('goal-week-sync-state');
+  if(statusNode){
+    const pending=!HISTORY_REMOTE_VERIFIED_THIS_SESSION || FAST_GOAL_REMOTE_LAST_INCOMPLETE;
+    statusNode.textContent = pending
+      ? 'Números deste aparelho — conferência remota do histórico ainda pendente ou incompleta. Podem diferir de outro dispositivo.'
+      : 'Números calculados pelo histórico disponível neste aparelho; para verificar o total remoto real, use “Conferir semana no Supabase”.';
+  }
+}
+
+// AUDITORIA 139: diagnóstico somente de leitura, independente do cache local.
+// Não sobrescreve ONLINE_HISTORY, QUESTION_ATTEMPTS, IndexedDB, SRS ou filas de envio.
+let GOAL_WEEK_AUDIT_RUNNING=false;
+async function auditWeekAgainstSupabase(){
+  const output=document.getElementById('goal-week-server-audit-result');
+  const button=document.getElementById('goal-week-server-audit-btn');
+  if(!output || GOAL_WEEK_AUDIT_RUNNING) return;
+  if(!currentUser?.id || !supabaseClient){
+    output.textContent='Entre na sua conta para conferir o histórico remoto.';
+    return;
+  }
+  if(!navigator.onLine){
+    output.textContent='Sem conexão: os dados locais continuam preservados. A conferência remota não foi executada.';
+    return;
+  }
+  const owner=historyOwnerToken();
+  const weekStart=startOfLocalWeek(new Date());
+  const weekEnd=endOfLocalWeek(weekStart);
+  const fromIso=weekStart.toISOString();
+  const toIso=weekEnd.toISOString();
+  const offsetMinutes=-weekStart.getTimezoneOffset();
+  const zone=Intl.DateTimeFormat().resolvedOptions().timeZone || 'desconhecido';
+  const maxRows=50000;
+  GOAL_WEEK_AUDIT_RUNNING=true;
+  if(button){button.disabled=true;button.textContent='Conferindo respostas da semana…';}
+  output.textContent='Lendo apenas as respostas desta semana diretamente das duas tabelas do Supabase. Nenhuma gravação será realizada.';
+  const pageQuery=(table,fields)=>(from,to)=>supabaseClient.from(table)
+    .select(fields).eq('user_id',owner.uid)
+    .gte('created_at',fromIso).lte('created_at',toIso)
+    .order('created_at',{ascending:true}).order('id',{ascending:true}).range(from,to);
+  const load=async(table,fields)=>{
+    const rows=await promiseWithTimeout(fetchSupabasePages(pageQuery(table,fields),1000,maxRows),25000,'Conferência semanal '+table);
+    if(rows.length>=maxRows) throw new Error('A tabela '+table+' atingiu o limite de '+maxRows+' registros; conferência incompleta.');
+    assertHistoryOwner(owner);
+    return rows;
+  };
+  try{
+    const results=await Promise.allSettled([
+      load('respostas','id,user_id,card_id,resultado,created_at'),
+      load('questoes_respostas','id,user_id,questao_id,resultado,created_at')
+    ]);
+    assertHistoryOwner(owner);
+    const rowsCards=results[0].status==='fulfilled'?results[0].value:[];
+    const rowsQuestions=results[1].status==='fulfilled'?results[1].value:[];
+    const complete=results.every(r=>r.status==='fulfilled');
+    const makeCard=(r)=>({id:String(r.id),user_id:r.user_id,card_id:String(r.card_id),result:r.resultado,ts:r.created_at,kind:'card'});
+    const makeQuestion=(r)=>({id:'q:'+r.id,user_id:r.user_id,card_id:'q:'+r.questao_id,result:r.resultado,ts:r.created_at,kind:'question'});
+    const cards=dedupeGoalEvents(rowsCards.map(makeCard));
+    const questions=dedupeGoalEvents(rowsQuestions.map(makeQuestion));
+    const remote=dedupeGoalEvents([...cards,...questions]);
+    const local=getGoalHistory();
+    const dayCount=(list,key)=>list.filter(ev=>dateKeyLocal(ev.ts)===key).length;
+    const names=['Seg','Ter','Qua','Qui','Sex','Sáb','Dom'];
+    const table=names.map((name,i)=>{
+      const d=new Date(weekStart);d.setDate(d.getDate()+i);
+      const key=dateKeyLocal(d);
+      const localN=dayCount(local,key);
+      const cloudN=dayCount(remote,key);
+      const cloudCard=dayCount(cards,key);
+      const cloudQuestion=dayCount(questions,key);
+      const delta=localN-cloudN;
+      return '<tr><td style="padding:5px">'+name+'</td><td style="padding:5px;text-align:right">'+localN+'</td>'+
+        '<td style="padding:5px;text-align:right">'+(complete?String(cloudN):'parcial')+'</td>'+
+        '<td style="padding:5px;text-align:right">'+cloudCard+'</td>'+
+        '<td style="padding:5px;text-align:right">'+cloudQuestion+'</td>'+
+        '<td style="padding:5px;text-align:right;font-weight:600">'+(complete?(delta>0?'+':'')+delta:'—')+'</td></tr>';
+    }).join('');
+    const errText=results.map((r,i)=>r.status==='rejected'?(["respostas","questoes_respostas"][i]+': '+String(r.reason?.message||r.reason)):'').filter(Boolean).join(' | ');
+    const localCount=names.reduce((a,_,i)=>{const d=new Date(weekStart);d.setDate(d.getDate()+i);return a+dayCount(local,dateKeyLocal(d));},0);
+    output.innerHTML='<div style="margin:6px 0;font-weight:600">'+(complete?'Conferência remota concluída':'Conferência remota INCOMPLETA')+'</div>'+
+      '<div style="margin-bottom:7px">Semana de '+dateKeyLocal(weekStart)+' a '+dateKeyLocal(weekEnd)+'. Fuso do aparelho: '+escapeHtml(zone)+' (UTC'+(offsetMinutes>=0?'+':'')+(offsetMinutes/60)+').</div>'+
+      (errText?'<div style="margin-bottom:7px;color:var(--red)">'+escapeHtml(errText)+'</div>':'')+
+      '<div style="overflow-x:auto"><table style="border-collapse:collapse;width:100%;font-size:12px">'+
+      '<thead><tr><th style="text-align:left;padding:5px">Dia</th><th>Local</th><th>Servidor</th><th>Cards no servidor</th><th>Questões no servidor</th><th>Local − servidor</th></tr></thead><tbody>'+table+'</tbody></table></div>'+
+      '<div style="margin-top:7px">Total local: <strong>'+localCount+'</strong>; total remoto '+(complete?'completo':'parcial')+': <strong>'+remote.length+'</strong>. '+
+      (complete?'Se diferirem, há dados locais pendentes, duplicados ou ausentes neste aparelho; esta ferramenta não modifica os registros.':'Não utilize estes números parciais para corrigir a meta.')+'</div>';
+  }catch(error){
+    output.textContent='A conferência não foi concluída: '+String(error?.message||error)+'. Nenhum registro foi alterado.';
+  }finally{
+    GOAL_WEEK_AUDIT_RUNNING=false;
+    if(button){button.disabled=false;button.textContent='Conferir semana no Supabase (somente leitura)';}
+  }
 }
 
 function formatDateShortBR(date){
@@ -10440,7 +10829,12 @@ function renderDailyGoalWidgetFast(snapshot){
   if(!widget || !snapshot) return;
   const cached = readGoalDashboardCache();
   const streak = cached?.streak || { current:readProtectedActiveStreak().count, best:readProtectedBestStreak() };
-  paintDailyGoalWidget(Number(snapshot.totals?.daily || 0), snapshot.goals || getGoalSettings(), streak.current);
+  const total=Number(snapshot.totals?.daily || 0);
+  paintDailyGoalWidget(total, snapshot.goals || getGoalSettings(), streak.current);
+  if(cached && !hasExplicitHistoryReset() && Number(cached.totals?.daily||0)>total){
+    document.getElementById('goal-daily-sub').textContent =
+      `Contagem parcial (${total}). Última contagem salva: ${cached.totals.daily}. Sincronização pendente — não limpe os dados.`;
+  }
   saveGoalDashboardCache(snapshot, streak);
 }
 
@@ -11043,6 +11437,8 @@ async function resetHistory(){
     clearPendingReviewStates();
     clearHistorySafetyBackups();
     markExplicitHistoryReset();
+    try{await studyJournalDiscardCardIds(CARDS.map(c=>c.id));}
+    catch(error){showToast(String(error.message||error),'error',9000);return;}
     try{ localStorage.removeItem(DB_KEY); }catch(e){}
     // Respostas antigas pendentes não podem ressuscitar um histórico zerado.
     writePendingCardSync([]);
@@ -11091,6 +11487,7 @@ async function resetTopicHistory(publicacao, assunto){
       setHistory(hist);
     }
 
+    await studyJournalDiscardCardIds(cardIds);
     const resetIdKeysLocal = new Set(cardIds.map(cardIdKey));
     const remainingLocalHistory = getHistory().filter(e => !resetIdKeysLocal.has(cardIdKey(e.card_id)));
     ONLINE_HISTORY = remainingLocalHistory;
@@ -11868,6 +12265,18 @@ async function logoutSupabase(){
   if(typeof stopAudioMode === "function") stopAudioMode({ keepStatus:true });
   await supabaseClient.auth.signOut();
   currentUser = null;
+  HISTORY_ACCOUNT_GENERATION++;
+  HISTORY_ACCOUNT_BOUND_UID="";
+  HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+  HISTORY_SNAPSHOT_DURABLE=false;
+  HISTORY_SNAPSHOT_PENDING_DELTA=null;
+  HISTORY_SNAPSHOT_PENDING_FULL_ROWS=null;
+  STUDY_JOURNAL_PENDING_IDS=new Set();STUDY_JOURNAL_RESOLVED_IDS=new Set();STUDY_JOURNAL_CONFIRMED_OFFLINE=new Map();HISTORY_OBSERVED_REMOTE_KEYS=new Set();
+  CARD_HISTORY_REMOTE_LOAD_PROMISE=null;
+  CARD_HISTORY_REMOTE_LOAD_UID="";
+  CARD_HISTORY_REMOTE_WATERMARK_ID=0;
+  REMOTE_CARD_RESPONSE_IDS=new Set();
+  REMOTE_CARD_RESPONSE_KEYS=new Set();
   ONLINE_HISTORY = [];
   REVIEW_STATE = new Map();
   HISTORY_KNOWN_COMPLETE = false;
@@ -12017,11 +12426,16 @@ async function loadCardsFromSupabase(){
     try{
       rows = await fetchCardRowsWithFields(fieldsWithImages, "carga dos flashcards");
     }catch(firstError){
-      // Não repetir toda a consulta por uma falha de rede. A segunda consulta
-      // só existe para bancos antigos sem as três colunas de imagem.
-      if(!isMissingCardImageColumnError(firstError)) throw firstError;
-      console.warn("Colunas de imagem ausentes; tentando campos básicos:", firstError);
-      rows = await fetchCardRowsWithFields(fieldsBasic, "carga básica dos flashcards");
+      if(isMissingCardImageColumnError(firstError)){
+        console.warn("Colunas de imagem ausentes; tentando campos básicos:", firstError);
+        rows = await fetchCardRowsWithFields(fieldsBasic, "carga básica dos flashcards");
+      }else{
+        // Em conexões móveis um erro transitório como 'Load failed' não deve
+        // encerrar imediatamente a inicialização. Tenta uma única vez, com pausa.
+        console.warn("Falha transitória ao carregar cards; repetindo uma vez:",firstError);
+        await new Promise(resolve=>setTimeout(resolve,900));
+        rows = await fetchCardRowsWithFields(fieldsWithImages, "segunda tentativa de carregar flashcards");
+      }
     }
     const count = applyLoadedCardRows(rows || []);
     if(!count) throw new Error("O Supabase não retornou flashcards ativos válidos.");
@@ -12094,6 +12508,8 @@ function fastGoalRemoteWindowStart(now = new Date()){
 async function loadRecentGoalEventsFromSupabase(options = {}){
   if(FAST_GOAL_REMOTE_LOAD_PROMISE) return FAST_GOAL_REMOTE_LOAD_PROMISE;
   if(!currentUser?.id || !supabaseClient || !navigator.onLine) return { cardRows:0, questionRows:0, skipped:true };
+  const goalOwner=historyOwnerToken();
+  assertHistoryOwner(goalOwner);
 
   FAST_GOAL_REMOTE_LOAD_PROMISE = (async () => {
     const startedAt = Date.now();
@@ -12105,7 +12521,7 @@ async function loadRecentGoalEventsFromSupabase(options = {}){
         supabaseClient
           .from("respostas")
           .select("id,user_id,card_id,resultado,created_at")
-          .eq("user_id", currentUser.id)
+          .eq("user_id", goalOwner.uid)
           .gte("created_at", sinceIso)
           .order("created_at", { ascending:true })
           .order("id", { ascending:true })
@@ -12122,7 +12538,7 @@ async function loadRecentGoalEventsFromSupabase(options = {}){
         supabaseClient
           .from("questoes_respostas")
           .select("id,user_id,questao_id,publicacao,assunto,numero,resposta,resultado,created_at")
-          .eq("user_id", currentUser.id)
+          .eq("user_id", goalOwner.uid)
           .gte("created_at", sinceIso)
           .order("created_at", { ascending:true })
           .order("id", { ascending:true })
@@ -12135,16 +12551,22 @@ async function loadRecentGoalEventsFromSupabase(options = {}){
     );
 
     const [cardResult, questionResult] = await Promise.allSettled([cardTask, questionTask]);
+    assertHistoryOwner(goalOwner);
     const cardRows = cardResult.status === "fulfilled" ? (cardResult.value || []) : [];
     const questionRows = questionResult.status === "fulfilled" ? (questionResult.value || []) : [];
 
+    FAST_GOAL_REMOTE_LAST_INCOMPLETE = cardResult.status === 'rejected' || questionResult.status === 'rejected';
     if(cardResult.status === "rejected") console.warn("Metas rápidas: respostas recentes não carregaram:", cardResult.reason);
     if(questionResult.status === "rejected") console.warn("Metas rápidas: questões recentes não carregaram:", questionResult.reason);
+    if(FAST_GOAL_REMOTE_LAST_INCOMPLETE){
+      setSyncStatus('A sincronização da meta ficou INCOMPLETA. Os totais podem estar parciais; use Sincronizar agora quando a conexão melhorar.');
+      showToast('Meta ainda incompleta: uma consulta ao Supabase falhou. Nenhuma resposta foi apagada pelo contador.', 'warn', 6500);
+    }
 
     if(cardRows.length){
       const recentCardHistory = cardRows.map(r => ({
         id:String(r.id),
-        user_id:r.user_id || currentUser.id,
+        user_id:r.user_id || goalOwner.uid,
         card_id:r.card_id,
         publicacao:"Geral",
         assunto:"Geral",
@@ -12153,7 +12575,9 @@ async function loadRecentGoalEventsFromSupabase(options = {}){
         ts:r.created_at,
         kind:"card"
       }));
-      ONLINE_HISTORY = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory(), recentCardHistory);
+      // Não reinserir UUIDs confirmados/excluídos a partir de backup anterior.
+      const localSafe=readLocalCardHistory().filter(ev=>!STUDY_JOURNAL_RESOLVED_IDS.has(String(ev.id))||STUDY_JOURNAL_CONFIRMED_OFFLINE.has(String(ev.id)));
+      ONLINE_HISTORY=mergeHistoryEvents(ONLINE_HISTORY,localSafe,recentCardHistory);
       writeLocalCardHistory(ONLINE_HISTORY);
     }
 
@@ -12203,24 +12627,27 @@ async function loadRecentGoalEventsFromSupabase(options = {}){
 }
 
 
-async function remoteCardResponseCountForLoad(incremental = false, watermark = 0){
+async function remoteCardResponseCountForLoad(incremental = false, watermark = 0, owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
   let query = supabaseClient
     .from("respostas")
     .select("id", { count:"exact", head:true });
-  if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+  query = query.eq("user_id", owner.uid);
   if(incremental && watermark > 0) query = query.gt("id", watermark);
   const response = await promiseWithTimeout(
     query,
     CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS,
     incremental ? "contagem incremental do histórico" : "contagem completa do histórico"
   );
+  assertHistoryOwner(owner);
   if(response?.error) throw response.error;
   const count = Number(response?.count);
   if(!Number.isFinite(count) || count < 0) throw new Error("O Supabase não informou a quantidade de respostas do histórico.");
   return count;
 }
 
-async function fetchCardHistoryPageWithRetry(from, to, incremental, watermark, pageIndex){
+async function fetchCardHistoryPageWithRetry(from, to, incremental, watermark, pageIndex, owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
   let lastError = null;
   for(let attempt = 0; attempt <= CARD_HISTORY_REMOTE_PAGE_RETRIES; attempt++){
     try{
@@ -12228,13 +12655,14 @@ async function fetchCardHistoryPageWithRetry(from, to, incremental, watermark, p
         .from("respostas")
         .select("id,user_id,card_id,resultado,created_at")
         .order("id", { ascending:true });
-      if(currentUser?.id) query = query.eq("user_id", currentUser.id);
+      query = query.eq("user_id", owner.uid);
       if(incremental && watermark > 0) query = query.gt("id", watermark);
       const response = await promiseWithTimeout(
         query.range(from, to),
         CARD_HISTORY_REMOTE_PAGE_TIMEOUT_MS,
         `${incremental ? "histórico incremental" : "histórico completo"} — página ${pageIndex + 1}`
       );
+      assertHistoryOwner(owner);
       if(response?.error) throw response.error;
       return response?.data || [];
     }catch(error){
@@ -12246,8 +12674,10 @@ async function fetchCardHistoryPageWithRetry(from, to, incremental, watermark, p
   throw lastError || new Error(`Falha ao carregar a página ${pageIndex + 1} do histórico.`);
 }
 
-async function fetchCardHistoryRowsParallel(incremental = false, watermark = 0){
-  const expectedRows = await remoteCardResponseCountForLoad(incremental, watermark);
+async function fetchCardHistoryRowsParallel(incremental = false, watermark = 0, owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
+  const expectedRows = await remoteCardResponseCountForLoad(incremental, watermark, owner);
+  assertHistoryOwner(owner);
   CARD_HISTORY_REMOTE_EXPECTED_ROWS = expectedRows;
   const pageSize = CARD_HISTORY_REMOTE_PAGE_SIZE;
   const totalPages = Math.ceil(expectedRows / pageSize);
@@ -12263,7 +12693,8 @@ async function fetchCardHistoryRowsParallel(incremental = false, watermark = 0){
       if(pageIndex >= totalPages) return;
       const from = pageIndex * pageSize;
       const to = Math.min(from + pageSize - 1, expectedRows - 1);
-      pages[pageIndex] = await fetchCardHistoryPageWithRetry(from, to, incremental, watermark, pageIndex);
+      pages[pageIndex] = await fetchCardHistoryPageWithRetry(from, to, incremental, watermark, pageIndex, owner);
+      assertHistoryOwner(owner);
       CARD_HISTORY_REMOTE_LOADED_PAGES += 1;
       invalidateSyncSummaryCache();
       if(activeTab === "db") renderSyncPanel();
@@ -12282,7 +12713,7 @@ async function fetchCardHistoryRowsParallel(incremental = false, watermark = 0){
   // de marcar o histórico como completo.
   let finalCount = expectedRows;
   if(!incremental){
-    finalCount = await remoteCardResponseCountForLoad(false, 0);
+    finalCount = await remoteCardResponseCountForLoad(false, 0, owner);
     if(finalCount < expectedRows){
       throw new Error(`O histórico remoto mudou durante a carga (${expectedRows} → ${finalCount}). Tentando novamente evita pular linhas após uma exclusão.`);
     }
@@ -12290,14 +12721,584 @@ async function fetchCardHistoryRowsParallel(incremental = false, watermark = 0){
   return { rows, expectedRows, totalPages, finalCount };
 }
 
-async function loadResponsesFromSupabase(options = {}){
-  // Uma única leitura por vez. A carga completa usa páginas paralelas limitadas;
-  // isso evita o antigo timeout global de 45 s que descartava cargas válidas no Safari.
-  if(CARD_HISTORY_REMOTE_LOAD_PROMISE){
-    return CARD_HISTORY_REMOTE_LOAD_PROMISE;
-  }
 
+// ================= HISTÓRICO REMOTO: SNAPSHOT PERSISTENTE =================
+// O backup local do SRS continua limitado para não exceder localStorage. Este
+// cache secundário guarda uma cópia COMPLETA, por usuário, dos eventos remotos
+// em lotes IndexedDB, sem modificar respostas nem flags de revisão.
+const HISTORY_SNAPSHOT_DB_NAME = "flashpratico_remote_history_snapshot_v1";
+const HISTORY_SNAPSHOT_DB_VERSION = 1;
+const HISTORY_SNAPSHOT_META_STORE = "meta";
+const HISTORY_SNAPSHOT_CHUNK_STORE = "chunks";
+const HISTORY_SNAPSHOT_CHUNK_SIZE = 1000;
+const HISTORY_SNAPSHOT_TIMEOUT_MS = 11000;
+let HISTORY_SNAPSHOT_DB_PROMISE = null;
+let HISTORY_SNAPSHOT_LAST_STATUS = "não verificado";
+let HISTORY_SNAPSHOT_WRITE_QUEUE = Promise.resolve();
+let HISTORY_REMOTE_VERIFIED_THIS_SESSION = false;
+let HISTORY_ACCOUNT_GENERATION = 0;
+let HISTORY_ACCOUNT_BOUND_UID = "";
+let HISTORY_SNAPSHOT_DURABLE = false;
+let HISTORY_SNAPSHOT_PENDING_DELTA = null;
+let HISTORY_SNAPSHOT_PENDING_FULL_ROWS = null;
+let CARD_HISTORY_REMOTE_LOAD_UID = "";
+let CARD_HISTORY_REMOTE_LOAD_GENERATION = -1;
+const HISTORY_SNAPSHOT_WRITE_TIMEOUT_MS = 30000;
+function historyOwnerToken(){
+  return { uid:String(currentUser?.id || ""), generation:HISTORY_ACCOUNT_GENERATION };
+}
+function assertHistoryOwner(owner){
+  if(!owner?.uid || owner.uid!==String(currentUser?.id || "") || owner.generation!==HISTORY_ACCOUNT_GENERATION){
+    throw new Error("Conta alterada durante a sincronização; resultado anterior descartado.");
+  }
+}
+function historySnapshotDbTransaction(db, stores, mode, work){
+  return new Promise((resolve,reject)=>{
+    let tx,settled=false,timer;
+    const end=(error,result)=>{
+      if(settled) return; settled=true; clearTimeout(timer);
+      if(error) reject(error); else resolve(result);
+    };
+    try{
+      tx=db.transaction(stores,mode);
+      const state={ result:null };
+      tx.oncomplete=()=>end(null,state.result);
+      tx.onerror=()=>end(tx.error || new Error("Erro no IndexedDB"));
+      tx.onabort=()=>end(tx.error || new Error("Gravação IndexedDB abortada"));
+      timer=setTimeout(()=>{
+        const error=new Error("Tempo excedido na transação do cache persistente");
+        try{tx.abort();}catch(_){ }
+        end(error);
+      },HISTORY_SNAPSHOT_WRITE_TIMEOUT_MS);
+      work(tx,state);
+    }catch(error){if(tx)try{tx.abort();}catch(_){} end(error);}
+  });
+}
+
+function enqueueHistorySnapshotWrite(writeFn){
+  HISTORY_SNAPSHOT_WRITE_QUEUE = HISTORY_SNAPSHOT_WRITE_QUEUE
+    .catch(error=>console.warn("Gravação anterior do snapshot falhou:",error))
+    .then(writeFn);
+  return HISTORY_SNAPSHOT_WRITE_QUEUE;
+}
+
+function openHistorySnapshotDb(){
+  if(HISTORY_SNAPSHOT_DB_PROMISE) return HISTORY_SNAPSHOT_DB_PROMISE;
+  if(!window.indexedDB) return Promise.resolve(null);
+  HISTORY_SNAPSHOT_DB_PROMISE = new Promise((resolve,reject)=>{
+    try {
+      const request = indexedDB.open(HISTORY_SNAPSHOT_DB_NAME, HISTORY_SNAPSHOT_DB_VERSION);
+      request.onupgradeneeded = () => {
+        const db=request.result;
+        if(!db.objectStoreNames.contains(HISTORY_SNAPSHOT_META_STORE)) db.createObjectStore(HISTORY_SNAPSHOT_META_STORE);
+        if(!db.objectStoreNames.contains(HISTORY_SNAPSHOT_CHUNK_STORE)) db.createObjectStore(HISTORY_SNAPSHOT_CHUNK_STORE);
+      };
+      request.onsuccess=()=>resolve(request.result);
+      request.onerror=()=>reject(request.error || new Error("IndexedDB do histórico não abriu"));
+      request.onblocked=()=>reject(new Error("IndexedDB bloqueado por outra aba"));
+    }catch(error){reject(error);}
+  }).catch(error=>{
+    HISTORY_SNAPSHOT_DB_PROMISE=null;
+    throw error;
+  });
+  return HISTORY_SNAPSHOT_DB_PROMISE;
+}
+function historySnapshotChunkKey(uid,index){
+  return `${uid}:${String(index).padStart(7,"0")}`;
+}
+function summarizeRemoteHistoryRows(rows){
+  let maxId=0;
+  const ids=new Set();
+  for(const row of rows){
+    const id=String(row?.id ?? "");
+    const n=Number(id);
+    if(!id || !Number.isSafeInteger(n) || n<=0 || ids.has(id)) return null;
+    ids.add(id);
+    if(n>maxId) maxId=n;
+  }
+  return { count:rows.length, max_id:maxId };
+}
+async function readHistorySnapshot(owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
+  const uid=owner.uid;
+  if(!uid || !window.indexedDB) return null;
+  try{
+    return await promiseWithTimeout((async()=>{
+      const db=await openHistorySnapshotDb();
+      assertHistoryOwner(owner);
+      if(!db) return null;
+      const meta=await new Promise((resolve,reject)=>{
+        const tx=db.transaction(HISTORY_SNAPSHOT_META_STORE,"readonly");
+        const req=tx.objectStore(HISTORY_SNAPSHOT_META_STORE).get(uid);
+        req.onsuccess=()=>resolve(req.result || null);
+        req.onerror=()=>reject(req.error);
+      });
+      if(!meta || meta.version!==1 || meta.user_id!==uid || !Number.isInteger(meta.chunk_count) || meta.chunk_count<0) return null;
+      if(meta.chunk_count>20000) return null;
+      const chunks=await new Promise((resolve,reject)=>{
+        const result=new Array(meta.chunk_count);
+        const tx=db.transaction(HISTORY_SNAPSHOT_CHUNK_STORE,"readonly");
+        const store=tx.objectStore(HISTORY_SNAPSHOT_CHUNK_STORE);
+        for(let i=0;i<meta.chunk_count;i++){
+          const index=i;
+          const req=store.get(historySnapshotChunkKey(uid,index));
+          req.onsuccess=()=>{result[index]=req.result;};
+          req.onerror=()=>reject(req.error);
+        }
+        tx.oncomplete=()=>resolve(result);
+        tx.onerror=()=>reject(tx.error || new Error("Falha ao recuperar histórico"));
+        tx.onabort=()=>reject(tx.error || new Error("Leitura do histórico abortada"));
+      });
+      if(chunks.some(chunk=>!Array.isArray(chunk))) return null;
+      const rows=chunks.flat();
+      const info=summarizeRemoteHistoryRows(rows);
+      if(!info || info.count!==meta.count || info.max_id!==meta.max_id) return null;
+      assertHistoryOwner(owner);
+      if(rows.some(row=>row.user_id && String(row.user_id)!==uid)) return null;
+      return { meta, rows };
+    })(), HISTORY_SNAPSHOT_TIMEOUT_MS, "cache persistente do histórico");
+  }catch(error){
+    HISTORY_SNAPSHOT_LAST_STATUS="cache indisponível: "+String(error?.message || error);
+    console.warn("Não foi possível ler o histórico persistente; carga remota padrão preservada:",error);
+    return null;
+  }
+}
+async function replaceHistorySnapshot(rows, owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
+  const uid=owner.uid;
+  if(!window.indexedDB || !Array.isArray(rows)) return false;
+  const info=summarizeRemoteHistoryRows(rows);
+  if(!info || rows.some(row=>row.user_id && String(row.user_id)!==uid)) return false;
+  try{
+    const db=await promiseWithTimeout(openHistorySnapshotDb(), HISTORY_SNAPSHOT_TIMEOUT_MS, "abertura IndexedDB do histórico");
+    assertHistoryOwner(owner);
+    if(!db) return false;
+    const chunkCount=Math.ceil(rows.length/HISTORY_SNAPSHOT_CHUNK_SIZE);
+    await historySnapshotDbTransaction(db,[HISTORY_SNAPSHOT_META_STORE,HISTORY_SNAPSHOT_CHUNK_STORE],"readwrite",(tx,state)=>{
+      const metaStore=tx.objectStore(HISTORY_SNAPSHOT_META_STORE);
+      const chunks=tx.objectStore(HISTORY_SNAPSHOT_CHUNK_STORE);
+      const req=metaStore.get(uid);
+      req.onsuccess=()=>{
+        try{
+          assertHistoryOwner(owner);
+          const oldCount=Number(req.result?.chunk_count || 0);
+          for(let i=0;i<chunkCount;i++) chunks.put(rows.slice(i*HISTORY_SNAPSHOT_CHUNK_SIZE,(i+1)*HISTORY_SNAPSHOT_CHUNK_SIZE), historySnapshotChunkKey(uid,i));
+          for(let i=chunkCount;i<oldCount;i++) chunks.delete(historySnapshotChunkKey(uid,i));
+          metaStore.put({version:1,user_id:uid,count:info.count,max_id:info.max_id,chunk_count:chunkCount,saved_at:new Date().toISOString()},uid);
+          state.result=true;
+        }catch(error){try{tx.abort();}catch(_){} }
+      };
+    });
+    assertHistoryOwner(owner);
+    HISTORY_SNAPSHOT_LAST_STATUS=`salvo: ${info.count} eventos remotos`;
+    HISTORY_SNAPSHOT_DURABLE=true;
+    return true;
+  }catch(error){
+    HISTORY_SNAPSHOT_DURABLE=false;
+    HISTORY_SNAPSHOT_LAST_STATUS="falha de gravação (dados remotos em memória): "+String(error?.message || error);
+    console.warn("Snapshot não foi gravado; o Supabase continua a fonte definitiva:",error);
+    return false;
+  }
+}
+async function appendHistorySnapshot(rows, priorWatermark, owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
+  if(!Array.isArray(rows) || !rows.length) return true;
+  const uid=owner.uid;
+  const info=summarizeRemoteHistoryRows(rows);
+  if(!window.indexedDB || !info || rows.some(row=>Number(row.id)<=priorWatermark || (row.user_id && String(row.user_id)!==uid))) return false;
+  try{
+    const db=await promiseWithTimeout(openHistorySnapshotDb(), HISTORY_SNAPSHOT_TIMEOUT_MS, "abertura IndexedDB do histórico");
+    assertHistoryOwner(owner);
+    if(!db) return false;
+    const updated=await historySnapshotDbTransaction(db,[HISTORY_SNAPSHOT_META_STORE,HISTORY_SNAPSHOT_CHUNK_STORE],"readwrite",(tx,state)=>{
+      const metaStore=tx.objectStore(HISTORY_SNAPSHOT_META_STORE);
+      const chunkStore=tx.objectStore(HISTORY_SNAPSHOT_CHUNK_STORE);
+      const req=metaStore.get(uid);
+      req.onsuccess=()=>{
+        try{
+          assertHistoryOwner(owner);
+          const meta=req.result;
+          if(!meta || meta.version!==1 || meta.max_id!==priorWatermark){state.result=false;return;}
+          const lastIndex=Math.max(0,meta.chunk_count-1);
+          const oldReq=meta.chunk_count ? chunkStore.get(historySnapshotChunkKey(uid,lastIndex)) : null;
+          const proceed=(lastChunk)=>{
+            try{
+              assertHistoryOwner(owner);
+              if(meta.chunk_count && !Array.isArray(lastChunk)){state.result=false;return;}
+              let index=lastIndex,carry=meta.chunk_count ? lastChunk.slice() : [];
+              for(const row of rows){
+                if(carry.length===HISTORY_SNAPSHOT_CHUNK_SIZE){chunkStore.put(carry,historySnapshotChunkKey(uid,index++));carry=[];}
+                carry.push(row);
+              }
+              if(carry.length) chunkStore.put(carry,historySnapshotChunkKey(uid,index++));
+              metaStore.put({...meta,count:meta.count+rows.length,max_id:info.max_id,chunk_count:index,saved_at:new Date().toISOString()},uid);
+              state.result=true;
+            }catch(error){try{tx.abort();}catch(_){} }
+          };
+          if(oldReq) oldReq.onsuccess=()=>proceed(oldReq.result);
+          else proceed([]);
+        }catch(error){try{tx.abort();}catch(_){} }
+      };
+    });
+    assertHistoryOwner(owner);
+    if(updated){HISTORY_SNAPSHOT_DURABLE=true;HISTORY_SNAPSHOT_LAST_STATUS=`atualizado: +${rows.length} evento(s)`;}
+    else{HISTORY_SNAPSHOT_DURABLE=false;HISTORY_SNAPSHOT_LAST_STATUS="snapshot incremental recusado: atualização pendente";}
+    return !!updated;
+  }catch(error){
+    HISTORY_SNAPSHOT_DURABLE=false;
+    HISTORY_SNAPSHOT_LAST_STATUS="falha ao atualizar snapshot: "+String(error?.message || error);
+    console.warn("Snapshot incremental não atualizado:",error);
+    return false;
+  }
+}
+function hydrateHistoryFromRemoteSnapshot(rows, owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
+  const info=summarizeRemoteHistoryRows(rows);
+  if(rows.some(row=>row.user_id && String(row.user_id)!==owner.uid)) return false;
+  if(!info) return false;
+  const cardMap=new Map(CARDS.map(c=>[cardIdKey(c),c]));
+  REMOTE_CARD_RESPONSE_IDS=new Set();
+  REMOTE_CARD_RESPONSE_KEYS=new Set();
+  HISTORY_OBSERVED_REMOTE_KEYS=new Set(rows.map(cardResponseKeyFromRemoteRow).filter(Boolean));
+  const remoteEvents=rows.map(row=>{
+    REMOTE_CARD_RESPONSE_IDS.add(String(row.id));
+    const key=cardResponseKeyFromRemoteRow(row);
+    if(key) REMOTE_CARD_RESPONSE_KEYS.add(key);
+    const card=cardMap.get(cardIdKey(row.card_id)) || {};
+    return {id:String(row.id),user_id:row.user_id || owner.uid,card_id:row.card_id,publicacao:cleanLabel(card.publicacao,"Geral"),assunto:cleanLabel(card.assunto,"Geral"),logical_key:card.id ? studySessionKey(card) : "",result:row.resultado,ts:row.created_at};
+  });
+  const pendingIds=new Set([...readPendingCardSync().map(ev=>String(ev.id)),...STUDY_JOURNAL_PENDING_IDS]);
+  const locals=mergeHistoryEvents(ONLINE_HISTORY,readLocalCardHistory())
+    .filter(ev=>ev?.id&&!isRemoteCardHistoryId(ev.id)&&pendingIds.has(String(ev.id))&&!STUDY_JOURNAL_RESOLVED_IDS.has(String(ev.id))&&String(ev.user_id)===owner.uid);
+  // Inclui somente confirmações ainda não representadas pelo snapshot, para
+  // que uma abertura OFFLINE não esconda uma resposta enviada há instantes.
+  const confirmedOffline=[...STUDY_JOURNAL_CONFIRMED_OFFLINE.values()]
+    .filter(ev=>String(ev.user_id)===owner.uid&&!REMOTE_CARD_RESPONSE_KEYS.has(cardResponseKeyFromEvent(ev)));
+  ONLINE_HISTORY=mergeHistoryEvents(remoteEvents,locals,confirmedOffline);
+  writeLocalCardHistory(ONLINE_HISTORY,{allowShrink:true,authoritative:true,reason:'snapshot-authoritative'});
+  CARD_HISTORY_REMOTE_WATERMARK_ID=info.max_id;
+  CARD_HISTORY_INITIAL_FULL_LOAD_DONE=true;
+  HISTORY_KNOWN_COMPLETE=true;
+  HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+  CARD_HISTORY_REMOTE_LAST_REFRESH_AT=Date.now();
+  CARD_HISTORY_REMOTE_LAST_ROWS=rows.length;
+  invalidateSyncSummaryCache();
+  invalidateProgrammedRuntimeCaches();
+  renderDailyGoalWidget();
+  renderSyncPanel();
+  return true;
+}
+async function remoteHistoryHead(owner = historyOwnerToken()){
+  assertHistoryOwner(owner);
+  const count=await remoteCardResponseCountForLoad(false,0,owner);
+  let query=supabaseClient.from("respostas").select("id").order("id",{ascending:false}).limit(1);
+  query=query.eq("user_id",owner.uid);
+  const response=await promiseWithTimeout(query, CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS, "último ID do histórico");
+  assertHistoryOwner(owner);
+  if(response?.error) throw response.error;
+  return {count,max_id:Number(response?.data?.[0]?.id || 0)};
+}
+async function persistIncrementalHistoryDelta(rows, priorWatermark, owner){
+  assertHistoryOwner(owner);
+  // Falha anterior da PRIMEIRA gravação: não há base durável sobre a qual
+  // aplicar uma cauda. Reconstruir atomicamente [carga inicial + novos IDs].
+  // Não trocar o buffer integral por um delta incompleto.
+  if(Array.isArray(HISTORY_SNAPSHOT_PENDING_FULL_ROWS)){
+    const full=HISTORY_SNAPSHOT_PENDING_FULL_ROWS;
+    const fullInfo=summarizeRemoteHistoryRows(full);
+    if(!fullInfo || (rows.length && Number(rows[0].id)<=fullInfo.max_id)){
+      HISTORY_SNAPSHOT_LAST_STATUS='cache integral pendente inconsistente; reconstrução remota necessária';
+      return false;
+    }
+    const combined=[...full,...rows];
+    const combinedInfo=summarizeRemoteHistoryRows(combined);
+    if(!combinedInfo || combinedInfo.count!==full.length+rows.length){
+      HISTORY_SNAPSHOT_LAST_STATUS='cache integral pendente com IDs repetidos; reconstrução necessária';
+      return false;
+    }
+    HISTORY_SNAPSHOT_PENDING_FULL_ROWS=combined;
+    const saved=await replaceHistorySnapshot(combined,owner);
+    assertHistoryOwner(owner);
+    if(saved){HISTORY_SNAPSHOT_PENDING_FULL_ROWS=null;HISTORY_SNAPSHOT_PENDING_DELTA=null;}
+    return saved;
+  }
+  if(!rows.length) return true;
+  // Se uma gravação anterior falhou, agrega as duas caudas. Nunca descarta
+  // as respostas anteriores de uma sequência de falhas de armazenamento.
+  const earlier=HISTORY_SNAPSHOT_PENDING_DELTA;
+  if(earlier && earlier.uid===owner.uid && earlier.generation===owner.generation
+      && earlier.rows.length && Number(earlier.rows[earlier.rows.length-1].id)===priorWatermark
+      && earlier.priorWatermark < priorWatermark){
+    rows=[...earlier.rows,...rows];
+    priorWatermark=earlier.priorWatermark;
+  }
+  if(await appendHistorySnapshot(rows,priorWatermark,owner)){
+    HISTORY_SNAPSHOT_PENDING_DELTA=null;
+    return true;
+  }
+  // Tentativa conservadora: lê a versão anterior e troca atomicamente pelo
+  // conjunto anterior + cauda. Nunca recria IDs ou mistura contas diferentes.
+  const prev=await readHistorySnapshot(owner);
+  assertHistoryOwner(owner);
+  if(prev?.meta?.max_id===priorWatermark){
+    const merged=[...prev.rows,...rows];
+    const info=summarizeRemoteHistoryRows(merged);
+    if(info && info.count===prev.rows.length+rows.length && await replaceHistorySnapshot(merged,owner)){
+      HISTORY_SNAPSHOT_PENDING_DELTA=null;
+      return true;
+    }
+  }
+  HISTORY_SNAPSHOT_PENDING_DELTA={uid:owner.uid,generation:owner.generation,rows:rows.slice(),priorWatermark};
+  HISTORY_SNAPSHOT_DURABLE=false;
+  HISTORY_SNAPSHOT_LAST_STATUS="cache persistente atrasado: tentativa de recuperação pendente";
+  return false;
+}
+async function retryPendingHistorySnapshot(owner){
+  assertHistoryOwner(owner);
+  // Uma base integral não salva tem SEMPRE precedência sobre deltas posteriores.
+  if(Array.isArray(HISTORY_SNAPSHOT_PENDING_FULL_ROWS)){
+    const saved=await enqueueHistorySnapshotWrite(()=>replaceHistorySnapshot(HISTORY_SNAPSHOT_PENDING_FULL_ROWS,owner));
+    assertHistoryOwner(owner);
+    if(saved){HISTORY_SNAPSHOT_PENDING_FULL_ROWS=null;HISTORY_SNAPSHOT_PENDING_DELTA=null;}
+    return !!saved;
+  }
+  const pending=HISTORY_SNAPSHOT_PENDING_DELTA;
+  if(!pending || pending.uid!==owner.uid || pending.generation!==owner.generation) return false;
+  return await enqueueHistorySnapshotWrite(()=>persistIncrementalHistoryDelta(pending.rows,pending.priorWatermark,owner));
+}
+// AUDITORIA 136 — Respostas confirmadas pelo servidor, mas ainda fora do snapshot.
+// Uma igualdade de contagem + max_id não prova que estes UUIDs existem remotamente.
+// Consulta SOMENTE esses eventos (não as 118 páginas). Sem rede, preserva-os
+// para uso offline e impede afirmar que o histórico foi verificado.
+async function reconcileConfirmedOutsideSnapshot(owner=historyOwnerToken(), expectedHead=null){
+  assertHistoryOwner(owner);
+  const groups=new Map();
+  for(const ev of STUDY_JOURNAL_CONFIRMED_OFFLINE.values()){
+    if(!ev?.id || String(ev.user_id)!==owner.uid) continue;
+    const key=cardResponseKeyFromEvent(ev);
+    if(!key || HISTORY_OBSERVED_REMOTE_KEYS.has(key)) continue;
+    if(!groups.has(key)) groups.set(key,[]);
+    groups.get(key).push(ev);
+  }
+  if(!groups.size) return {checked:0,deleted:0,needsFull:false};
+  if(!supabaseClient) throw new Error('Sem conexão para conferir respostas confirmadas fora do snapshot.');
+  const entries=[...groups.entries()];
+  const results=new Array(entries.length);
+  let next=0;
+  const workers=Array.from({length:Math.min(4,entries.length)},async()=>{
+    while(next<entries.length){
+      const index=next++;
+      const [signature,events]=entries[index];
+      const ev=events[0];
+      assertHistoryOwner(owner);
+      let query=supabaseClient.from('respostas')
+        .select('id,user_id,card_id,resultado,created_at')
+        .eq('user_id',owner.uid)
+        .eq('card_id',ev.card_id)
+        .eq('resultado',ev.result||ev.resultado)
+        .eq('created_at',canonicalEventTimestamp(ev.ts||ev.created_at))
+        .limit(2);
+      const response=await promiseWithTimeout(query,CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS,'conferência de resposta confirmada fora do snapshot');
+      assertHistoryOwner(owner);
+      if(response?.error) throw response.error;
+      if(!Array.isArray(response?.data)) throw new Error('Consulta de resposta confirmada retornou dados inválidos.');
+      if(response.data.some(row=>row.user_id && String(row.user_id)!==owner.uid)) throw new Error('Consulta retornou resposta de outra conta.');
+      results[index]={signature,events,present:response.data.some(row=>cardResponseKeyFromRemoteRow(row)===signature)};
+    }
+  });
+  await Promise.all(workers);
+  assertHistoryOwner(owner);
+  // Se o servidor mudou enquanto verificávamos eventos, não usar a evidência
+  // para tombstonar ou certificar um snapshot que já pode estar desatualizado.
+  if(expectedHead){
+    const after=await remoteHistoryHead(owner);
+    assertHistoryOwner(owner);
+    if(after.count!==expectedHead.count || after.max_id!==expectedHead.max_id)
+      return {checked:results.length,deleted:0,needsFull:true};
+  }
+  if(results.some(row=>row.present)){
+    // O remoto tem conteúdo que o snapshot não tem. Não assumir igualdade com
+    // base em contagem+último ID; só uma carga autoritativa resolve a divergência.
+    return {checked:results.length,deleted:0,needsFull:true};
+  }
+  const absent=results.flatMap(row=>row.events);
+  if(absent.length){
+    if(!await studyJournalMarkCards(absent,'deleted',owner))
+      throw new Error('Ausência remota confirmada, mas não foi possível persistir exclusão no diário local.');
+    assertHistoryOwner(owner);
+    const removedIds=new Set(absent.map(ev=>String(ev.id)));
+    removedIds.forEach(id=>{
+      STUDY_JOURNAL_PENDING_IDS.delete(id);
+      STUDY_JOURNAL_RESOLVED_IDS.add(id);
+      STUDY_JOURNAL_CONFIRMED_OFFLINE.delete(id);
+    });
+    ONLINE_HISTORY=ONLINE_HISTORY.filter(ev=>!removedIds.has(String(ev.id)));
+    const local=readLocalCardHistory().filter(ev=>!removedIds.has(String(ev.id)));
+    writeLocalCardHistory(local,{allowShrink:true,authoritative:true,reason:'journal-confirmed-deleted-remotely'});
+    invalidateGoalRuntimeCaches();
+    invalidateProgrammedRuntimeCaches();
+    invalidateSyncSummaryCache();
+    renderDailyGoalWidget();
+    if(activeTab==='goals') renderGoalsPage();
+    renderSyncPanel();
+  }
+  return {checked:results.length,deleted:absent.length,needsFull:false};
+}
+
+async function verifyAndRefreshHistory({ forceRebuild=false } = {}){
+  const owner=historyOwnerToken();
+  assertHistoryOwner(owner);
+  HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+  if(forceRebuild) return await loadResponsesFromSupabase({silent:true});
+  if(!CARD_HISTORY_INITIAL_FULL_LOAD_DONE || !HISTORY_KNOWN_COMPLETE){
+    return await loadResponsesUsingPersistentCache(undefined, owner);
+  }
+  try{
+    const head=await remoteHistoryHead(owner);
+    assertHistoryOwner(owner);
+    const localCount=REMOTE_CARD_RESPONSE_IDS.size;
+    const localMax=CARD_HISTORY_REMOTE_WATERMARK_ID;
+    if(head.count===localCount && head.max_id===localMax){
+      const extra=await reconcileConfirmedOutsideSnapshot(owner,head);
+      assertHistoryOwner(owner);
+      if(extra.needsFull) return await loadResponsesFromSupabase({silent:true});
+      if(!HISTORY_SNAPSHOT_DURABLE){
+        try{
+          if(Array.isArray(HISTORY_SNAPSHOT_PENDING_FULL_ROWS)||HISTORY_SNAPSHOT_PENDING_DELTA)
+            await retryPendingHistorySnapshot(owner);
+        }catch(error){console.warn('Cache ainda não foi recuperado:',error);}
+      }
+      HISTORY_REMOTE_VERIFIED_THIS_SESSION=true;
+      CARD_HISTORY_REMOTE_LAST_ERROR="";
+      CARD_HISTORY_REMOTE_LAST_REFRESH_AT=Date.now();
+      return {cache:true,rows:0,total:ONLINE_HISTORY.length,watermark:localMax};
+    }
+    if(head.count>localCount && head.max_id>localMax){
+      const inc=await loadResponsesFromSupabase({silent:true,incremental:true});
+      assertHistoryOwner(owner);
+      const after=await remoteHistoryHead(owner);
+      if(after.count===REMOTE_CARD_RESPONSE_IDS.size && after.max_id===CARD_HISTORY_REMOTE_WATERMARK_ID){
+        const extra=await reconcileConfirmedOutsideSnapshot(owner,after);
+        assertHistoryOwner(owner);
+        if(extra.needsFull) return await loadResponsesFromSupabase({silent:true});
+        HISTORY_REMOTE_VERIFIED_THIS_SESSION=true;
+        return inc;
+      }
+    }
+    // Deletion, reset or combined insert/delete: reconcile authoritatively.
+    return await loadResponsesFromSupabase({silent:true});
+  }catch(error){
+    HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+    HISTORY_SNAPSHOT_LAST_STATUS="conferência remota pendente: "+String(error?.message || error);
+    CARD_HISTORY_REMOTE_LAST_ERROR=String(error?.message || error);
+    invalidateSyncSummaryCache();renderSyncPanel();
+    throw error;
+  }
+}
+async function loadResponsesUsingPersistentCache(preloadedSnapshot, owner=historyOwnerToken()){
+  assertHistoryOwner(owner);
+  HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+  const snapshot=preloadedSnapshot===undefined ? await readHistorySnapshot(owner) : preloadedSnapshot;
+  assertHistoryOwner(owner);
+  if(!snapshot || !hydrateHistoryFromRemoteSnapshot(snapshot.rows,owner)){
+    HISTORY_SNAPSHOT_LAST_STATUS="cache ausente ou inválido: carga completa necessária";
+    return await loadResponsesFromSupabase({silent:true});
+  }
+  HISTORY_SNAPSHOT_DURABLE=true;
+  setSyncStatus(`Histórico recuperado do cache (${snapshot.rows.length} eventos). Conferindo alterações remotas...`);
+  try{
+    const head=await remoteHistoryHead(owner);
+    assertHistoryOwner(owner);
+    if(head.count===snapshot.meta.count && head.max_id===snapshot.meta.max_id){
+      const extra=await reconcileConfirmedOutsideSnapshot(owner,head);
+      assertHistoryOwner(owner);
+      if(extra.needsFull) return await loadResponsesFromSupabase({silent:true});
+      HISTORY_SNAPSHOT_LAST_STATUS=extra.checked
+        ? `conferido: ${head.count} eventos remotos, ${extra.checked} confirmação(ões) adicional(is) validada(s)`
+        : `válido por contagem e maior ID: ${head.count} eventos`;
+      HISTORY_REMOTE_VERIFIED_THIS_SESSION=true;
+      CARD_HISTORY_REMOTE_LAST_REFRESH_AT=Date.now();
+      CARD_HISTORY_REMOTE_LAST_ERROR="";
+      invalidateSyncSummaryCache();renderSyncPanel();
+      return {cache:true,incremental:true,rows:0,total:ONLINE_HISTORY.length,watermark:CARD_HISTORY_REMOTE_WATERMARK_ID};
+    }
+    return await verifyAndRefreshHistory();
+  }catch(error){
+    HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+    CARD_HISTORY_REMOTE_LAST_ERROR=String(error?.message || error);
+    HISTORY_SNAPSHOT_LAST_STATUS="cache carregado; conferência remota pendente";
+    invalidateSyncSummaryCache();renderSyncPanel();
+    console.warn("Conferência do cache falhou; sem assumir validação:",error);
+    throw error;
+  }
+}
+// AUDITORIA 138 — Conferência individual obrigatória antes de excluir
+// confirmações existentes ao INICIAR uma carga completa. Consulta sem
+// correspondência autoriza tombstone; correspondência existente indica que a
+// carga integral ficou defasada e deve ser refeita, não que houve exclusão.
+async function checkFullLoadConfirmedAbsences(events,owner){
+  assertHistoryOwner(owner);
+  if(!supabaseClient) throw new Error('Sem conexão para conferir ausência de respostas no servidor.');
+  const groups=new Map();
+  for(const ev of events){
+    const key=cardResponseKeyFromEvent(ev);
+    if(!key || !ev?.card_id || !canonicalEventTimestamp(ev.ts||ev.created_at))
+      throw new Error('Resposta confirmada sem identidade suficiente para verificar exclusão.');
+    if(!groups.has(key))groups.set(key,ev);
+  }
+  const items=[...groups.entries()];
+  let cursor=0;
+  const workers=Array.from({length:Math.min(4,items.length)},async()=>{
+    while(cursor<items.length){
+      const [signature,ev]=items[cursor++];
+      assertHistoryOwner(owner);
+      const query=supabaseClient.from('respostas')
+        .select('id,user_id,card_id,resultado,created_at')
+        .eq('user_id',owner.uid)
+        .eq('card_id',ev.card_id)
+        .eq('resultado',ev.result||ev.resultado)
+        .eq('created_at',canonicalEventTimestamp(ev.ts||ev.created_at))
+        .limit(2);
+      const response=await promiseWithTimeout(query,CARD_HISTORY_REMOTE_COUNT_TIMEOUT_MS,
+        'conferência de exclusão na carga completa');
+      assertHistoryOwner(owner);
+      if(response?.error)throw response.error;
+      if(!Array.isArray(response?.data))throw new Error('Consulta de confirmação retornou dados inválidos.');
+      if(response.data.some(row=>row.user_id && String(row.user_id)!==owner.uid))
+        throw new Error('Consulta de confirmação retornou outra conta.');
+      if(response.data.some(row=>cardResponseKeyFromRemoteRow(row)===signature))
+        throw new Error('Resposta confirmada existe no Supabase mas não na carga integral; nova reconciliação necessária.');
+    }
+  });
+  await Promise.all(workers);
+  assertHistoryOwner(owner);
+  return true;
+}
+// ================= FIM DO SNAPSHOT PERSISTENTE =================
+
+async function loadResponsesFromSupabase(options = {}){
+  const owner=historyOwnerToken();
+  assertHistoryOwner(owner);
   const requestedIncremental = !!options.incremental && CARD_HISTORY_REMOTE_WATERMARK_ID > 0;
+  // AUDITORIA 138: a operação em andamento só pode ser reutilizada quando
+  // efetivamente atende à modalidade solicitada. Uma carga COMPLETA jamais
+  // pode ser satisfeita pelo resultado de uma incremental anterior.
+  const previousLoad=CARD_HISTORY_REMOTE_LOAD_PROMISE;
+  if(previousLoad && CARD_HISTORY_REMOTE_LOAD_UID===owner.uid
+      && CARD_HISTORY_REMOTE_LOAD_GENERATION===owner.generation){
+    if(requestedIncremental || CARD_HISTORY_REMOTE_LOAD_MODE==='full') return previousLoad;
+    // Pedido de carga completa durante incremental: aguardar sua finalização,
+    // inclusive se ela falhar, e disparar uma nova leitura integral.
+    try{await previousLoad;}catch(error){
+      console.warn('Incremental anterior falhou; prosseguindo com a carga completa solicitada:',error);
+    }
+    assertHistoryOwner(owner);
+    return loadResponsesFromSupabase({...options,incremental:false});
+  }
+  // A resposta de uma conta/geração anterior nunca satisfaz a conta atual.
+  CARD_HISTORY_REMOTE_LOAD_UID=owner.uid;
+  CARD_HISTORY_REMOTE_LOAD_GENERATION=owner.generation;
+  HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
   CARD_HISTORY_REMOTE_LOAD_MODE = requestedIncremental ? "incremental" : "full";
   CARD_HISTORY_REMOTE_LAST_ATTEMPT_AT = Date.now();
   CARD_HISTORY_REMOTE_LAST_ERROR = "";
@@ -12307,19 +13308,26 @@ async function loadResponsesFromSupabase(options = {}){
   invalidateSyncSummaryCache();
   renderSyncPanel();
 
-  CARD_HISTORY_REMOTE_LOAD_PROMISE = (async () => {
+  const activeLoad=(async () => {
     if(!options.silent) setSyncStatus(requestedIncremental ? "atualizando histórico..." : "carregando histórico completo...");
     const requestWatermark = requestedIncremental ? CARD_HISTORY_REMOTE_WATERMARK_ID : 0;
+    // Captura feita ANTES da primeira espera pela rede. Confirmações recebidas
+    // durante a carga não são elegíveis para exclusão por ausência nas páginas.
+    const confirmedAtFullStart=requestedIncremental ? null : new Map(
+      [...STUDY_JOURNAL_CONFIRMED_OFFLINE].filter(([,ev])=>String(ev?.user_id)===owner.uid));
     let loadResult;
     try{
-      loadResult = await fetchCardHistoryRowsParallel(requestedIncremental, requestWatermark);
+      loadResult = await fetchCardHistoryRowsParallel(requestedIncremental, requestWatermark, owner);
+      assertHistoryOwner(owner);
     }catch(firstError){
       // Uma exclusão simultânea pode deslocar ranges de uma carga completa.
       // Repetir uma vez do zero é seguro e ainda muito mais rápido que a paginação
       // sequencial antiga. Erros de página já possuem retries próprios.
       if(requestedIncremental) throw firstError;
       console.warn("Primeira tentativa de carga completa do histórico falhou; repetindo uma vez:", firstError);
-      loadResult = await fetchCardHistoryRowsParallel(false, 0);
+      assertHistoryOwner(owner);
+      loadResult = await fetchCardHistoryRowsParallel(false, 0, owner);
+      assertHistoryOwner(owner);
     }
 
     let rows = loadResult.rows || [];
@@ -12333,12 +13341,12 @@ async function loadResponsesFromSupabase(options = {}){
         return Number.isFinite(n) ? Math.max(max, n) : max;
       }, 0);
       for(let tailPass = 0; tailPass < 3; tailPass++){
-        const remoteCountNow = await remoteCardResponseCountForLoad(false, 0);
+        const remoteCountNow = await remoteCardResponseCountForLoad(false, 0, owner);
         if(remoteCountNow < physicalIds.size){
           throw new Error(`O histórico remoto perdeu linhas durante a carga (${physicalIds.size} conhecidas; ${remoteCountNow} no servidor).`);
         }
         if(remoteCountNow === physicalIds.size) break;
-        const tailResult = await fetchCardHistoryRowsParallel(true, maxLoadedId);
+        const tailResult = await fetchCardHistoryRowsParallel(true, maxLoadedId, owner);
         for(const row of tailResult.rows || []){
           const id = String(row?.id ?? "");
           if(!id || physicalIds.has(id)) continue;
@@ -12348,31 +13356,60 @@ async function loadResponsesFromSupabase(options = {}){
           if(Number.isFinite(n)) maxLoadedId = Math.max(maxLoadedId, n);
         }
       }
-      const finalRemoteCount = await remoteCardResponseCountForLoad(false, 0);
+      const finalRemoteCount = await remoteCardResponseCountForLoad(false, 0, owner);
       if(finalRemoteCount !== physicalIds.size){
         throw new Error(`Não foi possível estabilizar o histórico remoto: ${physicalIds.size} linhas carregadas de ${finalRemoteCount}.`);
       }
       rows.sort((a,b) => Number(a?.id || 0) - Number(b?.id || 0));
-      REMOTE_CARD_RESPONSE_IDS = new Set();
-      REMOTE_CARD_RESPONSE_KEYS = new Set();
-      CARD_HISTORY_REMOTE_WATERMARK_ID = 0;
+    }
+    assertHistoryOwner(owner);
+    if(rows.some(row=>row.user_id && String(row.user_id)!==owner.uid)) throw new Error("Resposta remota pertence a outra conta.");
+    // Validar as exclusões ANTES de substituir o histórico e os índices
+    // remotos. Se a consulta ou o diário falharem, a memória permanece intacta.
+    const fullRemoteKeys=!requestedIncremental
+      ? new Set(rows.map(cardResponseKeyFromRemoteRow).filter(Boolean)) : null;
+    if(!requestedIncremental){
+      const absentBeforeLoad=[...confirmedAtFullStart].filter(([id,ev])=>
+        STUDY_JOURNAL_CONFIRMED_OFFLINE.has(id)
+        && String(ev.user_id)===owner.uid
+        && !fullRemoteKeys.has(cardResponseKeyFromEvent(ev)))
+        .map(([,ev])=>ev);
+      if(absentBeforeLoad.length){
+        await checkFullLoadConfirmedAbsences(absentBeforeLoad,owner);
+        assertHistoryOwner(owner);
+        // Uma exclusão sem persistência NÃO é reconciliação completa.
+        if(!await studyJournalMarkCards(absentBeforeLoad,'deleted',owner))
+          throw new Error('Exclusão remota confirmada, porém a gravação da exclusão local falhou; reconciliação pendente.');
+        assertHistoryOwner(owner);
+        for(const ev of absentBeforeLoad){
+          const id=String(ev.id);
+          STUDY_JOURNAL_PENDING_IDS.delete(id);
+          STUDY_JOURNAL_RESOLVED_IDS.add(id);
+        }
+      }
+    }
+    if(!requestedIncremental){
+      REMOTE_CARD_RESPONSE_IDS=new Set();
+      REMOTE_CARD_RESPONSE_KEYS=new Set();
+      CARD_HISTORY_REMOTE_WATERMARK_ID=0;
+      HISTORY_OBSERVED_REMOTE_KEYS=new Set();
     }
     rows.forEach(row => {
+      const key=cardResponseKeyFromRemoteRow(row);
+      if(key){HISTORY_OBSERVED_REMOTE_KEYS.add(key);REMOTE_CARD_RESPONSE_KEYS.add(key);}
       REMOTE_CARD_RESPONSE_IDS.add(String(row.id));
-      const key = cardResponseKeyFromRemoteRow(row);
-      if(key) REMOTE_CARD_RESPONSE_KEYS.add(key);
-      const n = Number(row.id);
-      if(Number.isFinite(n)) CARD_HISTORY_REMOTE_WATERMARK_ID = Math.max(CARD_HISTORY_REMOTE_WATERMARK_ID, n);
+      const n=Number(row.id);
+      if(Number.isFinite(n)) CARD_HISTORY_REMOTE_WATERMARK_ID=Math.max(CARD_HISTORY_REMOTE_WATERMARK_ID,n);
     });
 
     const cardMap = new Map(CARDS.map(c => [cardIdKey(c), c]));
     const remoteHistory = rows
-      .filter(r => !currentUser?.id || !r.user_id || r.user_id === currentUser.id)
+      .filter(r => !r.user_id || String(r.user_id) === owner.uid)
       .map(r => {
         const c = cardMap.get(cardIdKey(r.card_id)) || {};
         return {
           id:String(r.id),
-          user_id: r.user_id || currentUser?.id || null,
+          user_id: r.user_id || owner.uid,
           card_id:r.card_id,
           publicacao:cleanLabel(c.publicacao, "Geral"),
           assunto:cleanLabel(c.assunto, "Geral"),
@@ -12389,14 +13426,61 @@ async function loadResponsesFromSupabase(options = {}){
       // Uma carga COMPLETA é autoritativa para tudo que já possui ID remoto.
       // Preserva apenas eventos locais UUID ainda não confirmados e descarta
       // linhas numéricas que desapareceram do servidor (reset em outro aparelho).
+      const pendingIds=new Set([...readPendingCardSync().map(ev=>String(ev.id)),...STUDY_JOURNAL_PENDING_IDS]);
       const localUnsynced = mergeHistoryEvents(ONLINE_HISTORY, readLocalCardHistory())
-        .filter(ev => ev?.id && !isRemoteCardHistoryId(ev.id));
-      ONLINE_HISTORY = mergeHistoryEvents(remoteHistory, localUnsynced);
+        .filter(ev=>ev?.id&&!isRemoteCardHistoryId(ev.id)&&pendingIds.has(String(ev.id))&&!STUDY_JOURNAL_RESOLVED_IDS.has(String(ev.id))&&String(ev.user_id)===owner.uid);
+      // Confirmações surgidas DURANTE a leitura continuam visíveis offline.
+      // Serão conferidas individualmente na próxima validação; sua ausência
+      // no lote anterior jamais constitui prova de exclusão remota.
+      const confirmedNotInRows=[...STUDY_JOURNAL_CONFIRMED_OFFLINE.values()].filter(ev=>
+        String(ev.user_id)===owner.uid && !fullRemoteKeys.has(cardResponseKeyFromEvent(ev)));
+      ONLINE_HISTORY=mergeHistoryEvents(remoteHistory,localUnsynced,confirmedNotInRows);
       writeLocalCardHistory(ONLINE_HISTORY, { allowShrink:true, authoritative:true, reason:"remote-full-reconcile" });
       CARD_HISTORY_INITIAL_FULL_LOAD_DONE = true;
       HISTORY_KNOWN_COMPLETE = true;
     }
 
+    // Cache separado do backup local: grava resposta remota completa uma vez;
+    // nas próximas cargas grava só a cauda. Falha de cache não invalida o Supabase.
+    // AUDITORIA 137: uma consulta incremental vazia NAO comprova gravacao.
+    // Partir do estado duravel anterior e tentar recuperar qualquer escrita
+    // pendente, inclusive a primeira gravacao integral. Apenas a transacao
+    // confirmada pode promover a situacao para "cache salvo".
+    let snapshotSaved=HISTORY_SNAPSHOT_DURABLE
+      && !Array.isArray(HISTORY_SNAPSHOT_PENDING_FULL_ROWS)
+      && !HISTORY_SNAPSHOT_PENDING_DELTA;
+    if(requestedIncremental){
+      if(rows.length){
+        snapshotSaved=await enqueueHistorySnapshotWrite(() => persistIncrementalHistoryDelta(rows,requestWatermark,owner));
+      }else if(!snapshotSaved && (Array.isArray(HISTORY_SNAPSHOT_PENDING_FULL_ROWS) || HISTORY_SNAPSHOT_PENDING_DELTA)){
+        try{
+          // A rotina ja serializa a transacao; nao enfileirar uma segunda vez.
+          snapshotSaved=await retryPendingHistorySnapshot(owner);
+        }catch(snapshotError){
+          snapshotSaved=false;
+          console.warn('Incremental vazio: falha ao recuperar gravacao pendente do cache:',snapshotError);
+        }
+      }
+    }else{
+      snapshotSaved=await enqueueHistorySnapshotWrite(() => replaceHistorySnapshot(rows,owner));
+      if(snapshotSaved){HISTORY_SNAPSHOT_PENDING_DELTA=null;HISTORY_SNAPSHOT_PENDING_FULL_ROWS=null;}
+      else HISTORY_SNAPSHOT_PENDING_FULL_ROWS=rows.slice();
+    }
+    assertHistoryOwner(owner);
+    HISTORY_SNAPSHOT_DURABLE=!!snapshotSaved
+      && !Array.isArray(HISTORY_SNAPSHOT_PENDING_FULL_ROWS)
+      && !HISTORY_SNAPSHOT_PENDING_DELTA;
+    if(!snapshotSaved){
+      HISTORY_SNAPSHOT_LAST_STATUS="remoto atualizado, cache NÃO salvo; próxima abertura pode requerer nova carga";
+      console.warn("Supabase carregado, mas o snapshot persistente ainda não foi salvo.");
+    }
+    // A carga incremental isolada não prova ausência de exclusões. Somente
+    // verifyAndRefreshHistory marca a sessão após consultar contagem+maior ID.
+    const confirmationsStillOutsideRemote=!requestedIncremental &&
+      [...STUDY_JOURNAL_CONFIRMED_OFFLINE.values()].some(ev=>
+        String(ev.user_id)===owner.uid && !HISTORY_OBSERVED_REMOTE_KEYS.has(cardResponseKeyFromEvent(ev)));
+    HISTORY_REMOTE_VERIFIED_THIS_SESSION=!requestedIncremental && !confirmationsStillOutsideRemote;
+    if(confirmationsStillOutsideRemote) setSyncStatus('Histórico remoto carregado; novas confirmações aguardam conferência individual.');
     CARD_HISTORY_REMOTE_LAST_REFRESH_AT = Date.now();
     CARD_HISTORY_REMOTE_LAST_ROWS = rows.length;
     CARD_HISTORY_REMOTE_LAST_ERROR = "";
@@ -12421,22 +13505,31 @@ async function loadResponsesFromSupabase(options = {}){
     return { incremental:requestedIncremental, rows:rows.length, total:ONLINE_HISTORY.length, watermark:CARD_HISTORY_REMOTE_WATERMARK_ID };
   })();
 
+  CARD_HISTORY_REMOTE_LOAD_PROMISE=activeLoad;
   try{
-    return await CARD_HISTORY_REMOTE_LOAD_PROMISE;
+    return await activeLoad;
   }catch(error){
-    CARD_HISTORY_REMOTE_LAST_ERROR = String(error?.message || error || "erro desconhecido");
-    invalidateSyncSummaryCache();
-    renderSyncPanel();
-    try{ technicalDiagLog("histórico remoto: carga falhou", { mode:CARD_HISTORY_REMOTE_LOAD_MODE, error:CARD_HISTORY_REMOTE_LAST_ERROR }, "err"); }catch(_){ }
+    if(CARD_HISTORY_REMOTE_LOAD_PROMISE===activeLoad){
+      HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+      CARD_HISTORY_REMOTE_LAST_ERROR=String(error?.message || error || "erro desconhecido");
+      invalidateSyncSummaryCache();
+      renderSyncPanel();
+      try{technicalDiagLog("histórico remoto: carga falhou",{mode:CARD_HISTORY_REMOTE_LOAD_MODE,error:CARD_HISTORY_REMOTE_LAST_ERROR},"err");}catch(_){ }
+    }
     throw error;
-  } finally {
-    CARD_HISTORY_REMOTE_LOAD_PROMISE = null;
-    CARD_HISTORY_REMOTE_LOAD_MODE = null;
-    CARD_HISTORY_REMOTE_EXPECTED_ROWS = 0;
-    CARD_HISTORY_REMOTE_LOADED_PAGES = 0;
-    CARD_HISTORY_REMOTE_TOTAL_PAGES = 0;
-    invalidateSyncSummaryCache();
-    renderSyncPanel();
+  }finally{
+    // Uma carga antiga nunca deve limpar o estado de uma nova sessão/conta.
+    if(CARD_HISTORY_REMOTE_LOAD_PROMISE===activeLoad){
+      CARD_HISTORY_REMOTE_LOAD_PROMISE=null;
+      CARD_HISTORY_REMOTE_LOAD_UID="";
+      CARD_HISTORY_REMOTE_LOAD_GENERATION=-1;
+      CARD_HISTORY_REMOTE_LOAD_MODE=null;
+      CARD_HISTORY_REMOTE_EXPECTED_ROWS=0;
+      CARD_HISTORY_REMOTE_LOADED_PAGES=0;
+      CARD_HISTORY_REMOTE_TOTAL_PAGES=0;
+      invalidateSyncSummaryCache();
+      renderSyncPanel();
+    }
   }
 }
 
@@ -12737,6 +13830,20 @@ document.addEventListener("keydown", event => {
 });
 
 async function startAuthenticatedApp(){
+  HISTORY_ACCOUNT_BOUND_UID=String(currentUser?.id || "");
+  HISTORY_ACCOUNT_GENERATION++;
+  HISTORY_REMOTE_VERIFIED_THIS_SESSION=false;
+  HISTORY_SNAPSHOT_DURABLE=false;
+  HISTORY_SNAPSHOT_PENDING_DELTA=null;
+  HISTORY_SNAPSHOT_PENDING_FULL_ROWS=null;
+  STUDY_JOURNAL_PENDING_IDS=new Set();STUDY_JOURNAL_RESOLVED_IDS=new Set();STUDY_JOURNAL_CONFIRMED_OFFLINE=new Map();HISTORY_OBSERVED_REMOTE_KEYS=new Set();
+  CARD_HISTORY_REMOTE_WATERMARK_ID=0;
+  CARD_HISTORY_INITIAL_FULL_LOAD_DONE=false;
+  HISTORY_KNOWN_COMPLETE=false;
+  REMOTE_CARD_RESPONSE_IDS=new Set();
+  REMOTE_CARD_RESPONSE_KEYS=new Set();
+  CARD_HISTORY_REMOTE_LOAD_PROMISE=null;
+  CARD_HISTORY_REMOTE_LOAD_UID="";
   hydrateReviewStateLocalCache();
   document.getElementById("auth-screen").style.display = "none";
   document.getElementById("app").style.display = "flex";
@@ -12748,6 +13855,8 @@ async function startAuthenticatedApp(){
   invalidateGoalRuntimeCaches();
   loadEmbeddedQuestionResponses();
   renderDailyGoalWidgetFromCache();
+  try{ await studyJournalRestore(); }
+  catch(e){ console.warn('Recuperação local do registro de respostas falhou:',e); }
   try{ renderDailyGoalWidget(); }catch(error){ console.warn("Falha no cálculo local inicial das metas:", error); }
   renderSyncPanel();
 
@@ -12763,6 +13872,8 @@ async function startAuthenticatedApp(){
   const remoteCardsTask = loadCardsFromSupabase()
     .then(count => ({ ok:true, count }))
     .catch(error => ({ ok:false, error }));
+  const startupHistoryOwner=historyOwnerToken();
+  const earlyHistorySnapshot=readHistorySnapshot(startupHistoryOwner).catch(()=>null);
 
   let openedFromCache = false;
   try{
@@ -12786,6 +13897,12 @@ async function startAuthenticatedApp(){
 
     (async () => {
       let responsesLoaded = false;
+      // Inicia hidratação/conferência já com os cards em cache, sem aguardar
+      // a consulta de todos os cards ao servidor.
+      const earlyHistoryTask=earlyHistorySnapshot
+        .then(snapshot=>loadResponsesUsingPersistentCache(snapshot,startupHistoryOwner))
+        .then(result=>{responsesLoaded=true;renderDailyGoalWidget();if(activeTab==="goals")renderGoalsPage();return result;})
+        .catch(error=>{console.warn("Histórico remoto ainda não foi conferido:",error);return null;});
       try{
         // Se o app abriu pelo cache, deixa a consulta principal de cards acabar
         // antes de disparar várias consultas pesadas simultâneas.
@@ -12816,25 +13933,16 @@ async function startAuthenticatedApp(){
               if(activeTab === "goals") renderGoalsPage();
             })
             .catch(err => { console.warn("Questões não sincronizaram:", err); }),
-          loadResponsesFromSupabase()
-            .then(() => {
-              responsesLoaded = true;
-              renderDailyGoalWidget();
-              if(activeTab === "goals") renderGoalsPage();
-            })
-            .catch(err => { console.warn("Histórico remoto não carregou:", err); })
+          earlyHistoryTask
         ];
         await Promise.allSettled(backgroundTasks);
 
         try {
           const autoCardSync = await syncPendingCardResponsesToSupabase();
-          let autoMissingSync = { synced:0, skipped:0 };
-          if(responsesLoaded && REMOTE_CARD_RESPONSE_KEYS && REMOTE_CARD_RESPONSE_KEYS.size){
-            autoMissingSync = await syncMissingLocalCardHistoryToSupabase();
-          } else if(!responsesLoaded){
-            console.warn("Pulando recuperação por comparação: histórico remoto não carregou.");
-          }
-          if(autoCardSync.synced || autoMissingSync.synced) await loadResponsesFromSupabase();
+          // Nunca reenvia automaticamente eventos do backup por comparação;
+          // uma exclusão proposital em outro aparelho não é pendência de envio.
+          // O envio automático limita-se à fila de respostas ainda não sincronizadas.
+          if(autoCardSync.synced) await verifyAndRefreshHistory();
         } catch(syncError){
           console.warn("Não foi possível sincronizar pendências de flashcards na inicialização:", syncError);
           setSyncStatus("há pendências locais; use Sincronizar agora quando a conexão estiver estável.");
@@ -12861,7 +13969,7 @@ async function startAuthenticatedApp(){
     setSyncStatus("erro: " + message);
     document.getElementById("app").style.display = "none";
     document.getElementById("auth-screen").style.display = "flex";
-    document.getElementById("auth-msg").textContent = "Não foi possível carregar os cards em até 24 segundos e não existe cache local válido: " + message + ". Tente entrar novamente.";
+    document.getElementById("auth-msg").textContent = "Não foi possível carregar os cards e não existe cache local válido: " + message + ". Tente entrar novamente.";
     showToast("A carga dos cards falhou. A espera foi interrompida para não deixar o app preso.", "error", 7200);
   }
 }
